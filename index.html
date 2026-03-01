@@ -1522,14 +1522,19 @@ Is this a high-quality entry or noise? Respond with ONLY valid JSON, no markdown
 {"vote":"BUY","confidence":60,"reason":"One sentence max."}`
   };
 
+  const agIdx=type==='pattern'?1:type==='trend'?2:3;
+  const errEl=document.getElementById('ae'+agIdx);
   try{
-    // FIX: Use Anthropic API proxy (no CORS, no key needed in browser)
     const res=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
-      headers:{'Content-Type':'application/json','anthropic-dangerous-direct-browser-access':'true'},
+      headers:{
+        'Content-Type':'application/json',
+        'anthropic-version':'2023-06-01',
+        'anthropic-dangerous-direct-browser-access':'true'
+      },
       body:JSON.stringify({
         model:'claude-sonnet-4-20250514',
-        max_tokens:150,
+        max_tokens:200,
         messages:[{role:'user',content:prompts[type]}]
       })
     });
@@ -1537,47 +1542,93 @@ Is this a high-quality entry or noise? Respond with ONLY valid JSON, no markdown
     if(!res.ok){
       const errBody=await res.json().catch(()=>({}));
       const errMsg=errBody?.error?.message||`HTTP ${res.status}`;
-      console.warn(`Agent ${type} error:`,errMsg);
-      document.getElementById('ae'+(type==='pattern'?1:type==='trend'?2:3)).textContent=`API: ${errMsg.slice(0,50)}`;
-      return fallbackAgent(type,data);
+      // 401/403 = no key → use fallback silently, show LOCAL mode
+      if(errEl)errEl.textContent='';
+      console.warn(`Agent ${type} (${res.status}): falling back to rule-based`);
+      return{...fallbackAgent(type,data),aiUsed:false};
     }
 
     const j=await res.json();
-    document.getElementById('ae'+(type==='pattern'?1:type==='trend'?2:3)).textContent='';
+    if(errEl)errEl.textContent='';
     const text=j.content?.[0]?.text||'';
-    // Extract JSON — strip markdown code fences if present
-    const clean=text.replace(/```json|```/g,'').trim();
-    const m=clean.match(/\{[^{}]+\}/);
+    const clean=text.replace(/```json[\s\S]*?```|```/g,'').trim();
+    const m=clean.match(/\{[\s\S]*?\}/);
     if(m){
-      const parsed=JSON.parse(m[0]);
-      return{vote:(parsed.vote||'NEUTRAL').toUpperCase(),confidence:Math.min(99,Math.max(1,+parsed.confidence||50)),reason:parsed.reason||'Analysis complete.'};
+      try{
+        const parsed=JSON.parse(m[0]);
+        return{
+          vote:(parsed.vote||'NEUTRAL').toUpperCase(),
+          confidence:Math.min(99,Math.max(1,Number(parsed.confidence)||50)),
+          reason:String(parsed.reason||'Analysis complete.').slice(0,120),
+          aiUsed:true
+        };
+      }catch(pe){ /* fall through */ }
     }
-    return fallbackAgent(type,data);
+    return{...fallbackAgent(type,data),aiUsed:false};
   }catch(e){
-    const agIdx=type==='pattern'?1:type==='trend'?2:3;
-    document.getElementById('ae'+agIdx).textContent=`Error: ${e.message?.slice(0,40)}`;
-    console.warn(`Agent ${type} failed:`,e);
-    return fallbackAgent(type,data);
+    if(errEl)errEl.textContent='';
+    console.warn(`Agent ${type} failed:`,e.message);
+    return{...fallbackAgent(type,data),aiUsed:false};
   }
 }
 
 // Fallback: rule-based agent if AI unavailable
 function fallbackAgent(type,data){
-  const{ind,B,S,c}=data;
+  const{ind,B,S,c,pats}=data;
+  const topPat=pats?.filter(p=>p.dir!=='neu').sort((a,b)=>b.score-a.score)[0];
+
   if(type==='pattern'){
-    if(B>S&&B>15)return{vote:'BUY',confidence:Math.min(85,50+B*.5),reason:`Pattern score ${B?.toFixed(0)} bullish confluence.`};
-    if(S>B&&S>15)return{vote:'SELL',confidence:Math.min(85,50+S*.5),reason:`Pattern score ${S?.toFixed(0)} bearish confluence.`};
-    return{vote:'NEUTRAL',confidence:50,reason:'Insufficient pattern confluence for signal.'};
+    const bullPats=pats?.filter(p=>p.dir==='bull')||[];
+    const bearPats=pats?.filter(p=>p.dir==='bear')||[];
+    const highConfBull=bullPats.filter(p=>p.score>=10);
+    const highConfBear=bearPats.filter(p=>p.score>=10);
+    if(highConfBull.length>=1&&B>S&&B>15){
+      const conf=Math.min(88,52+B*0.6);
+      return{vote:'BUY',confidence:Math.round(conf),reason:`${highConfBull[0].name} detected. Bull score ${B?.toFixed(0)} vs Bear ${S?.toFixed(0)}.`};
+    }
+    if(highConfBear.length>=1&&S>B&&S>15){
+      const conf=Math.min(88,52+S*0.6);
+      return{vote:'SELL',confidence:Math.round(conf),reason:`${highConfBear[0].name} detected. Bear score ${S?.toFixed(0)} vs Bull ${B?.toFixed(0)}.`};
+    }
+    if(B>S&&B>20)return{vote:'BUY',confidence:Math.min(75,50+B*0.4),reason:`Multiple bullish patterns. RSI ${ind.rsi?.toFixed(1)}, score ${B?.toFixed(0)}.`};
+    if(S>B&&S>20)return{vote:'SELL',confidence:Math.min(75,50+S*0.4),reason:`Multiple bearish patterns. RSI ${ind.rsi?.toFixed(1)}, score ${S?.toFixed(0)}.`};
+    return{vote:'NEUTRAL',confidence:45,reason:`No high-confidence pattern confluence. RSI ${ind.rsi?.toFixed(1)} neutral zone.`};
   }
+
   if(type==='trend'){
-    if(ind.trendUp&&ind.adx?.adx>25)return{vote:'BUY',confidence:72,reason:'EMA bullish alignment with strong ADX trend.'};
-    if(ind.trendDn&&ind.adx?.adx>25)return{vote:'SELL',confidence:72,reason:'EMA bearish alignment with strong ADX trend.'};
-    return{vote:'NEUTRAL',confidence:50,reason:'Mixed trend signals, no clear directional bias.'};
+    const emaStr=ind.trendUp?'bullish stack (8>21>55)':ind.trendDn?'bearish stack (8<21<55)':'mixed EMA alignment';
+    const adxStr=ind.adx?.adx>25?`ADX ${ind.adx.adx.toFixed(0)} trending`:`ADX ${ind.adx?.adx?.toFixed(0)} weak`;
+    const macdStr=ind.macd?.hist>0?'MACD bullish':'MACD bearish';
+    if(ind.trendUp&&ind.adx?.adx>25&&ind.macd?.hist>0)
+      return{vote:'BUY',confidence:78,reason:`Strong uptrend: ${emaStr}, ${adxStr}, ${macdStr}.`};
+    if(ind.trendDn&&ind.adx?.adx>25&&ind.macd?.hist<0)
+      return{vote:'SELL',confidence:78,reason:`Strong downtrend: ${emaStr}, ${adxStr}, ${macdStr}.`};
+    if(ind.trendUp&&ind.adx?.adx>20)
+      return{vote:'BUY',confidence:62,reason:`Uptrend: ${emaStr}. ${adxStr}. Price ${c.c>ind.vwap?'above':'below'} VWAP.`};
+    if(ind.trendDn&&ind.adx?.adx>20)
+      return{vote:'SELL',confidence:62,reason:`Downtrend: ${emaStr}. ${adxStr}. Price ${c.c>ind.vwap?'above':'below'} VWAP.`};
+    if(ind.macd?.hist>0&&c.c>ind.vwap)
+      return{vote:'BUY',confidence:55,reason:`${macdStr} + price above VWAP. ${emaStr}.`};
+    if(ind.macd?.hist<0&&c.c<ind.vwap)
+      return{vote:'SELL',confidence:55,reason:`${macdStr} + price below VWAP. ${emaStr}.`};
+    return{vote:'NEUTRAL',confidence:48,reason:`${emaStr}. ${adxStr}. No clear directional bias.`};
   }
-  // risk
-  if(ind.volR>1.5&&ind.mfi<30)return{vote:'BUY',confidence:68,reason:'High volume with oversold MFI suggests buying pressure.'};
-  if(ind.volR>1.5&&ind.mfi>70)return{vote:'SELL',confidence:68,reason:'High volume with overbought MFI suggests selling pressure.'};
-  return{vote:'NEUTRAL',confidence:50,reason:'Volume insufficient for high-quality entry confirmation.'};
+
+  // risk agent
+  const volStr=ind.volR>=2?'high vol surge':ind.volR>=1.5?'elevated volume':ind.volR<0.8?'low volume':'avg volume';
+  const mfiStr=`MFI ${ind.mfi?.toFixed(0)}`;
+  const stochStr=`Stoch ${ind.stoch?.k?.toFixed(0)}`;
+  if(ind.volR>=1.5&&ind.mfi<25&&ind.stoch?.k<25)
+    return{vote:'BUY',confidence:74,reason:`${volStr} with oversold ${mfiStr}, ${stochStr}. Strong reversal setup.`};
+  if(ind.volR>=1.5&&ind.mfi>75&&ind.stoch?.k>75)
+    return{vote:'SELL',confidence:74,reason:`${volStr} with overbought ${mfiStr}, ${stochStr}. Exhaustion signal.`};
+  if(ind.volR>=1.5&&ind.mfi<35)
+    return{vote:'BUY',confidence:63,reason:`${volStr} + oversold ${mfiStr}. Williams%R ${ind.wr?.toFixed(0)}.`};
+  if(ind.volR>=1.5&&ind.mfi>65)
+    return{vote:'SELL',confidence:63,reason:`${volStr} + overbought ${mfiStr}. CCI ${ind.cci?.toFixed(0)}.`};
+  if(ind.volR<0.8)
+    return{vote:'NEUTRAL',confidence:40,reason:`${volStr} — insufficient confirmation. Wait for volume expansion.`};
+  return{vote:'NEUTRAL',confidence:50,reason:`${volStr}. ${mfiStr}, ${stochStr}. No extreme readings.`};
 }
 
 async function runAgents(){
@@ -1592,6 +1643,15 @@ async function runAgents(){
   });
 
   const[rA,rB,rC]=await Promise.all([callAgent('pattern',data),callAgent('trend',data),callAgent('risk',data)]);
+  const anyAI=rA.aiUsed||rB.aiUsed||rC.aiUsed;
+
+  // Update Neural Agents header to show AI or LOCAL mode
+  const agHeaders=document.querySelectorAll('#LEFT .sh');
+  if(agHeaders[1]){
+    agHeaders[1].innerHTML=anyAI
+      ?'Neural <em>Agents</em> <span style="color:var(--bull);font-size:6px;letter-spacing:1px;vertical-align:middle">● AI</span>'
+      :'Neural <em>Agents</em> <span style="color:var(--txt3);font-size:6px;letter-spacing:1px;vertical-align:middle">● LOCAL</span>';
+  }
 
   [[rA,1],[rB,2],[rC,3]].forEach(([r,n])=>{
     const vote=(r.vote||'NEUTRAL').toUpperCase(),conf=Math.min(99,Math.max(1,r.confidence||50));
@@ -1599,7 +1659,12 @@ async function runAgents(){
     if(vote==='BUY')agEl.classList.add('buy-glow');else if(vote==='SELL')agEl.classList.add('sell-glow');
     const ve=document.getElementById('av'+n);ve.textContent=vote;ve.className='agvote '+(vote==='BUY'?'vbuy':vote==='SELL'?'vsell':'vneu');
     const be=document.getElementById('ab'+n);be.style.width=conf+'%';be.className='agfill '+(vote==='BUY'?'fb':vote==='SELL'?'fs':'fn');
-    const re=document.getElementById('ar'+n);re.textContent=r.reason||'';re.className='agreason ok';
+    const re=document.getElementById('ar'+n);
+    re.className='agreason ok';
+    const modeBadge=r.aiUsed
+      ?` <span style="color:var(--bull);font-size:6px;opacity:.7">AI</span>`
+      :` <span style="color:var(--txt3);font-size:6px;opacity:.7">LOCAL</span>`;
+    re.innerHTML=(r.reason||'')+modeBadge;
   });
 
   const vs=[rA,rB,rC].map(r=>(r.vote||'NEUTRAL').toUpperCase());
@@ -1615,15 +1680,14 @@ async function runAgents(){
   document.getElementById('cconf').textContent='CONF '+ac+'%';
 
   if(con!=='NEUTRAL'&&con!==lastConsensus){
-    toast('🤖 AI CONSENSUS: '+con+' · '+ac+'% confidence',con.toLowerCase());
-    const lay=getLayout();
+    const src=anyAI?'🤖 AI':'📐 LOCAL';
+    toast(`${src} SIGNAL: ${con} · ${ac}% conf`,con.toLowerCase());
     const mainCV=document.getElementById('MAIN_CV');
     spawnParticles(mainCV.width/2,mainCV.height/2,con==='BUY'?'#00ffaa':'#ff2d55',20);
     drawAll();
   }
   lastConsensus=con;
 
-  // SNIPER: check if we should fire after agents update
   if(sniperArmed){
     checkSniperFire(con,ac,last);
   }

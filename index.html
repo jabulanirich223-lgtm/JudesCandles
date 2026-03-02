@@ -1902,6 +1902,7 @@ async function runAgents(){
     drawAll();
   }
   lastConsensus=con;
+  // Always pass to sniper when armed — sniper deduplicates by candle key internally
   if(sniperArmed)checkSniperFire(con,ac,last);
 }
 
@@ -1974,11 +1975,12 @@ function sniperLog(msg,type=''){
 
 function startSniperPolling(){
   stopSniperPolling();
-  // Refresh data every 30 seconds when armed
+  // Every 30s: refresh data + re-score + re-run agents → fresh signal check
   sniperInterval=setInterval(async()=>{
     if(!sniperArmed)return;
     await loadData();
-    sniperLog(`📡 Market scan: ${PAIR} @ ${f(candles[candles.length-1]?.c)}`);
+    // loadData calls schedAgents which calls runAgents which calls checkSniperFire
+    sniperLog(`📡 Scan: ${PAIR} @ ${f(candles[candles.length-1]?.c)}`);
   },30000);
 }
 
@@ -1990,6 +1992,10 @@ async function checkSniperFire(consensus,confidence,sigData){
   if(!sniperArmed||!alpKey)return;
   const minConf=parseFloat(document.getElementById('sMinConf').value)||72;
   const riskPct=parseFloat(document.getElementById('sRiskPct').value)||1;
+
+  // Log every check so user can see what's happening
+  const bv=sigData?.bullVotes||0,sv=sigData?.bearVotes||0;
+  sniperLog(`🔍 Check: ${consensus} | conf=${confidence}% (min ${minConf}%) | votes=${bv}B/${sv}S | quality=${sigData?.quality||'?'}`);
   if(consensus==='NEUTRAL'||confidence<minConf)return;
   if(consensus==='BUY'&&sniperMode==='sell')return;
   if(consensus==='SELL'&&sniperMode==='buy')return;
@@ -1998,13 +2004,13 @@ async function checkSniperFire(consensus,confidence,sigData){
   const sigKey=`${PAIR}_${TF}_${consensus}_${candles.length}`;
   if(sniperLastSignal===sigKey)return;
 
-  // Quality gate: only strong/elite signals
-  if(sigData?.quality==='weak'){sniperLog('⛔ Signal weak — skipped','warn');return;}
+  // Quality gate: skip only truly garbage signals
+  if(sigData?.quality==='weak'&&confidence<75){sniperLog('⛔ Weak signal + low confidence — skipped','warn');return;}
 
-  // Require minimum sub-system votes (5 of 7 for buy, 5 of 7 for sell)
-  const minVotes=5;
-  if(consensus==='BUY'&&(sigData?.bullVotes||0)<minVotes){sniperLog(`⛔ Only ${sigData?.bullVotes}/7 bull votes — skipped`,'warn');return;}
-  if(consensus==='SELL'&&(sigData?.bearVotes||0)<minVotes){sniperLog(`⛔ Only ${sigData?.bearVotes}/7 bear votes — skipped`,'warn');return;}
+  // Require minimum sub-system votes (4 of 7)
+  const minVotes=4;
+  if(consensus==='BUY'&&(sigData?.bullVotes||0)<minVotes){sniperLog(`⛔ Only ${sigData?.bullVotes||0}/7 bull votes — skipped`,'warn');return;}
+  if(consensus==='SELL'&&(sigData?.bearVotes||0)<minVotes){sniperLog(`⛔ Only ${sigData?.bearVotes||0}/7 bear votes — skipped`,'warn');return;}
 
   sniperLog(`🎯 SIGNAL: ${consensus} on ${PAIR} @ ${f(candles[candles.length-1]?.c)} | conf=${confidence}% | votes=${consensus==='BUY'?sigData?.bullVotes:sigData?.bearVotes}/7`,'fired');
 

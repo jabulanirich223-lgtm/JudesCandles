@@ -482,6 +482,7 @@ kbd{background:var(--b0);border:1px solid var(--b1);border-radius:2px;padding:1p
           <div class="eql">PORTFOLIO <span id="ABADGE" class="pbadge">PAPER</span></div>
         </div>
         <button onclick="refreshAlp()" style="background:none;border:1px solid var(--b1);color:var(--txt3);padding:3px 7px;border-radius:2px;cursor:pointer;font-size:9px;transition:all .13s" onmouseover="this.style.borderColor='var(--blue)'" onmouseout="this.style.borderColor='var(--b1)'">↻</button>
+        <button onclick="disconnectAlpaca()" style="background:none;border:1px solid var(--b1);color:var(--txt3);padding:3px 7px;border-radius:2px;cursor:pointer;font-size:9px;transition:all .13s" title="Disconnect & clear saved keys" onmouseover="this.style.borderColor='var(--bear)';this.style.color='var(--bear)'" onmouseout="this.style.borderColor='var(--b1)';this.style.color='var(--txt3)'">⏏ disconnect</button>
       </div>
       <div style="font-size:9px;margin-top:3px" id="APNL">—</div>
       <div style="display:flex;gap:10px;margin-top:3px;font-size:8px;color:var(--txt3)">
@@ -1890,6 +1891,7 @@ async function connectAlpaca(){
     document.getElementById('ABTN').className='hdrbtn alpbtn conn';document.getElementById('ABTN').textContent='✓ ALPACA';
     await showAccount(acc);await loadData();
     toast('Alpaca '+alpMode.toUpperCase()+' connected ✓','ok');btn.disabled=false;
+    autosave();
   },400);
 }
 
@@ -1918,6 +1920,22 @@ async function loadPositions(){
 }
 
 async function refreshAlp(){const a=await alpFetch('/v2/account');if(a&&!a._err)await showAccount(a);}
+
+function disconnectAlpaca(){
+  alpKey=null;alpSec=null;
+  // Clear keys from saved state but keep other prefs
+  try{
+    const raw=localStorage.getItem(STORE_KEY);
+    if(raw){const s=JSON.parse(raw);delete s.alpKey;delete s.alpSec;localStorage.setItem(STORE_KEY,JSON.stringify(s));}
+  }catch(e){}
+  document.getElementById('CPRMT').style.display='block';
+  document.getElementById('APANEL').style.display='none';
+  document.getElementById('BBUY').disabled=true;
+  document.getElementById('BSELL').disabled=true;
+  document.getElementById('ABTN').className='hdrbtn alpbtn';
+  document.getElementById('ABTN').textContent='🦙 ALPACA';
+  toast('Disconnected — keys cleared','info');
+}
 
 document.getElementById('OTYP').addEventListener('change',e=>{
   document.getElementById('LIMROW').style.display=e.target.value==='limit'?'flex':'none';
@@ -1970,9 +1988,9 @@ async function placeOrder(side){
 // ═══════════════════════════════════════════════════════════
 // TOGGLES & UTILS
 // ═══════════════════════════════════════════════════════════
-function toggleBB(){showBB=!showBB;const b=document.getElementById('tBB');b.style.color=showBB?'var(--blue)':'';b.style.borderColor=showBB?'var(--blue)':'var(--b2)';drawAll();}
-function toggleEMA(){showEMA=!showEMA;const b=document.getElementById('tEMA');b.style.color=showEMA?'var(--blue)':'';b.style.borderColor=showEMA?'var(--blue)':'var(--b2)';drawAll();}
-function toggleVWAP(){showVWAP=!showVWAP;const b=document.getElementById('tVWAP');b.style.color=showVWAP?'var(--purp)':'';b.style.borderColor=showVWAP?'var(--purp)':'var(--b2)';drawAll();}
+function toggleBB(){showBB=!showBB;const b=document.getElementById('tBB');b.style.color=showBB?'var(--blue)':'';b.style.borderColor=showBB?'var(--blue)':'var(--b2)';autosave();drawAll();}
+function toggleEMA(){showEMA=!showEMA;const b=document.getElementById('tEMA');b.style.color=showEMA?'var(--blue)':'';b.style.borderColor=showEMA?'var(--blue)':'var(--b2)';autosave();drawAll();}
+function toggleVWAP(){showVWAP=!showVWAP;const b=document.getElementById('tVWAP');b.style.color=showVWAP?'var(--purp)':'';b.style.borderColor=showVWAP?'var(--purp)':'var(--b2)';autosave();drawAll();}
 
 // FIXED: exportChart exports composite of all canvases
 function exportChart(){
@@ -2001,6 +2019,7 @@ function switchPair(p){
   document.getElementById('OSYM').value=p;
   candles=[];signals=[];lastConsensus='neutral';
   if(sniperArmed)sniperLog(`📡 Sniper tracking: ${p}`);
+  autosave();
   loadData();
 }
 
@@ -2008,7 +2027,7 @@ function switchTF(t){
   TF=t;
   const m={'1Min':'1m','5Min':'5m','15Min':'15m','1Hour':'1h','4Hour':'4h','1Day':'1D'};
   document.querySelectorAll('.tb').forEach(b=>b.classList.toggle('on',b.textContent===m[t]));
-  candles=[];signals=[];lastConsensus='neutral';loadData();
+  candles=[];signals=[];lastConsensus='neutral';autosave();loadData();
 }
 
 function openMod(){document.getElementById('MOD').classList.add('open');}
@@ -2016,12 +2035,113 @@ function closeMod(){document.getElementById('MOD').classList.remove('open');docu
 document.getElementById('MOD').addEventListener('click',e=>{if(e.target===document.getElementById('MOD'))closeMod();});
 
 // ═══════════════════════════════════════════════════════════
+// PERSISTENCE — saves settings & keys to localStorage
+// ═══════════════════════════════════════════════════════════
+const STORE_KEY='apex_ultra_state';
+
+function saveState(){
+  try{
+    const state={
+      pair:PAIR,
+      tf:TF,
+      zoom,
+      showBB,showEMA,showVWAP,
+      alpKey:alpKey||'',
+      alpSec:alpSec||'',
+      alpMode:alpMode||'paper',
+      sniperMode,
+      sniperMinConf:document.getElementById('sMinConf')?.value||'72',
+      sniperRisk:document.getElementById('sRiskPct')?.value||'1',
+      sniperTP:document.getElementById('sTP')?.value||'2.5',
+      sniperSL:document.getElementById('sSL')?.value||'1.2',
+      ts:Date.now()
+    };
+    localStorage.setItem(STORE_KEY,JSON.stringify(state));
+  }catch(e){console.warn('saveState failed:',e.message);}
+}
+
+async function restoreState(){
+  try{
+    const raw=localStorage.getItem(STORE_KEY);
+    if(!raw)return false;
+    const s=JSON.parse(raw);
+
+    // Pair & TF
+    if(s.pair){
+      PAIR=s.pair;
+      const label=PAIR.includes('/')?PAIR.split('/')[0]:PAIR;
+      document.querySelectorAll('.pb').forEach(b=>b.classList.toggle('on',b.textContent===label));
+      document.getElementById('OSYM').value=PAIR;
+    }
+    if(s.tf){
+      TF=s.tf;
+      const m={'1Min':'1m','5Min':'5m','15Min':'15m','1Hour':'1h','4Hour':'4h','1Day':'1D'};
+      document.querySelectorAll('.tb').forEach(b=>b.classList.toggle('on',b.textContent===m[TF]));
+    }
+
+    // Indicators
+    if(s.zoom)zoom=+s.zoom;
+    showBB=!!s.showBB;showEMA=s.showEMA!==false;showVWAP=!!s.showVWAP;
+    const tBB=document.getElementById('tBB'),tEMA=document.getElementById('tEMA'),tVWAP=document.getElementById('tVWAP');
+    if(tBB){tBB.style.color=showBB?'var(--blue)':'';tBB.style.borderColor=showBB?'var(--blue)':'var(--b2)';}
+    if(tEMA){tEMA.style.color=showEMA?'var(--blue)':'';tEMA.style.borderColor=showEMA?'var(--blue)':'var(--b2)';}
+    if(tVWAP){tVWAP.style.color=showVWAP?'var(--purp)':'';tVWAP.style.borderColor=showVWAP?'var(--purp)':'var(--b2)';}
+
+    // Sniper config
+    if(s.sniperMode)setSniperMode(s.sniperMode);
+    if(s.sniperMinConf)document.getElementById('sMinConf').value=s.sniperMinConf;
+    if(s.sniperRisk)document.getElementById('sRiskPct').value=s.sniperRisk;
+    if(s.sniperTP)document.getElementById('sTP').value=s.sniperTP;
+    if(s.sniperSL)document.getElementById('sSL').value=s.sniperSL;
+
+    // Alpaca keys — reconnect silently if saved
+    if(s.alpKey&&s.alpSec){
+      alpKey=s.alpKey;alpSec=s.alpSec;alpMode=s.alpMode||'paper';
+      _alpMode=alpMode;
+      // Verify connection silently
+      const acc=await alpFetch('/v2/account');
+      if(acc&&!acc._err&&acc.equity){
+        document.getElementById('CPRMT').style.display='none';
+        document.getElementById('APANEL').style.display='block';
+        document.getElementById('BBUY').disabled=false;
+        document.getElementById('BSELL').disabled=false;
+        document.getElementById('ABTN').className='hdrbtn alpbtn conn';
+        document.getElementById('ABTN').textContent='✓ ALPACA';
+        document.getElementById('ABADGE').className=alpMode==='paper'?'pbadge':'lbadge';
+        document.getElementById('ABADGE').textContent=alpMode.toUpperCase();
+        await showAccount(acc);
+        toast('Alpaca auto-reconnected ✓','ok');
+      }else{
+        // Keys invalid/expired — clear them
+        alpKey=null;alpSec=null;
+        const saved=JSON.parse(raw);
+        delete saved.alpKey;delete saved.alpSec;
+        localStorage.setItem(STORE_KEY,JSON.stringify(saved));
+      }
+    }
+    return true;
+  }catch(e){console.warn('restoreState failed:',e.message);return false;}
+}
+
+function clearSavedState(){
+  localStorage.removeItem(STORE_KEY);
+  toast('Saved state cleared','info');
+}
+
+// Auto-save whenever key state changes
+function autosave(){try{saveState();}catch(e){}}
+
+// ═══════════════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════════════
-window.addEventListener('load',()=>{
+window.addEventListener('load',async()=>{
   layoutAll();
   initEvents();
+  await restoreState();
   loadData();
+
+  // Autosave on pair/TF/indicator changes and periodically
+  setInterval(autosave, 30000); // every 30s
 });
 </script>
 </body>

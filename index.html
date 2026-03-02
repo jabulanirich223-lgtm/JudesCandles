@@ -1661,7 +1661,7 @@ function jumpTo(idx){scrollOff=Math.max(0,candles.length-idx-40);drawAll();}
 // ═══════════════════════════════════════════════════════════
 // AI AGENTS — FIXED: uses Anthropic proxy (no CORS), proper error handling
 // ═══════════════════════════════════════════════════════════
-function schedAgents(){clearTimeout(agTimer);agTimer=setTimeout(runAgents,1200);}
+function schedAgents(){clearTimeout(agTimer);agTimer=setTimeout(runAgents,300);}
 
 async function callAgent(type,data){
   // Check for Anthropic key — stored in localStorage under 'apex_ai_key'
@@ -1845,13 +1845,13 @@ async function runAgents(){
     let last=null;
     for(let i=signals.length-1;i>=0;i--){if(signals[i]){last=signals[i];break;}}
     if(!last||!candles.length){
-      // No data yet — show idle state
       [1,2,3].forEach(n=>{
+        const ag=document.getElementById('ag'+n);if(ag)ag.classList.remove('agpulse','buy-glow','sell-glow');
+        const ve=document.getElementById('av'+n);if(ve){ve.textContent='READY';ve.className='agvote vneu';}
         const re=document.getElementById('ar'+n);
-        if(re){re.className='agreason';re.textContent='Waiting for data...';}
-        const ag=document.getElementById('ag'+n);
-        if(ag)ag.classList.remove('agpulse','buy-glow','sell-glow');
+        if(re){re.className='agreason';re.textContent=candles.length>0?`${candles.length} bars — scoring...`:'Waiting for data...';}
       });
+      if(candles.length>20){scoreAll();setTimeout(runAgents,500);}
       return;
     }
     const c=candles[candles.length-1];

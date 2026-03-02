@@ -1753,10 +1753,13 @@ Respond with ONLY valid JSON: {"vote":"BUY","confidence":60,"reason":"One senten
 
 // Fallback: rule-based agent if AI unavailable
 // Deterministic fallback agents — each has a clear independent mandate
-// and uses the vote sub-systems so they reliably agree when signals are real
 function fallbackAgent(type,data){
-  const{ind,B,S,c,pats,votes,bullVotes,bearVotes}=data;
-  const bv=bullVotes||0,sv=bearVotes||0;
+  try{
+  const ind=data?.ind||{};
+  const pats=data?.pats||[];
+  const B=data?.B||0,S=data?.S||0,c=data?.c||{};
+  const votes=data?.votes||[];
+  const bv=data?.bullVotes||0,sv=data?.bearVotes||0;
 
   // ── PATTERN AGENT: reads candlesticks + momentum extremes ──
   if(type==='pattern'){
@@ -1833,77 +1836,109 @@ function fallbackAgent(type,data){
   if(bv>=4)return{vote:'BUY',confidence:54,reason:`${volTag}. MFI ${mfi?.toFixed(0)}. ${bv}/7 systems agree bullish.`};
   if(sv>=4)return{vote:'SELL',confidence:54,reason:`${volTag}. MFI ${mfi?.toFixed(0)}. ${sv}/7 systems agree bearish.`};
   return{vote:'NEUTRAL',confidence:44,reason:`${volTag}. MFI ${mfi?.toFixed(0)}, Stoch ${stoch?.k?.toFixed(0)}. No extreme readings.`};
+  }catch(e){return{vote:'NEUTRAL',confidence:40,reason:'Analysis error — insufficient data.'};}
 }
 
 async function runAgents(){
-  const last=signals[signals.length-1];if(!last||!candles.length)return;
-  const c=candles[candles.length-1];
-  const data={c,pats:last.pats||[],B:last.B,S:last.S,ind:last.ind,
-               quality:last.quality,votes:last.votes,
-               bullVotes:last.bullVotes,bearVotes:last.bearVotes};
+  try{
+    // Find last valid signal (not undefined)
+    let last=null;
+    for(let i=signals.length-1;i>=0;i--){if(signals[i]){last=signals[i];break;}}
+    if(!last||!candles.length){
+      // No data yet — show idle state
+      [1,2,3].forEach(n=>{
+        const re=document.getElementById('ar'+n);
+        if(re){re.className='agreason';re.textContent='Waiting for data...';}
+        const ag=document.getElementById('ag'+n);
+        if(ag)ag.classList.remove('agpulse','buy-glow','sell-glow');
+      });
+      return;
+    }
+    const c=candles[candles.length-1];
+    const data={
+      c,
+      pats:last.pats||[],
+      B:last.B||0,
+      S:last.S||0,
+      ind:last.ind||{},
+      quality:last.quality||'weak',
+      votes:last.votes||[],
+      bullVotes:last.bullVotes||0,
+      bearVotes:last.bearVotes||0
+    };
 
-  [1,2,3].forEach(n=>{
-    document.getElementById('ag'+n).classList.add('agpulse');
-    document.getElementById('ag'+n).classList.remove('buy-glow','sell-glow');
-    const ve=document.getElementById('av'+n);ve.textContent='···';ve.className='agvote vneu';
-    const re=document.getElementById('ar'+n);re.className='agreason';re.textContent='Analyzing...';
-  });
+    [1,2,3].forEach(n=>{
+      const ag=document.getElementById('ag'+n);
+      if(ag){ag.classList.add('agpulse');ag.classList.remove('buy-glow','sell-glow');}
+      const ve=document.getElementById('av'+n);if(ve){ve.textContent='···';ve.className='agvote vneu';}
+      const re=document.getElementById('ar'+n);if(re){re.className='agreason';re.textContent='Analyzing...';}
+    });
 
-  const[rA,rB,rC]=await Promise.all([
-    callAgent('pattern',data),callAgent('trend',data),callAgent('risk',data)
-  ]);
-  const anyAI=rA.aiUsed||rB.aiUsed||rC.aiUsed;
+    const[rA,rB,rC]=await Promise.all([
+      callAgent('pattern',data).catch(()=>({...fallbackAgent('pattern',data),aiUsed:false})),
+      callAgent('trend',data).catch(()=>({...fallbackAgent('trend',data),aiUsed:false})),
+      callAgent('risk',data).catch(()=>({...fallbackAgent('risk',data),aiUsed:false}))
+    ]);
+    const anyAI=rA.aiUsed||rB.aiUsed||rC.aiUsed;
 
-  const agHeaders=document.querySelectorAll('#LEFT .sh');
-  if(agHeaders[1]){
-    agHeaders[1].innerHTML=anyAI
-      ?'Neural <em>Agents</em> <span style="color:var(--bull);font-size:6px;letter-spacing:1px;vertical-align:middle">● AI</span>'
-      :'Neural <em>Agents</em> <span style="color:var(--txt3);font-size:6px;letter-spacing:1px;vertical-align:middle">● LOCAL</span>';
+    const agHeaders=document.querySelectorAll('#LEFT .sh');
+    if(agHeaders[1]){
+      agHeaders[1].innerHTML=anyAI
+        ?'Neural <em>Agents</em> <span style="color:var(--bull);font-size:6px;letter-spacing:1px;vertical-align:middle">● AI</span>'
+        :'Neural <em>Agents</em> <span style="color:var(--txt3);font-size:6px;letter-spacing:1px;vertical-align:middle">● LOCAL</span>';
+    }
+
+    [[rA,1],[rB,2],[rC,3]].forEach(([r,n])=>{
+      const vote=(r.vote||'NEUTRAL').toUpperCase(),conf=Math.min(99,Math.max(1,r.confidence||50));
+      const agEl=document.getElementById('ag'+n);
+      if(agEl){agEl.classList.remove('agpulse');if(vote==='BUY')agEl.classList.add('buy-glow');else if(vote==='SELL')agEl.classList.add('sell-glow');}
+      const ve=document.getElementById('av'+n);if(ve){ve.textContent=vote;ve.className='agvote '+(vote==='BUY'?'vbuy':vote==='SELL'?'vsell':'vneu');}
+      const be=document.getElementById('ab'+n);if(be){be.style.width=conf+'%';be.className='agfill '+(vote==='BUY'?'fb':vote==='SELL'?'fs':'fn');}
+      const re=document.getElementById('ar'+n);
+      if(re){
+        re.className='agreason ok';
+        const badge=r.aiUsed
+          ?`<span style="color:var(--bull);font-size:6px;opacity:.7"> AI</span>`
+          :`<span style="color:var(--txt3);font-size:6px;opacity:.7"> LOCAL</span>`;
+        re.innerHTML=(r.reason||'No reason')+badge;
+      }
+    });
+
+    const vs=[rA,rB,rC].map(r=>(r.vote||'NEUTRAL').toUpperCase());
+    const bv=vs.filter(v=>v==='BUY').length,sv=vs.filter(v=>v==='SELL').length,nv=vs.filter(v=>v==='NEUTRAL').length;
+    const ac=Math.round([rA,rB,rC].reduce((a,r)=>a+(r.confidence||50),0)/3);
+
+    let con='NEUTRAL';
+    if(bv>=2)con='BUY';
+    else if(sv>=2)con='SELL';
+    else if(bv===1&&(last.bullVotes||0)>=5)con='BUY';
+    else if(sv===1&&(last.bearVotes||0)>=5)con='SELL';
+
+    const box=document.getElementById('conbox');if(box)box.className='conbox '+con.toLowerCase();
+    const se=document.getElementById('csig');if(se){se.textContent=con;se.className='consig '+(con==='BUY'?'csb':con==='SELL'?'csr':'csn');}
+    const cvb=document.getElementById('cvb');if(cvb)cvb.textContent='↑'+bv;
+    const cvs=document.getElementById('cvs');if(cvs)cvs.textContent='↓'+sv;
+    const cvn=document.getElementById('cvn');if(cvn)cvn.textContent='—'+nv;
+    const cconf=document.getElementById('cconf');if(cconf)cconf.textContent='CONF '+ac+'%';
+
+    if(con!=='NEUTRAL'&&con!==lastConsensus){
+      const src=anyAI?'🤖 AI':'📐 LOCAL';
+      toast(`${src} SIGNAL: ${con} · ${ac}% conf`,con.toLowerCase());
+      const mainCV=document.getElementById('MAIN_CV');
+      if(mainCV)spawnParticles(mainCV.width/2,mainCV.height/2,con==='BUY'?'#00ffaa':'#ff2d55',20);
+      drawAll();
+    }
+    lastConsensus=con;
+    if(sniperArmed)checkSniperFire(con,ac,last);
+
+  }catch(err){
+    console.error('runAgents crashed:',err);
+    // Reset agents to idle so they don't stay stuck
+    [1,2,3].forEach(n=>{
+      const ag=document.getElementById('ag'+n);if(ag)ag.classList.remove('agpulse');
+      const re=document.getElementById('ar'+n);if(re){re.className='agreason';re.textContent='Error — will retry';}
+    });
   }
-
-  [[rA,1],[rB,2],[rC,3]].forEach(([r,n])=>{
-    const vote=(r.vote||'NEUTRAL').toUpperCase(),conf=Math.min(99,Math.max(1,r.confidence||50));
-    const agEl=document.getElementById('ag'+n);agEl.classList.remove('agpulse');
-    if(vote==='BUY')agEl.classList.add('buy-glow');else if(vote==='SELL')agEl.classList.add('sell-glow');
-    const ve=document.getElementById('av'+n);ve.textContent=vote;ve.className='agvote '+(vote==='BUY'?'vbuy':vote==='SELL'?'vsell':'vneu');
-    const be=document.getElementById('ab'+n);be.style.width=conf+'%';be.className='agfill '+(vote==='BUY'?'fb':vote==='SELL'?'fs':'fn');
-    const re=document.getElementById('ar'+n);
-    re.className='agreason ok';
-    const badge=r.aiUsed
-      ?`<span style="color:var(--bull);font-size:6px;opacity:.7"> AI</span>`
-      :`<span style="color:var(--txt3);font-size:6px;opacity:.7"> LOCAL</span>`;
-    re.innerHTML=(r.reason||'')+badge;
-  });
-
-  const vs=[rA,rB,rC].map(r=>(r.vote||'NEUTRAL').toUpperCase());
-  const bv=vs.filter(v=>v==='BUY').length,sv=vs.filter(v=>v==='SELL').length,nv=vs.filter(v=>v==='NEUTRAL').length;
-  const ac=Math.round([rA,rB,rC].reduce((a,r)=>a+(r.confidence||50),0)/3);
-
-  // Consensus: 2/3 agents agree OR 1 agent + strong scorer sub-vote support
-  let con='NEUTRAL';
-  if(bv>=2)con='BUY';
-  else if(sv>=2)con='SELL';
-  // Tiebreaker: 1 agent but sub-system heavily agrees
-  else if(bv===1&&(last.bullVotes||0)>=5)con='BUY';
-  else if(sv===1&&(last.bearVotes||0)>=5)con='SELL';
-
-  const box=document.getElementById('conbox');box.className='conbox '+con.toLowerCase();
-  const se=document.getElementById('csig');se.textContent=con;se.className='consig '+(con==='BUY'?'csb':con==='SELL'?'csr':'csn');
-  document.getElementById('cvb').textContent='↑'+bv;
-  document.getElementById('cvs').textContent='↓'+sv;
-  document.getElementById('cvn').textContent='—'+nv;
-  document.getElementById('cconf').textContent='CONF '+ac+'%';
-
-  if(con!=='NEUTRAL'&&con!==lastConsensus){
-    const src=anyAI?'🤖 AI':'📐 LOCAL';
-    toast(`${src} SIGNAL: ${con} · ${ac}% conf`,con.toLowerCase());
-    const mainCV=document.getElementById('MAIN_CV');
-    spawnParticles(mainCV.width/2,mainCV.height/2,con==='BUY'?'#00ffaa':'#ff2d55',20);
-    drawAll();
-  }
-  lastConsensus=con;
-  // Always pass to sniper when armed — sniper deduplicates by candle key internally
-  if(sniperArmed)checkSniperFire(con,ac,last);
 }
 
 // ═══════════════════════════════════════════════════════════

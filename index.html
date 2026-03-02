@@ -2062,17 +2062,17 @@ async function checkSniperFire(consensus,confidence,sigData){
 
 async function placeBracketOrders(sym,qty,side,tp,sl_,isCrypto){
   const closeSide=side==='buy'?'sell':'buy';
-  const tif=isCrypto?'gtc':'day';
-  const dp=sym.includes('USD')&&isCrypto?6:4;
+  // isCrypto passed in from caller — always use gtc for crypto, day for stocks
+  const tif=isCrypto?'gtc':'gtc'; // Alpaca crypto requires gtc for ALL order types
+  const dp=(sym.endsWith('USD')||sym.endsWith('USDT'))&&isCrypto?6:4;
 
   // TP limit order
-  const tpOrder={symbol:sym,qty:qty.toString(),side:closeSide,type:'limit',limit_price:tp.toFixed(dp),time_in_force:'gtc'};
+  const tpOrder={symbol:sym,qty:qty.toString(),side:closeSide,type:'limit',limit_price:tp.toFixed(dp),time_in_force:tif};
   const tpRes=await alpFetch('/v2/orders',{method:'POST',body:JSON.stringify(tpOrder)});
   if(tpRes?.id&&!tpRes._err)sniperLog(`📌 TP @ ${f(tp)}`);
   else sniperLog(`⚠ TP order failed: ${tpRes?.message||'?'}`,'warn');
 
-  // SL stop order
-  const slOrder={symbol:sym,qty:qty.toString(),side:closeSide,type:'stop',stop_price:sl_.toFixed(dp),time_in_force:'gtc'};
+  const slOrder={symbol:sym,qty:qty.toString(),side:closeSide,type:'stop',stop_price:sl_.toFixed(dp),time_in_force:tif};
   const slRes=await alpFetch('/v2/orders',{method:'POST',body:JSON.stringify(slOrder)});
   if(slRes?.id&&!slRes._err)sniperLog(`🛡 SL @ ${f(sl_)}`);
   else sniperLog(`⚠ SL order failed: ${slRes?.message||'?'}`,'warn');
@@ -2167,8 +2167,10 @@ async function placeOrder(side){
   if(!qtyVal||+qtyVal<=0){toast('Enter a valid quantity','err');return;}
   if(type==='limit'&&(!lim||lim<=0)){toast('Enter a limit price','err');return;}
 
-  const isCrypto=sym.includes('/')|| sym.endsWith('USD')&&sym.length>4;
-  // Alpaca order endpoint needs no slash: BTC/USD → BTCUSD
+  // Robust crypto detection: explicit base list prevents false matches
+  const cryptoBases=['BTC','ETH','SOL','DOGE','AVAX','LINK','MATIC','UNI','LTC','BCH','XRP','ADA','DOT','SHIB','PEPE','AAVE','ATOM','ALGO','FIL','ICP'];
+  const isCrypto=sym.includes('/')||cryptoBases.some(b=>sym===b+'USD'||sym===b+'/USD'||sym===b+'USDT');
+  // Alpaca crypto endpoint needs no slash: BTC/USD → BTCUSD
   const orderSym=sym.replace('/','');
 
   const body={

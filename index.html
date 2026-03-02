@@ -718,7 +718,7 @@ function updateHdrPrice(p,prev,bar){
 }
 
 // ═══════════════════════════════════════════════════════════
-// TECHNICAL ANALYSIS — FIXED: proper MACD, better ATR
+// TECHNICAL ANALYSIS — Institutional-grade full suite
 // ═══════════════════════════════════════════════════════════
 const TA={
   ema(a,p,k='c'){if(!a.length)return 0;const kf=2/(p+1);let e=a.slice(0,Math.min(p,a.length)).reduce((s,v)=>s+v[k],0)/Math.min(p,a.length);for(let i=Math.min(p,a.length);i<a.length;i++)e=a[i][k]*kf+e*(1-kf);return e;},
@@ -726,230 +726,391 @@ const TA={
   sma(a,p,k='c'){const s=a.slice(-p);return s.length?s.reduce((x,v)=>x+v[k],0)/s.length:0;},
   rsi(a,p=14){
     if(a.length<p+2)return 50;
-    let avgG=0,avgL=0;
-    // First avg gain/loss
-    for(let i=1;i<=p;i++){const d=a[i].c-a[i-1].c;d>0?avgG+=d:avgL-=d;}
-    avgG/=p;avgL/=p;
-    // Smooth remaining
-    for(let i=p+1;i<a.length;i++){
-      const d=a[i].c-a[i-1].c;
-      avgG=(avgG*(p-1)+(d>0?d:0))/p;
-      avgL=(avgL*(p-1)+(d<0?-d:0))/p;
-    }
-    return avgL===0?100:100-100/(1+avgG/avgL);
+    let ag=0,al=0;
+    for(let i=1;i<=p;i++){const d=a[i].c-a[i-1].c;d>0?ag+=d:al-=d;}
+    ag/=p;al/=p;
+    for(let i=p+1;i<a.length;i++){const d=a[i].c-a[i-1].c;ag=(ag*(p-1)+(d>0?d:0))/p;al=(al*(p-1)+(d<0?-d:0))/p;}
+    return al===0?100:100-100/(1+ag/al);
   },
-  // FIXED: proper MACD with 3-EMA smoothing
+  rsiArr(a,p=14){
+    if(a.length<p+2)return a.map(()=>50);
+    const r=new Array(p+1).fill(50);let ag=0,al=0;
+    for(let i=1;i<=p;i++){const d=a[i].c-a[i-1].c;d>0?ag+=d:al-=d;}
+    ag/=p;al/=p;r.push(al===0?100:100-100/(1+ag/al));
+    for(let i=p+1;i<a.length;i++){const d=a[i].c-a[i-1].c;ag=(ag*(p-1)+(d>0?d:0))/p;al=(al*(p-1)+(d<0?-d:0))/p;r.push(al===0?100:100-100/(1+ag/al));}
+    return r;
+  },
   macdFull(a){
-    if(a.length<26)return{line:0,signal:0,hist:0};
-    const k1=2/13,k2=2/27,ks=2/10;
-    let e12=a[0].c,e26=a[0].c,sig=0;
-    // Warm up over first 26 bars
-    for(let i=0;i<Math.min(26,a.length);i++){e12=a[i].c*k1+e12*(1-k1);e26=a[i].c*k2+e26*(1-k2);}
-    // Compute MACD for full history to get proper signal
-    const macdLines=[];
-    for(let i=26;i<a.length;i++){e12=a[i].c*k1+e12*(1-k1);e26=a[i].c*k2+e26*(1-k2);macdLines.push(e12-e26);}
-    if(!macdLines.length)return{line:0,signal:0,hist:0};
-    // 9-period EMA of MACD line = signal
-    sig=macdLines[0];
-    for(let i=1;i<macdLines.length;i++)sig=macdLines[i]*ks+sig*(1-ks);
-    const line=macdLines[macdLines.length-1];
-    return{line,signal:sig,hist:line-sig};
+    if(a.length<35)return{line:0,signal:0,hist:0,prevHist:0};
+    const k12=2/13,k26=2/27,k9=2/10;let e12=a[0].c,e26=a[0].c;
+    for(let i=0;i<Math.min(26,a.length);i++){e12=a[i].c*k12+e12*(1-k12);e26=a[i].c*k26+e26*(1-k26);}
+    const ml=[];
+    for(let i=26;i<a.length;i++){e12=a[i].c*k12+e12*(1-k12);e26=a[i].c*k26+e26*(1-k26);ml.push(e12-e26);}
+    if(!ml.length)return{line:0,signal:0,hist:0,prevHist:0};
+    let sig=ml[0];for(let i=1;i<ml.length;i++)sig=ml[i]*k9+sig*(1-k9);
+    const line=ml[ml.length-1],hist=line-sig;
+    const prevHist=ml.length>1?(()=>{let ps=ml[0];for(let i=1;i<ml.length-1;i++)ps=ml[i]*k9+ps*(1-k9);return ml[ml.length-2]-ps;})():0;
+    return{line,signal:sig,hist,prevHist};
   },
   macdArr(a){
     if(a.length<30)return a.map(()=>({line:0,signal:0,hist:0}));
-    const k1=2/13,k2=2/27,ks=2/10;
-    let e1=a[0].c,e2=a[0].c;
-    const r=[];let prevSig=a[0].c*0;
-    // Warm up
-    for(let i=0;i<26;i++){e1=a[i].c*k1+e1*(1-k1);e2=a[i].c*k2+e2*(1-k2);r.push({line:0,signal:0,hist:0});}
-    let sigE=null;
-    for(let i=26;i<a.length;i++){
-      e1=a[i].c*k1+e1*(1-k1);e2=a[i].c*k2+e2*(1-k2);
-      const line=e1-e2;
-      if(sigE===null)sigE=line;
-      sigE=line*ks+sigE*(1-ks);
-      r.push({line,signal:sigE,hist:line-sigE});
-    }
+    const k12=2/13,k26=2/27,k9=2/10;let e1=a[0].c,e2=a[0].c;
+    const r=[];let sigE=null;
+    for(let i=0;i<26;i++){e1=a[i].c*k12+e1*(1-k12);e2=a[i].c*k26+e2*(1-k26);r.push({line:0,signal:0,hist:0});}
+    for(let i=26;i<a.length;i++){e1=a[i].c*k12+e1*(1-k12);e2=a[i].c*k26+e2*(1-k26);const line=e1-e2;if(sigE===null)sigE=line;sigE=line*k9+sigE*(1-k9);r.push({line,signal:sigE,hist:line-sigE});}
     return r;
   },
-  bb(a,p=20){if(a.length<p){const c=a[a.length-1]?.c||0;return{upper:c,mid:c,lower:c,width:0,pctB:50};}const s=a.slice(-p),mid=s.reduce((x,v)=>x+v.c,0)/p,std=Math.sqrt(s.reduce((x,v)=>x+Math.pow(v.c-mid,2),0)/p);const upper=mid+2*std,lower=mid-2*std;return{upper,mid,lower,width:4*std/mid*100,pctB:std>0?(a[a.length-1].c-lower)/(upper-lower)*100:50};},
-  stoch(a,p=14){if(a.length<p)return{k:50};const s=a.slice(-p),hh=Math.max(...s.map(x=>x.h)),ll=Math.min(...s.map(x=>x.l));return{k:hh===ll?50:(a[a.length-1].c-ll)/(hh-ll)*100};},
-  // FIXED: proper Wilder ATR
-  atr(a,p=14){
-    if(a.length<2)return.001;
-    const n=Math.min(p*3,a.length-1);
-    const slice=a.slice(-n-1);
-    const trs=slice.slice(1).map((c,i)=>Math.max(c.h-c.l,Math.abs(c.h-slice[i].c),Math.abs(c.l-slice[i].c)));
-    // Wilder smoothing
-    let atr=trs.slice(0,p).reduce((s,v)=>s+v,0)/p;
-    for(let i=p;i<trs.length;i++)atr=(atr*(p-1)+trs[i])/p;
-    return atr||.001;
+  bb(a,p=20){
+    if(a.length<p){const c=a[a.length-1]?.c||0;return{upper:c,mid:c,lower:c,width:0,pctB:50,squeeze:false};}
+    const s=a.slice(-p),mid=s.reduce((x,v)=>x+v.c,0)/p,std=Math.sqrt(s.reduce((x,v)=>x+(v.c-mid)**2,0)/p);
+    const upper=mid+2*std,lower=mid-2*std,width=std>0?4*std/mid*100:0;
+    // Detect squeeze: width < 20-bar avg width
+    const squeeze=width<(a.length>=40?Array.from({length:20},(_,j)=>{const sl=a.slice(-40+j*1,-20+j*1||undefined);if(sl.length<p)return width;const m2=sl.reduce((x,v)=>x+v.c,0)/p;return Math.sqrt(sl.reduce((x,v)=>x+(v.c-m2)**2,0)/p)*4/m2*100;}).reduce((s,v)=>s+v,0)/20:width+1);
+    return{upper,mid,lower,width,pctB:std>0?(a[a.length-1].c-lower)/(upper-lower)*100:50,squeeze};
   },
-  adx(a,p=14){if(a.length<p*2)return{adx:20,dip:25,dim:25};const tr=[],pdm=[],ndm=[];for(let i=1;i<a.length;i++){const c=a[i],pv=a[i-1];tr.push(Math.max(c.h-c.l,Math.abs(c.h-pv.c),Math.abs(c.l-pv.c)));pdm.push(c.h-pv.h>pv.l-c.l&&c.h-pv.h>0?c.h-pv.h:0);ndm.push(pv.l-c.l>c.h-pv.h&&pv.l-c.l>0?pv.l-c.l:0);}const sm=arr=>arr.slice(-p).reduce((x,v)=>x+v,0);const av=sm(tr)||1,dip=sm(pdm)/av*100,dim=sm(ndm)/av*100;return{adx:Math.abs(dip-dim)/(dip+dim||1)*100,dip,dim};},
+  stoch(a,p=14){
+    if(a.length<p)return{k:50,d:50,prevK:50};
+    const kArr=[];
+    for(let i=p-1;i<a.length;i++){const sl=a.slice(i-p+1,i+1),hh=Math.max(...sl.map(x=>x.h)),ll=Math.min(...sl.map(x=>x.l));kArr.push(hh===ll?50:(a[i].c-ll)/(hh-ll)*100);}
+    const k=kArr[kArr.length-1],prevK=kArr[kArr.length-2]||k;
+    const d=kArr.slice(-3).reduce((s,v)=>s+v,0)/Math.min(3,kArr.length);
+    return{k,d,prevK};
+  },
+  atr(a,p=14){
+    if(a.length<2)return .001;
+    const n=Math.min(p*3,a.length-1),sl=a.slice(-n-1);
+    const trs=sl.slice(1).map((c,i)=>Math.max(c.h-c.l,Math.abs(c.h-sl[i].c),Math.abs(c.l-sl[i].c)));
+    let v=trs.slice(0,p).reduce((s,x)=>s+x,0)/p;
+    for(let i=p;i<trs.length;i++)v=(v*(p-1)+trs[i])/p;
+    return v||.001;
+  },
+  // Proper Wilder ADX with full smoothing
+  adx(a,p=14){
+    if(a.length<p*2+2)return{adx:20,dip:25,dim:25};
+    const trs=[],pds=[],nds=[];
+    for(let i=1;i<a.length;i++){const c=a[i],pv=a[i-1];trs.push(Math.max(c.h-c.l,Math.abs(c.h-pv.c),Math.abs(c.l-pv.c)));pds.push(c.h-pv.h>pv.l-c.l&&c.h-pv.h>0?c.h-pv.h:0);nds.push(pv.l-c.l>c.h-pv.h&&pv.l-c.l>0?pv.l-c.l:0);}
+    let aW=trs.slice(0,p).reduce((s,v)=>s+v,0),pW=pds.slice(0,p).reduce((s,v)=>s+v,0),nW=nds.slice(0,p).reduce((s,v)=>s+v,0);
+    const dx=[];
+    for(let i=p;i<trs.length;i++){aW=aW-aW/p+trs[i];pW=pW-pW/p+pds[i];nW=nW-nW/p+nds[i];const di=aW>0?pW/aW*100:0,di2=aW>0?nW/aW*100:0;dx.push((di+di2)>0?Math.abs(di-di2)/(di+di2)*100:0);}
+    let adxV=dx.slice(0,p).reduce((s,v)=>s+v,0)/p;for(let i=p;i<dx.length;i++)adxV=(adxV*(p-1)+dx[i])/p;
+    const dip=aW>0?pW/aW*100:0,dim=aW>0?nW/aW*100:0;
+    return{adx:adxV,dip,dim};
+  },
   mfi(a,p=14){if(a.length<p+1)return 50;let pf=0,nf=0;for(let i=a.length-p;i<a.length;i++){const tp=(a[i].h+a[i].l+a[i].c)/3,ptp=(a[i-1].h+a[i-1].l+a[i-1].c)/3,mf=tp*a[i].v;tp>ptp?pf+=mf:nf+=mf;}return nf===0?100:100-100/(1+pf/nf);},
-  wr(a,p=14){if(a.length<p)return-50;const s=a.slice(-p),hh=Math.max(...s.map(x=>x.h)),ll=Math.min(...s.map(x=>x.l));return hh===ll?-50:(hh-a[a.length-1].c)/(hh-ll)*-100;},
+  wr(a,p=14){if(a.length<p)return -50;const s=a.slice(-p),hh=Math.max(...s.map(x=>x.h)),ll=Math.min(...s.map(x=>x.l));return hh===ll?-50:(hh-a[a.length-1].c)/(hh-ll)*-100;},
   cci(a,p=20){if(a.length<p)return 0;const tp=a.slice(-p).map(x=>(x.h+x.l+x.c)/3),mean=tp.reduce((x,v)=>x+v,0)/p,md=tp.reduce((x,v)=>x+Math.abs(v-mean),0)/p;return md===0?0:(tp[tp.length-1]-mean)/(.015*md);},
   vwap(a){let sp=0,sv=0;for(const c of a){const tp=(c.h+c.l+c.c)/3;sp+=tp*c.v;sv+=c.v;}return sv?sp/sv:0;},
   obv(a){let o=0;for(let i=1;i<a.length;i++)o+=a[i].c>a[i-1].c?a[i].v:a[i].c<a[i-1].c?-a[i].v:0;return o;},
-  fib(a,lb=50){const s=a.slice(-lb),hh=Math.max(...s.map(x=>x.h)),ll=Math.min(...s.map(x=>x.l)),d=hh-ll;return{hh,ll,r236:hh-d*.236,r382:hh-d*.382,r500:hh-d*.5,r618:hh-d*.618,r786:hh-d*.786};}
+  obvArr(a){const r=[0];let o=0;for(let i=1;i<a.length;i++){o+=a[i].c>a[i-1].c?a[i].v:a[i].c<a[i-1].c?-a[i].v:0;r.push(o);}return r;},
+  fib(a,lb=60){const s=a.slice(-lb),hh=Math.max(...s.map(x=>x.h)),ll=Math.min(...s.map(x=>x.l)),d=hh-ll;return{hh,ll,r236:hh-d*.236,r382:hh-d*.382,r500:hh-d*.5,r618:hh-d*.618,r786:hh-d*.786};},
+  // Ichimoku Cloud
+  ichimoku(a){
+    const hi=(arr,n)=>Math.max(...arr.slice(-n).map(x=>x.h)),lo=(arr,n)=>Math.min(...arr.slice(-n).map(x=>x.l));
+    if(a.length<52)return{tenkan:a[a.length-1]?.c||0,kijun:a[a.length-1]?.c||0,aboveCloud:true,belowCloud:false,tkBull:true};
+    const tenkan=(hi(a,9)+lo(a,9))/2,kijun=(hi(a,26)+lo(a,26))/2;
+    const senkouA=(tenkan+kijun)/2,senkouB=(hi(a,52)+lo(a,52))/2,c=a[a.length-1].c;
+    const cloudTop=Math.max(senkouA,senkouB),cloudBot=Math.min(senkouA,senkouB);
+    return{tenkan,kijun,senkouA,senkouB,cloudTop,cloudBot,aboveCloud:c>cloudTop,belowCloud:c<cloudBot,inCloud:c>=cloudBot&&c<=cloudTop,tkBull:tenkan>kijun,c};
+  },
+  // Pivot Points (standard)
+  pivots(a){
+    if(a.length<2)return{pp:0,r1:0,r2:0,r3:0,s1:0,s2:0,s3:0};
+    const pv=a[a.length-2],pp=(pv.h+pv.l+pv.c)/3;
+    return{pp,r1:2*pp-pv.l,r2:pp+(pv.h-pv.l),r3:pv.h+2*(pp-pv.l),s1:2*pp-pv.h,s2:pp-(pv.h-pv.l),s3:pv.l-2*(pv.h-pp)};
+  },
+  // Point of Control (highest volume price level)
+  poc(a,bins=20){
+    if(a.length<5)return a[a.length-1]?.c||0;
+    const lo=Math.min(...a.map(x=>x.l)),hi=Math.max(...a.map(x=>x.h)),bSz=(hi-lo)/bins||.001,v=new Array(bins).fill(0);
+    a.forEach(c=>{const b=Math.min(Math.floor((c.c-lo)/bSz),bins-1);v[b]+=c.v;});
+    return lo+v.indexOf(Math.max(...v))*bSz+bSz/2;
+  },
+  // RSI/OBV divergence detector
+  divergence(priceArr,oscArr,lb=16){
+    if(priceArr.length<lb||oscArr.length<lb)return{bull:false,bear:false};
+    const p=priceArr.slice(-lb),o=oscArr.slice(-lb);
+    // Find recent swing low/high in price
+    const pMin=Math.min(...p),pMax=Math.max(...p);
+    const pMinI=p.lastIndexOf(pMin),pMaxI=p.lastIndexOf(pMax);
+    const oAtPMin=o[pMinI],oAtPMax=o[pMaxI];
+    // Need a prior swing too
+    const pMin2=Math.min(...p.slice(0,pMinI)),pMax2=Math.max(...p.slice(0,pMaxI));
+    const oAtPMin2=p.indexOf(pMin2)>=0?o[p.indexOf(pMin2)]:o[0];
+    const oAtPMax2=p.indexOf(pMax2)>=0?o[p.indexOf(pMax2)]:o[0];
+    // Bullish div: lower price low, higher osc low
+    const bull=pMin<pMin2&&oAtPMin>oAtPMin2&&pMinI>lb/3;
+    // Bearish div: higher price high, lower osc high
+    const bear=pMax>pMax2&&oAtPMax<oAtPMax2&&pMaxI>lb/3;
+    return{bull,bear};
+  }
 };
 
 // ═══════════════════════════════════════════════════════════
 // PATTERNS (50+)
 // ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
+// CANDLESTICK PATTERNS — 60+ with structural context
+// ═══════════════════════════════════════════════════════════
 function getPatterns(cs,i){
-  if(i<4)return[];
-  const P=[],c=cs[i],p1=cs[i-1],p2=cs[i-2],p3=cs[i-3],p4=i>=4?cs[i-4]:null;
-  const body=x=>Math.abs(x.c-x.o),rng=x=>x.h-x.l||.001;
+  if(i<5)return[];
+  const P=[],c=cs[i],p1=cs[i-1],p2=cs[i-2],p3=cs[i-3],p4=i>=4?cs[i-4]:null,p5=i>=5?cs[i-5]:null;
+  const body=x=>Math.abs(x.c-x.o),rng=x=>(x.h-x.l)||.001;
   const uw=x=>x.h-Math.max(x.o,x.c),lw=x=>Math.min(x.o,x.c)-x.l;
   const bull=x=>x.c>x.o,bear=x=>x.c<x.o,doji=x=>body(x)<=rng(x)*.07;
+  const mid=x=>(x.o+x.c)/2;
   const atr=TA.atr(cs.slice(0,i+1));
   const A=(n,d,s)=>P.push({name:n,dir:d,score:s});
-  if(lw(c)>=body(c)*2&&uw(c)<=body(c)*.4)bull(c)?A('Hammer','bull',7):A('Hanging Man','bear',5);
-  if(uw(c)>=body(c)*2&&lw(c)<=body(c)*.4)bull(c)?A('Inverted Hammer','bull',5):A('Shooting Star','bear',8);
-  if(doji(c)){if(uw(c)>=rng(c)*.6&&lw(c)<=rng(c)*.1)A('Gravestone Doji','bear',8);else if(lw(c)>=rng(c)*.6&&uw(c)<=rng(c)*.1)A('Dragonfly Doji','bull',8);else if(uw(c)>atr*.3&&lw(c)>atr*.3)A('Long-Legged Doji','neu',4);else A('Doji','neu',3);}
-  if(body(c)>=rng(c)*.92)bull(c)?A('Bullish Marubozu','bull',8):A('Bearish Marubozu','bear',8);
-  if(body(c)<=rng(c)*.25&&uw(c)>atr*.08&&lw(c)>atr*.08)A('Spinning Top','neu',3);
-  if(bull(c)&&lw(c)<atr*.05&&body(c)>=rng(c)*.7)A('Belt Hold Bull','bull',6);
-  if(bear(c)&&uw(c)<atr*.05&&body(c)>=rng(c)*.7)A('Belt Hold Bear','bear',6);
-  if(bull(c)&&c.c>p1.h&&c.o<p1.l&&bear(p1))A('Bullish Engulfing','bull',10);
-  if(bear(c)&&c.c<p1.l&&c.o>p1.h&&bull(p1))A('Bearish Engulfing','bear',10);
-  if(bull(c)&&c.h<p1.h&&c.l>p1.l&&bear(p1))A('Bullish Harami','bull',6);
-  if(bear(c)&&c.h<p1.h&&c.l>p1.l&&bull(p1))A('Bearish Harami','bear',6);
-  if(doji(c)&&c.h<p1.h&&c.l>p1.l&&bear(p1))A('Bullish Harami Cross','bull',8);
-  if(doji(c)&&c.h<p1.h&&c.l>p1.l&&bull(p1))A('Bearish Harami Cross','bear',8);
-  if(bear(p1)&&bull(c)&&c.o<p1.l&&c.c>(p1.o+p1.c)/2&&c.c<p1.o)A('Piercing Line','bull',7);
-  if(bull(p1)&&bear(c)&&c.o>p1.h&&c.c<(p1.o+p1.c)/2&&c.c>p1.o)A('Dark Cloud Cover','bear',7);
-  if(bear(p1)&&bull(c)&&Math.abs(c.l-p1.l)<atr*.06)A('Tweezer Bottom','bull',7);
-  if(bull(p1)&&bear(c)&&Math.abs(c.h-p1.h)<atr*.06)A('Tweezer Top','bear',7);
-  if(bear(p1)&&body(p1)>=rng(p1)*.88&&bull(c)&&body(c)>=rng(c)*.88&&c.o>p1.h)A('Bullish Kicking','bull',13);
-  if(bull(p1)&&body(p1)>=rng(p1)*.88&&bear(c)&&body(c)>=rng(c)*.88&&c.o<p1.l)A('Bearish Kicking','bear',13);
-  if(bear(p2)&&body(p1)<body(p2)*.35&&bull(c)&&c.c>(p2.c+p2.o)/2)A('Morning Star','bull',12);
-  if(bull(p2)&&body(p1)<body(p2)*.35&&bear(c)&&c.c<(p2.c+p2.o)/2)A('Evening Star','bear',12);
-  if(bear(p2)&&doji(p1)&&bull(c)&&c.c>p2.c)A('Morning Doji Star','bull',14);
-  if(bull(p2)&&doji(p1)&&bear(c)&&c.c<p2.c)A('Evening Doji Star','bear',14);
-  if(bull(c)&&bull(p1)&&bull(p2)&&c.c>p1.c&&p1.c>p2.c&&body(c)>atr*.35)A('Three White Soldiers','bull',13);
-  if(bear(c)&&bear(p1)&&bear(p2)&&c.c<p1.c&&p1.c<p2.c&&body(c)>atr*.35)A('Three Black Crows','bear',13);
-  if(bear(p2)&&bull(p1)&&p1.h<p2.h&&p1.l>p2.l&&bull(c)&&c.c>p2.o)A('Three Inside Up','bull',9);
-  if(bull(p2)&&bear(p1)&&p1.h<p2.h&&p1.l>p2.l&&bear(c)&&c.c<p2.o)A('Three Inside Down','bear',9);
-  if(bear(p2)&&bull(p1)&&bull(c)&&c.c>p2.h)A('Three Outside Up','bull',10);
-  if(bull(p2)&&bear(p1)&&bear(c)&&c.c<p2.l)A('Three Outside Down','bear',10);
-  if(bear(p2)&&doji(p1)&&p1.l>p2.l&&bull(c)&&c.l>p1.l)A('Abandoned Baby Bull','bull',15);
-  if(bull(p2)&&doji(p1)&&p1.h<p2.h&&bear(c)&&c.h<p1.h)A('Abandoned Baby Bear','bear',15);
-  if(p4&&bull(p4)&&bear(p3)&&bear(p2)&&bear(p1)&&bull(c)&&c.c>p4.c)A('Rising Three Methods','bull',11);
-  if(p4&&bear(p4)&&bull(p3)&&bull(p2)&&bull(p1)&&bear(c)&&c.c<p4.c)A('Falling Three Methods','bear',11);
+
+  // ── SINGLE BAR ─────────────────────────────────────────
+  // Hammer / Hanging Man (require wick 2.5x body AND significant wick size)
+  if(lw(c)>=body(c)*2.5&&uw(c)<=body(c)*.5&&lw(c)>=atr*.4)
+    bull(c)?A('Hammer','bull',9):A('Hanging Man','bear',7);
+  // Shooting Star / Inverted Hammer
+  if(uw(c)>=body(c)*2.5&&lw(c)<=body(c)*.5&&uw(c)>=atr*.4)
+    bull(c)?A('Inverted Hammer','bull',7):A('Shooting Star','bear',10);
+  // Pin Bars (institutional order flow — very long wick, tiny body, opposing close)
+  if(lw(c)>=atr*.9&&body(c)<=atr*.2&&uw(c)<=atr*.15)A('Bullish Pin Bar','bull',14);
+  if(uw(c)>=atr*.9&&body(c)<=atr*.2&&lw(c)<=atr*.15)A('Bearish Pin Bar','bear',14);
+  // Doji variants
+  if(doji(c)){
+    if(uw(c)>=rng(c)*.6&&lw(c)<=rng(c)*.08)A('Gravestone Doji','bear',9);
+    else if(lw(c)>=rng(c)*.6&&uw(c)<=rng(c)*.08)A('Dragonfly Doji','bull',9);
+    else if(uw(c)>atr*.35&&lw(c)>atr*.35)A('Long-Legged Doji','neu',5);
+    else A('Doji','neu',3);
+  }
+  // Marubozu (full-body momentum bar)
+  if(body(c)>=rng(c)*.93&&body(c)>=atr*.5)bull(c)?A('Bullish Marubozu','bull',10):A('Bearish Marubozu','bear',10);
+  // Spinning Top
+  if(body(c)<=rng(c)*.2&&uw(c)>atr*.08&&lw(c)>atr*.08)A('Spinning Top','neu',3);
+  // Belt Hold
+  if(bull(c)&&lw(c)<atr*.04&&body(c)>=rng(c)*.75)A('Belt Hold Bull','bull',8);
+  if(bear(c)&&uw(c)<atr*.04&&body(c)>=rng(c)*.75)A('Belt Hold Bear','bear',8);
+
+  // ── TWO BAR ────────────────────────────────────────────
+  // Engulfing (require full body engulf + size filter)
+  if(bull(c)&&c.c>p1.h&&c.o<p1.l&&bear(p1)&&body(c)>=body(p1))A('Bullish Engulfing','bull',13);
+  if(bear(c)&&c.c<p1.l&&c.o>p1.h&&bull(p1)&&body(c)>=body(p1))A('Bearish Engulfing','bear',13);
+  // Harami
+  if(bull(c)&&c.h<p1.h&&c.l>p1.l&&bear(p1)&&body(p1)>=atr*.3)A('Bullish Harami','bull',7);
+  if(bear(c)&&c.h<p1.h&&c.l>p1.l&&bull(p1)&&body(p1)>=atr*.3)A('Bearish Harami','bear',7);
+  if(doji(c)&&c.h<p1.h&&c.l>p1.l&&bear(p1))A('Bullish Harami Cross','bull',10);
+  if(doji(c)&&c.h<p1.h&&c.l>p1.l&&bull(p1))A('Bearish Harami Cross','bear',10);
+  // Piercing / Dark Cloud
+  if(bear(p1)&&bull(c)&&c.o<p1.l&&c.c>mid(p1)&&c.c<p1.o)A('Piercing Line','bull',9);
+  if(bull(p1)&&bear(c)&&c.o>p1.h&&c.c<mid(p1)&&c.c>p1.o)A('Dark Cloud Cover','bear',9);
+  // Tweezer
+  if(bear(p1)&&bull(c)&&Math.abs(c.l-p1.l)<atr*.06)A('Tweezer Bottom','bull',8);
+  if(bull(p1)&&bear(c)&&Math.abs(c.h-p1.h)<atr*.06)A('Tweezer Top','bear',8);
+  // Kicking (gap + marubozu — very strong)
+  if(bear(p1)&&body(p1)>=rng(p1)*.88&&bull(c)&&body(c)>=rng(c)*.88&&c.o>p1.h)A('Bullish Kicking','bull',15);
+  if(bull(p1)&&body(p1)>=rng(p1)*.88&&bear(c)&&body(c)>=rng(c)*.88&&c.o<p1.l)A('Bearish Kicking','bear',15);
+  // Inside Bar (compression before breakout)
+  if(c.h<p1.h&&c.l>p1.l)A('Inside Bar','neu',4);
+  // Outside Bar (expansion bar)
+  if(c.h>p1.h&&c.l<p1.l&&bull(c)&&body(c)>=atr*.4)A('Bullish Outside Bar','bull',9);
+  if(c.h>p1.h&&c.l<p1.l&&bear(c)&&body(c)>=atr*.4)A('Bearish Outside Bar','bear',9);
+  // On-Neck (continuation failure)
+  if(bear(p1)&&bull(c)&&Math.abs(c.c-p1.l)<atr*.05)A('On-Neck Bear Cont','bear',6);
+
+  // ── THREE BAR ──────────────────────────────────────────
+  if(bear(p2)&&body(p1)<=body(p2)*.4&&bull(c)&&c.c>mid(p2))A('Morning Star','bull',13);
+  if(bull(p2)&&body(p1)<=body(p2)*.4&&bear(c)&&c.c<mid(p2))A('Evening Star','bear',13);
+  if(bear(p2)&&doji(p1)&&bull(c)&&c.c>p2.c)A('Morning Doji Star','bull',15);
+  if(bull(p2)&&doji(p1)&&bear(c)&&c.c<p2.c)A('Evening Doji Star','bear',15);
+  // Three white soldiers / black crows (strong momentum, strict criteria)
+  if(bull(c)&&bull(p1)&&bull(p2)&&c.c>p1.c&&p1.c>p2.c&&body(c)>=atr*.35&&body(p1)>=atr*.35&&lw(c)<body(c)*.4)A('Three White Soldiers','bull',15);
+  if(bear(c)&&bear(p1)&&bear(p2)&&c.c<p1.c&&p1.c<p2.c&&body(c)>=atr*.35&&body(p1)>=atr*.35&&uw(c)<body(c)*.4)A('Three Black Crows','bear',15);
+  // Three inside
+  if(bear(p2)&&bull(p1)&&p1.h<p2.h&&p1.l>p2.l&&bull(c)&&c.c>p2.o)A('Three Inside Up','bull',11);
+  if(bull(p2)&&bear(p1)&&p1.h<p2.h&&p1.l>p2.l&&bear(c)&&c.c<p2.o)A('Three Inside Down','bear',11);
+  // Three outside
+  if(bear(p2)&&bull(p1)&&p1.c>p2.h&&bull(c)&&c.c>p1.c)A('Three Outside Up','bull',12);
+  if(bull(p2)&&bear(p1)&&p1.c<p2.l&&bear(c)&&c.c<p1.c)A('Three Outside Down','bear',12);
+  // Abandoned baby (rare, very strong)
+  if(bear(p2)&&doji(p1)&&p1.l>p2.l&&bull(c)&&c.l>p1.l&&body(c)>=atr*.5)A('Abandoned Baby Bull','bull',17);
+  if(bull(p2)&&doji(p1)&&p1.h<p2.h&&bear(c)&&c.h<p1.h&&body(c)>=atr*.5)A('Abandoned Baby Bear','bear',17);
+  // Tri-star
+  if(doji(c)&&doji(p1)&&doji(p2)&&p1.l<p2.l&&p1.l<c.l)A('Tri-Star Bull','bull',14);
+  if(doji(c)&&doji(p1)&&doji(p2)&&p1.h>p2.h&&p1.h>c.h)A('Tri-Star Bear','bear',14);
+  // Three-line strike (continuation)
+  if(p3&&bull(p3)&&bull(p2)&&bull(p1)&&bear(c)&&c.o>p1.c&&c.c<p3.o)A('Three-Line Strike Bear','bear',10);
+  if(p3&&bear(p3)&&bear(p2)&&bear(p1)&&bull(c)&&c.o<p1.c&&c.c>p3.o)A('Three-Line Strike Bull','bull',10);
+
+  // ── FOUR/FIVE BAR ──────────────────────────────────────
+  if(p4&&bull(p4)&&bear(p3)&&bear(p2)&&bear(p1)&&bull(c)&&c.c>p4.c)A('Rising Three Methods','bull',13);
+  if(p4&&bear(p4)&&bull(p3)&&bull(p2)&&bull(p1)&&bear(c)&&c.c<p4.c)A('Falling Three Methods','bear',13);
+  // Mat hold
+  if(p4&&bull(p4)&&bear(p3)&&bear(p2)&&bull(p1)&&bull(c)&&c.c>p4.c&&p3.l>p4.c)A('Mat Hold Bull','bull',12);
+  // Upside/Downside Gap Three Methods
+  if(p2&&bull(p2)&&bull(p1)&&p1.l>p2.h&&bear(c)&&c.o<p1.h&&c.c>p2.l)A('Upside Gap Three Methods','bull',9);
+  if(p2&&bear(p2)&&bear(p1)&&p1.h<p2.l&&bull(c)&&c.o>p1.l&&c.c<p2.h)A('Downside Gap Three Methods','bear',9);
+
+  // ── STRUCTURAL PATTERNS ────────────────────────────────
+  if(i>=12){
+    const lb=Math.min(30,i);
+    const recent=cs.slice(i-lb,i);
+    const lows=recent.map(x=>x.l),highs=recent.map(x=>x.h);
+    const minL=Math.min(...lows),maxH=Math.max(...highs);
+    const minI=lows.lastIndexOf(minL),maxI=highs.lastIndexOf(maxH);
+    // Double bottom: two lows close together, second close bullish
+    const prevMin=Math.min(...lows.slice(0,minI));
+    const prevMax=Math.max(...highs.slice(0,maxI));
+    if(Math.abs(c.l-minL)<atr*.25&&Math.abs(minL-prevMin)<atr*.4&&bull(c)&&c.c>c.o+atr*.3)A('Double Bottom','bull',14);
+    if(Math.abs(c.h-maxH)<atr*.25&&Math.abs(maxH-prevMax)<atr*.4&&bear(c)&&c.c<c.o-atr*.3)A('Double Top','bear',14);
+    // Failed breakout trap (spring/upthrust)
+    const prevHigh=Math.max(...cs.slice(i-lb,i-1).map(x=>x.h));
+    const prevLow=Math.min(...cs.slice(i-lb,i-1).map(x=>x.l));
+    if(p1.h>prevHigh&&bear(c)&&c.c<prevHigh&&body(c)>=atr*.3)A('Bearish Upthrust','bear',13);
+    if(p1.l<prevLow&&bull(c)&&c.c>prevLow&&body(c)>=atr*.3)A('Bullish Spring','bull',13);
+  }
   return P;
 }
 
 // ═══════════════════════════════════════════════════════════
-// SIGNAL QUALITY SCORING — FIXED: higher thresholds, trend filter,
-// volume gating, confluence requirements, adaptive R:R
+// SIGNAL SCORING — 7 independent sub-systems, weighted consensus
+// Each system scores independently; final direction requires 4+/7 agreement
 // ═══════════════════════════════════════════════════════════
 function scoreBar(i){
-  if(i<10||!candles[i])return;
+  if(i<20||!candles[i])return;
   const sl=candles.slice(0,i+1),c=sl[sl.length-1];
-  const rsi=TA.rsi(sl),macd=TA.macdFull(sl),bb=TA.bb(sl),stoch=TA.stoch(sl),atr=TA.atr(sl);
-  const adx=TA.adx(sl),mfi=TA.mfi(sl),wr=TA.wr(sl),cci=TA.cci(sl),vwap=TA.vwap(sl),obv=TA.obv(sl);
+
+  // Compute all indicators
+  const rsi=TA.rsi(sl),macd=TA.macdFull(sl),bb=TA.bb(sl);
+  const stoch=TA.stoch(sl),atr=TA.atr(sl),adx=TA.adx(sl);
+  const mfi=TA.mfi(sl),wr=TA.wr(sl),cci=TA.cci(sl),vwap=TA.vwap(sl),obv=TA.obv(sl);
   const ema8=TA.ema(sl,8),ema21=TA.ema(sl,21),ema55=TA.ema(sl,55),ema200=TA.ema(sl,200);
   const avgV=TA.sma(sl,20,'v'),volR=c.v/(avgV||1),fibLv=TA.fib(sl);
+  const ich=TA.ichimoku(sl),pvt=TA.pivots(sl),poc=TA.poc(sl);
+  const rsiArr=TA.rsiArr(sl),obvArr=TA.obvArr(sl),macdArr=TA.macdArr(sl);
   const pats=getPatterns(candles,i);
-  const trendUp=c.c>ema8&&ema8>ema21&&ema21>ema55,trendDn=c.c<ema8&&ema8<ema21&&ema21<ema55,above200=c.c>ema200;
+  const trendUp=ema8>ema21&&ema21>ema55,trendDn=ema8<ema21&&ema21<ema55,above200=c.c>ema200;
+  const strongUp=trendUp&&adx.adx>25&&adx.dip>adx.dim;
+  const strongDn=trendDn&&adx.adx>25&&adx.dim>adx.dip;
 
-  let B=0,S=0;
+  // Divergence detection
+  const rsiDiv=TA.divergence(sl,rsiArr);
+  const macdHists=macdArr.map(x=>x.hist);
+  const macdDiv=TA.divergence(sl,macdHists);
+  const obvDiv=TA.divergence(sl,obvArr);
 
-  // PATTERNS — weighted by quality
-  pats.forEach(p=>{
-    const w=p.score>=10?1.2:p.score>=7?1.0:0.6; // penalize weak patterns
-    if(p.dir==='bull')B+=p.score*w;
-    else if(p.dir==='bear')S+=p.score*w;
-    else{B+=p.score*.3;S+=p.score*.3;}
-  });
+  // ── SYSTEM 1: MOMENTUM (RSI, Stoch, CCI, Williams%R) ───
+  // Votes: +1 bull, -1 bear, 0 neutral
+  let sys1=0;
+  if(rsi<25)sys1+=2;else if(rsi<32)sys1+=1;
+  if(rsi>75)sys1-=2;else if(rsi>68)sys1-=1;
+  if(rsiDiv.bull)sys1+=2;
+  if(rsiDiv.bear)sys1-=2;
+  // Stoch: crossover is stronger than just level
+  if(stoch.k<20&&stoch.k>stoch.d)sys1+=2;else if(stoch.k<28)sys1+=1;
+  if(stoch.k>80&&stoch.k<stoch.d)sys1-=2;else if(stoch.k>72)sys1-=1;
+  if(cci<-150)sys1+=2;else if(cci<-100)sys1+=1;
+  if(cci>150)sys1-=2;else if(cci>100)sys1-=1;
+  if(wr<-85)sys1+=1;if(wr>-15)sys1-=1;
+  const vote1=sys1>=3?1:sys1<=-3?-1:0; // requires multiple agreements
 
-  // RSI — FIXED: tighter thresholds for higher quality
-  if(rsi<25)B+=12;else if(rsi<30)B+=7;else if(rsi<35)B+=3;
-  if(rsi>75)S+=12;else if(rsi>70)S+=7;else if(rsi>65)S+=3;
+  // ── SYSTEM 2: TREND (EMA, MACD, ADX, Ichimoku) ─────────
+  let sys2=0;
+  if(strongUp)sys2+=3;else if(trendUp)sys2+=2;
+  if(strongDn)sys2-=3;else if(trendDn)sys2-=2;
+  if(above200)sys2+=1;else sys2-=1;
+  if(macd.hist>0&&macd.hist>macd.prevHist)sys2+=2;else if(macd.hist>0)sys2+=1;
+  if(macd.hist<0&&macd.hist<macd.prevHist)sys2-=2;else if(macd.hist<0)sys2-=1;
+  if(macdDiv.bull)sys2+=2;if(macdDiv.bear)sys2-=2;
+  // Ichimoku: above cloud + TK cross bullish is very strong
+  if(ich.aboveCloud&&ich.tkBull)sys2+=2;else if(ich.aboveCloud)sys2+=1;
+  if(ich.belowCloud&&!ich.tkBull)sys2-=2;else if(ich.belowCloud)sys2-=1;
+  if(c.c>ich.tenkan&&c.c>ich.kijun)sys2+=1;
+  if(c.c<ich.tenkan&&c.c<ich.kijun)sys2-=1;
+  const vote2=sys2>=4?1:sys2<=-4?-1:0;
 
-  // MACD — use histogram momentum
-  if(macd.hist>0&&macd.hist>macd.signal*.1)B+=6;else if(macd.hist>0)B+=3;
-  if(macd.hist<0&&Math.abs(macd.hist)>Math.abs(macd.signal*.1))S+=6;else if(macd.hist<0)S+=3;
+  // ── SYSTEM 3: VOLUME (MFI, OBV div, Volume surge) ──────
+  let sys3=0;
+  if(mfi<20)sys3+=2;else if(mfi<30)sys3+=1;
+  if(mfi>80)sys3-=2;else if(mfi>70)sys3-=1;
+  if(obvDiv.bull)sys3+=2;if(obvDiv.bear)sys3-=2;
+  // High volume confirms; low volume disqualifies
+  if(volR>=2.2){const dir=c.c>c.o?1:-1;sys3+=dir*2;}
+  else if(volR>=1.5){const dir=c.c>c.o?1:-1;sys3+=dir;}
+  else if(volR<0.6){sys3=Math.round(sys3*.3);} // kill weak vol
+  const vote3=sys3>=2?1:sys3<=-2?-1:0;
 
-  // STOCH — FIXED: require extreme levels
-  if(stoch.k<15)B+=8;else if(stoch.k<25)B+=4;
-  if(stoch.k>85)S+=8;else if(stoch.k>75)S+=4;
-
-  // Bollinger — require actual band touch
-  if(c.c<=bb.lower*1.002)B+=7;
-  if(c.c>=bb.upper*.998)S+=7;
-
-  // TREND FILTER — FIXED: use selective multipliers, not blanket
-  if(trendUp){B*=1.3;S*=0.6;} // Favor longs in uptrend, penalize shorts
-  if(trendDn){S*=1.3;B*=0.6;} // Favor shorts in downtrend
-
-  // EMA200 filter
-  if(above200)B+=4;else S+=4;
-
-  // ADX strength — only boost in confirmed trends
-  if(adx.adx>30){
-    if(adx.dip>adx.dim)B+=8;else S+=8;
-  }else if(adx.adx>25){
-    if(adx.dip>adx.dim)B+=4;else S+=4;
-  }
-
-  // MFI — FIXED: require real extremes
-  if(mfi<20)B+=9;else if(mfi<30)B+=4;
-  if(mfi>80)S+=9;else if(mfi>70)S+=4;
-
-  // Williams %R — require proper oversold/overbought
-  if(wr<-85)B+=6;else if(wr<-75)B+=3;
-  if(wr>-15)S+=6;else if(wr>-25)S+=3;
-
-  // CCI — require real extremes
-  if(cci<-150)B+=5;else if(cci<-100)B+=2;
-  if(cci>150)S+=5;else if(cci>100)S+=2;
-
+  // ── SYSTEM 4: STRUCTURE (BB, Pivots, VWAP, POC) ────────
+  let sys4=0;
+  if(bb.pctB<5)sys4+=2;else if(bb.pctB<15)sys4+=1;
+  if(bb.pctB>95)sys4-=2;else if(bb.pctB>85)sys4-=1;
+  // BB squeeze breakout direction
+  if(bb.squeeze&&c.c>c.o)sys4+=1;
+  if(bb.squeeze&&c.c<=c.o)sys4-=1;
   // VWAP
-  if(c.c>vwap)B+=4;else S+=4;
+  if(c.c>vwap)sys4+=1;else sys4-=1;
+  // Price vs POC
+  if(c.c<poc&&c.l<poc)sys4+=1;else if(c.c>poc&&c.h>poc)sys4-=1;
+  // Pivot support/resistance
+  const nearPivot=(level,range)=>Math.abs(c.c-level)<range;
+  if(nearPivot(pvt.s1,atr*.3)||nearPivot(pvt.s2,atr*.3))sys4+=1;
+  if(nearPivot(pvt.r1,atr*.3)||nearPivot(pvt.r2,atr*.3))sys4-=1;
+  const vote4=sys4>=2?1:sys4<=-2?-1:0;
 
-  // VOLUME GATE — FIXED: must have volume confirmation
-  if(volR>=2.0){B*=1.3;S*=1.3;}
-  else if(volR>=1.5){B*=1.15;S*=1.15;}
-  else if(volR<0.7){B*=0.5;S*=0.5;} // Low volume = filter out weak signals
+  // ── SYSTEM 5: CANDLESTICK PATTERNS ──────────────────────
+  let patB=0,patS=0;
+  pats.forEach(p=>{
+    const w=p.score>=13?1.4:p.score>=9?1.1:0.7;
+    if(p.dir==='bull')patB+=p.score*w;
+    else if(p.dir==='bear')patS+=p.score*w;
+    else{patB+=p.score*.2;patS+=p.score*.2;}
+  });
+  const vote5=patB>patS&&patB>=12?1:patS>patB&&patS>=12?-1:0;
 
-  // BREAKOUT confirmation — FIXED: require volume
-  const lb=Math.min(25,sl.length-1);let swH=0,swL=1e9;
+  // ── SYSTEM 6: BREAKOUT (Donchian, Fib, S/R) ─────────────
+  let sys6=0;
+  const lb=Math.min(30,sl.length-1);
+  let swH=0,swL=1e9;
   for(let j=sl.length-1-lb;j<sl.length-1;j++){swH=Math.max(swH,sl[j].h);swL=Math.min(swL,sl[j].l);}
-  if(c.h>swH&&c.c>swH&&volR>1.3)B+=12; // confirmed breakout
-  else if(c.h>swH&&c.c>swH)B+=5; // low-vol breakout
-  if(c.l<swL&&c.c<swL&&volR>1.3)S+=12;
-  else if(c.l<swL&&c.c<swL)S+=5;
-
-  // Fibonacci confluence
+  if(c.c>swH&&c.h>swH&&volR>1.2)sys6+=3;else if(c.c>swH)sys6+=1;
+  if(c.c<swL&&c.l<swL&&volR>1.2)sys6-=3;else if(c.c<swL)sys6-=1;
+  // Fib levels
   const fibs=[fibLv.r236,fibLv.r382,fibLv.r500,fibLv.r618,fibLv.r786];
-  if(fibs.some(fv=>Math.abs(c.l-fv)<atr*.25))B+=5;
-  if(fibs.some(fv=>Math.abs(c.h-fv)<atr*.25))S+=5;
+  if(fibs.some(fv=>Math.abs(c.l-fv)<atr*.2)&&c.c>c.o)sys6+=1;
+  if(fibs.some(fv=>Math.abs(c.h-fv)<atr*.2)&&c.c<c.o)sys6-=1;
+  const vote6=sys6>=2?1:sys6<=-2?-1:0;
 
-  // CONFLUENCE REQUIREMENT — FIXED: raise minimum threshold significantly
-  // Only signal if BOTH primary indicators agree
-  const rsiAgreeBull=rsi<35,rsiAgreeBear=rsi>65;
-  const macdAgreeBull=macd.hist>0,macdAgreeBear=macd.hist<0;
-  const stochAgreeBull=stoch.k<35,stochAgreeBear=stoch.k>65;
+  // ── SYSTEM 7: COMPOSITE PRESSURE (Bull/Bear pressure balance) ──
+  // Calculates buying vs selling pressure over last 5 bars
+  const last5=sl.slice(-5);
+  const buyPressure=last5.reduce((s,b)=>s+(b.c-b.l),0);
+  const sellPressure=last5.reduce((s,b)=>s+(b.h-b.c),0);
+  const totalPressure=buyPressure+sellPressure||1;
+  const pressureRatio=buyPressure/totalPressure;
+  const vote7=pressureRatio>0.62?1:pressureRatio<0.38?-1:0;
 
-  const bullConfluence=[rsiAgreeBull,macdAgreeBull,stochAgreeBull,c.c>vwap,trendUp].filter(Boolean).length;
-  const bearConfluence=[rsiAgreeBear,macdAgreeBear,stochAgreeBear,c.c<vwap,trendDn].filter(Boolean).length;
+  // ── CONSENSUS: count votes ───────────────────────────────
+  const votes=[vote1,vote2,vote3,vote4,vote5,vote6,vote7];
+  const bullVotes=votes.filter(v=>v===1).length;
+  const bearVotes=votes.filter(v=>v===-1).length;
 
-  // FIXED: significantly higher score threshold + minimum confluence
+  // Weight votes: trend (sys2) and momentum (sys1) count double
+  const weightedBull=bullVotes+(vote1===1?1:0)+(vote2===1?1:0);
+  const weightedBear=bearVotes+(vote1===-1?1:0)+(vote2===-1?1:0);
+
+  // Build raw scores for display
+  let B=patB+(bullVotes/7)*100+(weightedBull*8);
+  let S=patS+(bearVotes/7)*100+(weightedBear*8);
+
+  // Volume kills weak signals
+  if(volR<0.6){B*=0.4;S*=0.4;}
+
+  // ── DIRECTION: need 4+ of 7 votes AND weighted majority ──
   let dir='neutral';
-  const MIN_SCORE=20; // Was 12 — much higher quality bar
-  const MIN_CONFLUENCE=2; // Must have at least 2 indicators agreeing
+  if(weightedBull>=5&&B>S)dir='buy';
+  else if(weightedBear>=5&&S>B)dir='sell';
 
-  if(B>S&&B>=MIN_SCORE&&bullConfluence>=MIN_CONFLUENCE)dir='buy';
-  else if(S>B&&S>=MIN_SCORE&&bearConfluence>=MIN_CONFLUENCE)dir='sell';
-
-  // Signal quality tier
   const topScore=Math.max(B,S);
-  const quality=topScore>=45?'elite':topScore>=30?'strong':'weak';
+  const quality=weightedBull>=7||weightedBear>=7?'elite':weightedBull>=5||weightedBear>=5?'strong':'weak';
 
-  signals[i]={dir,B,S,score:topScore,quality,pats,ind:{rsi,macd,bb,stoch,atr,adx,mfi,wr,cci,vwap,obv,ema8,ema21,ema55,ema200,trendUp,trendDn,above200,volR,fibLv}};
+  signals[i]={dir,B,S,score:topScore,quality,pats,votes,bullVotes,bearVotes,
+    ind:{rsi,macd,bb,stoch,atr,adx,mfi,wr,cci,vwap,obv,ema8,ema21,ema55,ema200,
+         trendUp,trendDn,strongUp,strongDn,above200,volR,fibLv,ich,pvt,poc,
+         rsiDiv,macdDiv,obvDiv}};
 }
 
 // FIXED: adaptive forward-look based on timeframe
@@ -1576,67 +1737,95 @@ Is this a high-quality entry or noise? Respond with ONLY valid JSON, no markdown
 }
 
 // Fallback: rule-based agent if AI unavailable
+// Deterministic fallback agents — each has a clear independent mandate
+// and uses the vote sub-systems so they reliably agree when signals are real
 function fallbackAgent(type,data){
-  const{ind,B,S,c,pats}=data;
-  const topPat=pats?.filter(p=>p.dir!=='neu').sort((a,b)=>b.score-a.score)[0];
+  const{ind,B,S,c,pats,votes,bullVotes,bearVotes}=data;
+  const bv=bullVotes||0,sv=bearVotes||0;
 
+  // ── PATTERN AGENT: reads candlesticks + momentum extremes ──
   if(type==='pattern'){
-    const bullPats=pats?.filter(p=>p.dir==='bull')||[];
-    const bearPats=pats?.filter(p=>p.dir==='bear')||[];
-    const highConfBull=bullPats.filter(p=>p.score>=10);
-    const highConfBear=bearPats.filter(p=>p.score>=10);
-    if(highConfBull.length>=1&&B>S&&B>15){
-      const conf=Math.min(88,52+B*0.6);
-      return{vote:'BUY',confidence:Math.round(conf),reason:`${highConfBull[0].name} detected. Bull score ${B?.toFixed(0)} vs Bear ${S?.toFixed(0)}.`};
+    const highBull=pats?.filter(p=>p.dir==='bull'&&p.score>=9)||[];
+    const highBear=pats?.filter(p=>p.dir==='bear'&&p.score>=9)||[];
+    const patBull=highBull.reduce((s,p)=>s+p.score,0);
+    const patBear=highBear.reduce((s,p)=>s+p.score,0);
+    const rsi=ind.rsi,stoch=ind.stoch?.k,cci=ind.cci;
+    // Strong reversal pattern + oversold = high confidence
+    if(highBull.length&&patBull>=12&&rsi<38){
+      const conf=Math.min(88,58+patBull*.8+(35-rsi)*.3);
+      return{vote:'BUY',confidence:Math.round(conf),reason:`${highBull[0].name} (score ${highBull[0].score}) + RSI ${rsi.toFixed(0)} oversold.`};
     }
-    if(highConfBear.length>=1&&S>B&&S>15){
-      const conf=Math.min(88,52+S*0.6);
-      return{vote:'SELL',confidence:Math.round(conf),reason:`${highConfBear[0].name} detected. Bear score ${S?.toFixed(0)} vs Bull ${B?.toFixed(0)}.`};
+    if(highBear.length&&patBear>=12&&rsi>62){
+      const conf=Math.min(88,58+patBear*.8+(rsi-65)*.3);
+      return{vote:'SELL',confidence:Math.round(conf),reason:`${highBear[0].name} (score ${highBear[0].score}) + RSI ${rsi.toFixed(0)} overbought.`};
     }
-    if(B>S&&B>20)return{vote:'BUY',confidence:Math.min(75,50+B*0.4),reason:`Multiple bullish patterns. RSI ${ind.rsi?.toFixed(1)}, score ${B?.toFixed(0)}.`};
-    if(S>B&&S>20)return{vote:'SELL',confidence:Math.min(75,50+S*0.4),reason:`Multiple bearish patterns. RSI ${ind.rsi?.toFixed(1)}, score ${S?.toFixed(0)}.`};
-    return{vote:'NEUTRAL',confidence:45,reason:`No high-confidence pattern confluence. RSI ${ind.rsi?.toFixed(1)} neutral zone.`};
+    // RSI divergence alone is powerful
+    if(ind.rsiDiv?.bull&&rsi<45)return{vote:'BUY',confidence:72,reason:`Bullish RSI divergence. RSI ${rsi.toFixed(0)}, Stoch ${stoch?.toFixed(0)}.`};
+    if(ind.rsiDiv?.bear&&rsi>55)return{vote:'SELL',confidence:72,reason:`Bearish RSI divergence. RSI ${rsi.toFixed(0)}, CCI ${cci?.toFixed(0)}.`};
+    // Any decent pattern + momentum vote
+    if(highBull.length&&(votes?.[0]||0)===1)return{vote:'BUY',confidence:65,reason:`${highBull[0].name} + momentum oversold (RSI ${rsi.toFixed(0)}).`};
+    if(highBear.length&&(votes?.[0]||0)===-1)return{vote:'SELL',confidence:65,reason:`${highBear[0].name} + momentum overbought (RSI ${rsi.toFixed(0)}).`};
+    if(patBull>patBear&&bv>=3)return{vote:'BUY',confidence:58,reason:`Bullish pattern confluence, ${bv}/7 systems agree.`};
+    if(patBear>patBull&&sv>=3)return{vote:'SELL',confidence:58,reason:`Bearish pattern confluence, ${sv}/7 systems agree.`};
+    return{vote:'NEUTRAL',confidence:42,reason:`No high-score patterns. RSI ${rsi?.toFixed(0)}, ${bv}B/${sv}S system votes.`};
   }
 
+  // ── TREND AGENT: reads EMA structure + MACD + Ichimoku ──
   if(type==='trend'){
-    const emaStr=ind.trendUp?'bullish stack (8>21>55)':ind.trendDn?'bearish stack (8<21<55)':'mixed EMA alignment';
-    const adxStr=ind.adx?.adx>25?`ADX ${ind.adx.adx.toFixed(0)} trending`:`ADX ${ind.adx?.adx?.toFixed(0)} weak`;
-    const macdStr=ind.macd?.hist>0?'MACD bullish':'MACD bearish';
-    if(ind.trendUp&&ind.adx?.adx>25&&ind.macd?.hist>0)
-      return{vote:'BUY',confidence:78,reason:`Strong uptrend: ${emaStr}, ${adxStr}, ${macdStr}.`};
-    if(ind.trendDn&&ind.adx?.adx>25&&ind.macd?.hist<0)
-      return{vote:'SELL',confidence:78,reason:`Strong downtrend: ${emaStr}, ${adxStr}, ${macdStr}.`};
-    if(ind.trendUp&&ind.adx?.adx>20)
-      return{vote:'BUY',confidence:62,reason:`Uptrend: ${emaStr}. ${adxStr}. Price ${c.c>ind.vwap?'above':'below'} VWAP.`};
-    if(ind.trendDn&&ind.adx?.adx>20)
-      return{vote:'SELL',confidence:62,reason:`Downtrend: ${emaStr}. ${adxStr}. Price ${c.c>ind.vwap?'above':'below'} VWAP.`};
-    if(ind.macd?.hist>0&&c.c>ind.vwap)
-      return{vote:'BUY',confidence:55,reason:`${macdStr} + price above VWAP. ${emaStr}.`};
-    if(ind.macd?.hist<0&&c.c<ind.vwap)
-      return{vote:'SELL',confidence:55,reason:`${macdStr} + price below VWAP. ${emaStr}.`};
-    return{vote:'NEUTRAL',confidence:48,reason:`${emaStr}. ${adxStr}. No clear directional bias.`};
+    const{trendUp,trendDn,strongUp,strongDn,macd,adx,ich,vwap,above200}=ind;
+    const emaStr=strongUp?'strong bull stack':strongDn?'strong bear stack':trendUp?'bull stack':trendDn?'bear stack':'mixed';
+    const adxStr=`ADX ${adx?.adx?.toFixed(0)}`;
+    // Strongest: full alignment
+    if(strongUp&&macd?.hist>0&&ich?.aboveCloud&&above200){
+      return{vote:'BUY',confidence:84,reason:`${emaStr}, ${adxStr}, MACD+, above cloud+200. Full trend alignment.`};
+    }
+    if(strongDn&&macd?.hist<0&&ich?.belowCloud&&!above200){
+      return{vote:'SELL',confidence:84,reason:`${emaStr}, ${adxStr}, MACD-, below cloud+200. Full trend alignment.`};
+    }
+    // Strong trend + MACD
+    if(strongUp&&macd?.hist>0)return{vote:'BUY',confidence:76,reason:`${emaStr}, ${adxStr}, MACD histogram positive.`};
+    if(strongDn&&macd?.hist<0)return{vote:'SELL',confidence:76,reason:`${emaStr}, ${adxStr}, MACD histogram negative.`};
+    // MACD divergence overrides trend
+    if(ind.macdDiv?.bull)return{vote:'BUY',confidence:70,reason:`MACD bullish divergence detected. ${emaStr}.`};
+    if(ind.macdDiv?.bear)return{vote:'SELL',confidence:70,reason:`MACD bearish divergence detected. ${emaStr}.`};
+    // Moderate: trend + price above/below VWAP
+    if(trendUp&&c.c>vwap)return{vote:'BUY',confidence:62,reason:`${emaStr}, price above VWAP, ${adxStr}.`};
+    if(trendDn&&c.c<vwap)return{vote:'SELL',confidence:62,reason:`${emaStr}, price below VWAP, ${adxStr}.`};
+    // Ichimoku only
+    if(ich?.aboveCloud&&ich?.tkBull)return{vote:'BUY',confidence:58,reason:`Above Ichimoku cloud, TK cross bullish.`};
+    if(ich?.belowCloud&&!ich?.tkBull)return{vote:'SELL',confidence:58,reason:`Below Ichimoku cloud, TK cross bearish.`};
+    if(bv>=3)return{vote:'BUY',confidence:52,reason:`Weak trend bias. ${bv}/7 systems bullish. ${emaStr}.`};
+    if(sv>=3)return{vote:'SELL',confidence:52,reason:`Weak trend bias. ${sv}/7 systems bearish. ${emaStr}.`};
+    return{vote:'NEUTRAL',confidence:45,reason:`${emaStr}. ${adxStr}. No clear directional trend bias.`};
   }
 
-  // risk agent
-  const volStr=ind.volR>=2?'high vol surge':ind.volR>=1.5?'elevated volume':ind.volR<0.8?'low volume':'avg volume';
-  const mfiStr=`MFI ${ind.mfi?.toFixed(0)}`;
-  const stochStr=`Stoch ${ind.stoch?.k?.toFixed(0)}`;
-  if(ind.volR>=1.5&&ind.mfi<25&&ind.stoch?.k<25)
-    return{vote:'BUY',confidence:74,reason:`${volStr} with oversold ${mfiStr}, ${stochStr}. Strong reversal setup.`};
-  if(ind.volR>=1.5&&ind.mfi>75&&ind.stoch?.k>75)
-    return{vote:'SELL',confidence:74,reason:`${volStr} with overbought ${mfiStr}, ${stochStr}. Exhaustion signal.`};
-  if(ind.volR>=1.5&&ind.mfi<35)
-    return{vote:'BUY',confidence:63,reason:`${volStr} + oversold ${mfiStr}. Williams%R ${ind.wr?.toFixed(0)}.`};
-  if(ind.volR>=1.5&&ind.mfi>65)
-    return{vote:'SELL',confidence:63,reason:`${volStr} + overbought ${mfiStr}. CCI ${ind.cci?.toFixed(0)}.`};
-  if(ind.volR<0.8)
-    return{vote:'NEUTRAL',confidence:40,reason:`${volStr} — insufficient confirmation. Wait for volume expansion.`};
-  return{vote:'NEUTRAL',confidence:50,reason:`${volStr}. ${mfiStr}, ${stochStr}. No extreme readings.`};
+  // ── RISK/VOLUME AGENT: reads volume, MFI, OBV divergence, structure ──
+  const{volR,mfi,stoch,wr,cci,vwap,pvt,poc}=ind;
+  const volTag=volR>=2.2?'high-vol surge':volR>=1.5?'elevated vol':volR<0.7?'low vol':'normal vol';
+  // OBV divergence = smart money positioning
+  if(ind.obvDiv?.bull&&mfi<40)return{vote:'BUY',confidence:78,reason:`Bullish OBV divergence (smart money) + MFI ${mfi?.toFixed(0)} oversold.`};
+  if(ind.obvDiv?.bear&&mfi>60)return{vote:'SELL',confidence:78,reason:`Bearish OBV divergence (smart money) + MFI ${mfi?.toFixed(0)} overbought.`};
+  // Volume surge confirms direction
+  if(volR>=2&&mfi<25&&stoch?.k<25)return{vote:'BUY',confidence:76,reason:`${volTag} + MFI ${mfi?.toFixed(0)} + Stoch ${stoch?.k?.toFixed(0)} deeply oversold.`};
+  if(volR>=2&&mfi>75&&stoch?.k>75)return{vote:'SELL',confidence:76,reason:`${volTag} + MFI ${mfi?.toFixed(0)} + Stoch ${stoch?.k?.toFixed(0)} deeply overbought.`};
+  if(volR>=1.5&&mfi<32)return{vote:'BUY',confidence:66,reason:`${volTag} with oversold MFI ${mfi?.toFixed(0)}. WR ${wr?.toFixed(0)}.`};
+  if(volR>=1.5&&mfi>68)return{vote:'SELL',confidence:66,reason:`${volTag} with overbought MFI ${mfi?.toFixed(0)}. CCI ${cci?.toFixed(0)}.`};
+  // Near key support/resistance
+  const atr=ind.atr||1;
+  if(pvt&&Math.abs(c.c-pvt.s1)<atr*.3&&bv>=3)return{vote:'BUY',confidence:62,reason:`Near pivot support S1 (${f(pvt.s1)}). ${volTag}.`};
+  if(pvt&&Math.abs(c.c-pvt.r1)<atr*.3&&sv>=3)return{vote:'SELL',confidence:62,reason:`Near pivot resistance R1 (${f(pvt.r1)}). ${volTag}.`};
+  if(volR<0.7)return{vote:'NEUTRAL',confidence:38,reason:`${volTag} — no institutional participation. Avoid trading.`};
+  if(bv>=4)return{vote:'BUY',confidence:54,reason:`${volTag}. MFI ${mfi?.toFixed(0)}. ${bv}/7 systems agree bullish.`};
+  if(sv>=4)return{vote:'SELL',confidence:54,reason:`${volTag}. MFI ${mfi?.toFixed(0)}. ${sv}/7 systems agree bearish.`};
+  return{vote:'NEUTRAL',confidence:44,reason:`${volTag}. MFI ${mfi?.toFixed(0)}, Stoch ${stoch?.k?.toFixed(0)}. No extreme readings.`};
 }
 
 async function runAgents(){
   const last=signals[signals.length-1];if(!last||!candles.length)return;
-  const data={c:candles[candles.length-1],pats:last.pats||[],B:last.B,S:last.S,ind:last.ind,quality:last.quality};
+  const c=candles[candles.length-1];
+  const data={c,pats:last.pats||[],B:last.B,S:last.S,ind:last.ind,
+               quality:last.quality,votes:last.votes,
+               bullVotes:last.bullVotes,bearVotes:last.bearVotes};
 
   [1,2,3].forEach(n=>{
     document.getElementById('ag'+n).classList.add('agpulse');
@@ -1645,10 +1834,11 @@ async function runAgents(){
     const re=document.getElementById('ar'+n);re.className='agreason';re.textContent='Analyzing...';
   });
 
-  const[rA,rB,rC]=await Promise.all([callAgent('pattern',data),callAgent('trend',data),callAgent('risk',data)]);
+  const[rA,rB,rC]=await Promise.all([
+    callAgent('pattern',data),callAgent('trend',data),callAgent('risk',data)
+  ]);
   const anyAI=rA.aiUsed||rB.aiUsed||rC.aiUsed;
 
-  // Update Neural Agents header to show AI or LOCAL mode
   const agHeaders=document.querySelectorAll('#LEFT .sh');
   if(agHeaders[1]){
     agHeaders[1].innerHTML=anyAI
@@ -1664,16 +1854,23 @@ async function runAgents(){
     const be=document.getElementById('ab'+n);be.style.width=conf+'%';be.className='agfill '+(vote==='BUY'?'fb':vote==='SELL'?'fs':'fn');
     const re=document.getElementById('ar'+n);
     re.className='agreason ok';
-    const modeBadge=r.aiUsed
-      ?` <span style="color:var(--bull);font-size:6px;opacity:.7">AI</span>`
-      :` <span style="color:var(--txt3);font-size:6px;opacity:.7">LOCAL</span>`;
-    re.innerHTML=(r.reason||'')+modeBadge;
+    const badge=r.aiUsed
+      ?`<span style="color:var(--bull);font-size:6px;opacity:.7"> AI</span>`
+      :`<span style="color:var(--txt3);font-size:6px;opacity:.7"> LOCAL</span>`;
+    re.innerHTML=(r.reason||'')+badge;
   });
 
   const vs=[rA,rB,rC].map(r=>(r.vote||'NEUTRAL').toUpperCase());
   const bv=vs.filter(v=>v==='BUY').length,sv=vs.filter(v=>v==='SELL').length,nv=vs.filter(v=>v==='NEUTRAL').length;
   const ac=Math.round([rA,rB,rC].reduce((a,r)=>a+(r.confidence||50),0)/3);
-  let con='NEUTRAL';if(bv>=2)con='BUY';else if(sv>=2)con='SELL';
+
+  // Consensus: 2/3 agents agree OR 1 agent + strong scorer sub-vote support
+  let con='NEUTRAL';
+  if(bv>=2)con='BUY';
+  else if(sv>=2)con='SELL';
+  // Tiebreaker: 1 agent but sub-system heavily agrees
+  else if(bv===1&&(last.bullVotes||0)>=5)con='BUY';
+  else if(sv===1&&(last.bearVotes||0)>=5)con='SELL';
 
   const box=document.getElementById('conbox');box.className='conbox '+con.toLowerCase();
   const se=document.getElementById('csig');se.textContent=con;se.className='consig '+(con==='BUY'?'csb':con==='SELL'?'csr':'csn');
@@ -1690,10 +1887,7 @@ async function runAgents(){
     drawAll();
   }
   lastConsensus=con;
-
-  if(sniperArmed){
-    checkSniperFire(con,ac,last);
-  }
+  if(sniperArmed)checkSniperFire(con,ac,last);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1781,85 +1975,107 @@ async function checkSniperFire(consensus,confidence,sigData){
   if(!sniperArmed||!alpKey)return;
   const minConf=parseFloat(document.getElementById('sMinConf').value)||72;
   const riskPct=parseFloat(document.getElementById('sRiskPct').value)||1;
-
   if(consensus==='NEUTRAL'||confidence<minConf)return;
   if(consensus==='BUY'&&sniperMode==='sell')return;
   if(consensus==='SELL'&&sniperMode==='buy')return;
 
-  // Check this isn't the same signal we already fired on
+  // Deduplicate: same pair+direction within same candle
   const sigKey=`${PAIR}_${TF}_${consensus}_${candles.length}`;
   if(sniperLastSignal===sigKey)return;
 
-  // Gate: only fire on high-quality signals
-  if(sigData?.quality==='weak'){
-    sniperLog(`⛔ Signal quality too low (weak) — skipped`,'warn');
-    return;
+  // Quality gate: only strong/elite signals
+  if(sigData?.quality==='weak'){sniperLog('⛔ Signal weak — skipped','warn');return;}
+
+  // Require minimum sub-system votes (5 of 7 for buy, 5 of 7 for sell)
+  const minVotes=5;
+  if(consensus==='BUY'&&(sigData?.bullVotes||0)<minVotes){sniperLog(`⛔ Only ${sigData?.bullVotes}/7 bull votes — skipped`,'warn');return;}
+  if(consensus==='SELL'&&(sigData?.bearVotes||0)<minVotes){sniperLog(`⛔ Only ${sigData?.bearVotes}/7 bear votes — skipped`,'warn');return;}
+
+  sniperLog(`🎯 SIGNAL: ${consensus} on ${PAIR} @ ${f(candles[candles.length-1]?.c)} | conf=${confidence}% | votes=${consensus==='BUY'?sigData?.bullVotes:sigData?.bearVotes}/7`,'fired');
+
+  // Fetch account
+  const account=await alpFetch('/v2/account');
+  if(!account||account._err){sniperLog('❌ Account fetch failed','err');return;}
+  const equity=+account.equity||10000;
+  const buyPower=+account.buying_power||equity;
+
+  // Check for existing position in this pair
+  const isCrypto=PAIR.includes('/');
+  const orderSym=PAIR.replace('/','');
+  const positions=await alpFetch('/v2/positions');
+  if(positions&&!positions._err){
+    const existing=positions.find(p=>p.symbol===orderSym);
+    if(existing){
+      sniperLog(`⚠ Already in position: ${existing.qty} ${orderSym} @ ${existing.avg_entry_price}`,'warn');
+      return;
+    }
   }
 
-  sniperLog(`🎯 FIRE signal detected: ${consensus} @ ${f(candles[candles.length-1]?.c)} conf=${confidence}%`,'fired');
-
-  // Calculate position size based on risk %
-  const account=await alpFetch('/v2/account');
-  if(!account){sniperLog('❌ Could not fetch account for sizing','err');return;}
-
-  const equity=+account.equity||10000;
   const price=candles[candles.length-1]?.c||1;
   const atr=TA.atr(candles);
+  const tpMult=parseFloat(document.getElementById('sTP').value)||2.5;
   const slMult=parseFloat(document.getElementById('sSL').value)||1.2;
   const slDist=atr*slMult;
   const riskDollars=equity*(riskPct/100);
-  let qty=riskDollars/slDist;
 
-  // Minimum viable qty
-  const isCrypto=PAIR.includes('/');
-  if(isCrypto)qty=Math.max(0.001,Math.round(qty*1000)/1000);
+  // Position size: risk / SL distance
+  let qty=riskDollars/slDist;
+  // Cap to 10% of equity and available buying power
+  const maxByEq=(equity*0.10)/price;
+  const maxByBP=(buyPower*0.95)/price;
+  qty=Math.min(qty,maxByEq,maxByBP);
+  // Minimum viable
+  if(isCrypto)qty=Math.max(0.0001,Math.round(qty*10000)/10000);
   else qty=Math.max(1,Math.floor(qty));
 
-  // Cap position to 10% of portfolio
-  const maxQty=(equity*0.1)/price;
-  qty=Math.min(qty,maxQty);
-
-  if(isCrypto)qty=Math.round(qty*10000)/10000;
-
-  sniperLog(`📐 Sizing: ${qty} units (risk $${(qty*slDist).toFixed(2)})`)
-
-  // Place order
   const side=consensus==='BUY'?'buy':'sell';
-  const orderBody={symbol:PAIR,qty:qty.toString(),side,type:'market',time_in_force:'day'};
+  const tp=side==='buy'?price+atr*tpMult:price-atr*tpMult;
+  const sl_=side==='buy'?price-slDist:price+slDist;
+  const rr=(atr*tpMult/slDist).toFixed(2);
+
+  sniperLog(`📐 Size: ${qty} ${orderSym} | Risk: $${(qty*slDist).toFixed(2)} | R:R ${rr}:1`);
+
+  // Place market entry
+  const orderBody={
+    symbol:orderSym,
+    qty:qty.toString(),
+    side,
+    type:'market',
+    time_in_force:isCrypto?'gtc':'day'
+  };
   const order=await alpFetch('/v2/orders',{method:'POST',body:JSON.stringify(orderBody)});
 
-  if(order?.id){
+  if(order?.id&&!order._err){
     sniperLastSignal=sigKey;
     sniperTradeCount++;
     document.getElementById('SCOUNT').textContent=sniperTradeCount+' trades';
-
-    const tpMult=parseFloat(document.getElementById('sTP').value)||2.5;
-    const tp=consensus==='BUY'?price+atr*tpMult:price-atr*tpMult;
-    const sl_=consensus==='BUY'?price-slDist:price+slDist;
-
-    sniperLog(`✅ ${side.toUpperCase()} ${qty} ${PAIR} fired! TP=${f(tp)} SL=${f(sl_)}`,'fired');
-    toast(`🎯 SNIPER FIRED: ${side.toUpperCase()} ${qty} ${PAIR}`,'sniper');
-
-    // Place bracket orders (TP + SL) if supported
-    await placeBracketOrders(PAIR,qty,side,tp,sl_,order.id);
-    setTimeout(loadPositions,2000);
+    sniperLog(`✅ ENTRY: ${side.toUpperCase()} ${qty} ${orderSym} | TP=${f(tp)} | SL=${f(sl_)}`,'fired');
+    toast(`🎯 SNIPER: ${side.toUpperCase()} ${qty} ${orderSym}`,'sniper');
+    // Bracket orders after short delay for fill
+    setTimeout(()=>placeBracketOrders(orderSym,qty,side,tp,sl_,isCrypto),800);
+    setTimeout(loadPositions,3000);
   }else{
-    sniperLog(`❌ Order failed: ${order?.message||'unknown error'}`,'err');
-    toast('Sniper order failed: '+( order?.message||'error'),'err');
+    sniperLog(`❌ Entry failed: ${order?.message||'unknown'}`,'err');
+    toast('Sniper entry failed: '+(order?.message||'error'),'err');
   }
 }
 
-async function placeBracketOrders(sym,qty,side,tp,sl_,parentId){
-  // Place limit TP order
-  const tpSide=side==='buy'?'sell':'buy';
-  const tpOrder={symbol:sym,qty:qty.toString(),side:tpSide,type:'limit',limit_price:tp.toFixed(4),time_in_force:'gtc'};
-  const tpRes=await alpFetch('/v2/orders',{method:'POST',body:JSON.stringify(tpOrder)});
-  if(tpRes?.id)sniperLog(`📌 TP limit order placed @ ${f(tp)}`);
+async function placeBracketOrders(sym,qty,side,tp,sl_,isCrypto){
+  const closeSide=side==='buy'?'sell':'buy';
+  const tif=isCrypto?'gtc':'day';
+  const dp=sym.includes('USD')&&isCrypto?6:4;
 
-  // Place stop-loss order
-  const slOrder={symbol:sym,qty:qty.toString(),side:tpSide,type:'stop',stop_price:sl_.toFixed(4),time_in_force:'gtc'};
+  // TP limit order
+  const tpOrder={symbol:sym,qty:qty.toString(),side:closeSide,type:'limit',limit_price:tp.toFixed(dp),time_in_force:'gtc'};
+  const tpRes=await alpFetch('/v2/orders',{method:'POST',body:JSON.stringify(tpOrder)});
+  if(tpRes?.id&&!tpRes._err)sniperLog(`📌 TP @ ${f(tp)}`);
+  else sniperLog(`⚠ TP order failed: ${tpRes?.message||'?'}`,'warn');
+
+  // SL stop order
+  const slOrder={symbol:sym,qty:qty.toString(),side:closeSide,type:'stop',stop_price:sl_.toFixed(dp),time_in_force:'gtc'};
   const slRes=await alpFetch('/v2/orders',{method:'POST',body:JSON.stringify(slOrder)});
-  if(slRes?.id)sniperLog(`🛡 SL stop order placed @ ${f(sl_)}`);
+  if(slRes?.id&&!slRes._err)sniperLog(`🛡 SL @ ${f(sl_)}`);
+  else sniperLog(`⚠ SL order failed: ${slRes?.message||'?'}`,'warn');
 }
 
 // ═══════════════════════════════════════════════════════════

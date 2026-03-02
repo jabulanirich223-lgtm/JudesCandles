@@ -287,6 +287,11 @@ kbd{background:var(--b0);border:1px solid var(--b1);border-radius:2px;padding:1p
       <input class="mi" id="AS" type="password" placeholder="Your secret key">
       <button class="mbtn" id="MBTN" onclick="connectAlpaca()">CONNECT ACCOUNT</button>
       <div id="MST"></div>
+      <div style="margin-top:12px;border-top:1px solid var(--b1);padding-top:10px">
+        <div class="mlbl" style="color:var(--gold)">Claude AI Key <span style="color:var(--txt3);font-weight:400">(optional — faster without)</span></div>
+        <input class="mi" id="AIKEY" type="password" placeholder="sk-ant-... (leave blank for instant LOCAL mode)" oninput="saveAIKey(this.value)" style="margin-bottom:4px">
+        <div style="font-size:8px;color:var(--txt3);line-height:1.5">Without key: agents run instantly in LOCAL mode.<br>With key: agents use Claude AI (adds ~2s per analysis).</div>
+      </div>
     </div>
   </div>
 </div>
@@ -1659,56 +1664,64 @@ function jumpTo(idx){scrollOff=Math.max(0,candles.length-idx-40);drawAll();}
 function schedAgents(){clearTimeout(agTimer);agTimer=setTimeout(runAgents,1200);}
 
 async function callAgent(type,data){
+  // Check for Anthropic key — stored in localStorage under 'apex_ai_key'
+  const aiKey=localStorage.getItem('apex_ai_key')||'';
+  // No key → instant LOCAL, zero network call
+  if(!aiKey)return{...fallbackAgent(type,data),aiUsed:false};
+
   const prompts={
     pattern:`You are a professional candlestick pattern analyst for ${PAIR} (${TF} timeframe).
 Current bar: O=${f(data.c.o)} H=${f(data.c.h)} L=${f(data.c.l)} C=${f(data.c.c)}
 Detected patterns: ${data.pats.map(p=>`${p.name}(${p.dir},score:${p.score})`).join(', ')||'none'}
 Bull score: ${data.B?.toFixed(1)}, Bear score: ${data.S?.toFixed(1)}
 RSI: ${data.ind.rsi?.toFixed(1)}, BB%B: ${data.ind.bb?.pctB?.toFixed(1)}
-Signal quality: ${data.quality||'unknown'}
-Analyze the pattern confluence and vote. Respond with ONLY valid JSON, no markdown:
-{"vote":"BUY","confidence":72,"reason":"One sentence max."}`,
+Signal quality: ${data.quality||'unknown'}, Sub-system votes: ${data.bullVotes||0}B/${data.bearVotes||0}S
+Analyze and vote. Respond with ONLY valid JSON: {"vote":"BUY","confidence":72,"reason":"One sentence max."}`,
 
-    trend:`You are a trend and structure analyst for ${PAIR} (${TF} timeframe).
+    trend:`You are a trend analyst for ${PAIR} (${TF} timeframe).
 EMA8=${f(data.ind.ema8)} EMA21=${f(data.ind.ema21)} EMA55=${f(data.ind.ema55)} EMA200=${f(data.ind.ema200)}
-Price=${f(data.c.c)}, Trend=${data.ind.trendUp?'STRONG UP':data.ind.trendDn?'STRONG DOWN':'MIXED'}
+Price=${f(data.c.c)}, Trend=${data.ind.strongUp?'STRONG UP':data.ind.strongDn?'STRONG DOWN':data.ind.trendUp?'UP':data.ind.trendDn?'DOWN':'MIXED'}
 ADX=${data.ind.adx?.adx?.toFixed(1)} DI+=${data.ind.adx?.dip?.toFixed(1)} DI-=${data.ind.adx?.dim?.toFixed(1)}
-MACD hist=${data.ind.macd?.hist?.toFixed(5)}, VWAP=${data.c.c>data.ind.vwap?'ABOVE':'BELOW'}
-Vote BUY/SELL/NEUTRAL. Respond with ONLY valid JSON, no markdown:
-{"vote":"NEUTRAL","confidence":55,"reason":"One sentence max."}`,
+MACD hist=${data.ind.macd?.hist?.toFixed(5)}, Ichimoku=${data.ind.ich?.aboveCloud?'ABOVE CLOUD':data.ind.ich?.belowCloud?'BELOW CLOUD':'IN CLOUD'}
+Vote BUY/SELL/NEUTRAL. Respond with ONLY valid JSON: {"vote":"NEUTRAL","confidence":55,"reason":"One sentence max."}`,
 
-    risk:`You are a risk and volume quality analyst for ${PAIR} (${TF} timeframe).
-Volume ratio vs 20-bar avg: ${data.ind.volR?.toFixed(2)}x
+    risk:`You are a risk/volume analyst for ${PAIR} (${TF} timeframe).
+Volume ratio: ${data.ind.volR?.toFixed(2)}x avg
 MFI=${data.ind.mfi?.toFixed(1)}, Williams%R=${data.ind.wr?.toFixed(1)}, CCI=${data.ind.cci?.toFixed(1)}
-Stoch%K=${data.ind.stoch?.k?.toFixed(1)}, ATR=${f(data.ind.atr)}
-Price vs VWAP: ${data.c.c>data.ind.vwap?'ABOVE':'BELOW'}
-Is this a high-quality entry or noise? Respond with ONLY valid JSON, no markdown:
-{"vote":"BUY","confidence":60,"reason":"One sentence max."}`
+Stoch K=${data.ind.stoch?.k?.toFixed(1)} D=${data.ind.stoch?.d?.toFixed(1)}, ATR=${f(data.ind.atr)}
+OBV div bull=${data.ind.obvDiv?.bull}, RSI div bull=${data.ind.rsiDiv?.bull}
+Respond with ONLY valid JSON: {"vote":"BUY","confidence":60,"reason":"One sentence max."}`
   };
 
   const agIdx=type==='pattern'?1:type==='trend'?2:3;
   const errEl=document.getElementById('ae'+agIdx);
+
+  // 4-second hard timeout — never hang the UI
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),4000);
+
   try{
     const res=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
+      signal:controller.signal,
       headers:{
         'Content-Type':'application/json',
+        'x-api-key':aiKey,
         'anthropic-version':'2023-06-01',
         'anthropic-dangerous-direct-browser-access':'true'
       },
       body:JSON.stringify({
         model:'claude-sonnet-4-20250514',
-        max_tokens:200,
+        max_tokens:120,
         messages:[{role:'user',content:prompts[type]}]
       })
     });
+    clearTimeout(timer);
 
     if(!res.ok){
       const errBody=await res.json().catch(()=>({}));
-      const errMsg=errBody?.error?.message||`HTTP ${res.status}`;
-      // 401/403 = no key → use fallback silently, show LOCAL mode
       if(errEl)errEl.textContent='';
-      console.warn(`Agent ${type} (${res.status}): falling back to rule-based`);
+      console.warn(`Agent ${type} HTTP ${res.status} → LOCAL`);
       return{...fallbackAgent(type,data),aiUsed:false};
     }
 
@@ -1723,15 +1736,17 @@ Is this a high-quality entry or noise? Respond with ONLY valid JSON, no markdown
         return{
           vote:(parsed.vote||'NEUTRAL').toUpperCase(),
           confidence:Math.min(99,Math.max(1,Number(parsed.confidence)||50)),
-          reason:String(parsed.reason||'Analysis complete.').slice(0,120),
+          reason:String(parsed.reason||'').slice(0,120),
           aiUsed:true
         };
-      }catch(pe){ /* fall through */ }
+      }catch(pe){}
     }
     return{...fallbackAgent(type,data),aiUsed:false};
   }catch(e){
+    clearTimeout(timer);
     if(errEl)errEl.textContent='';
-    console.warn(`Agent ${type} failed:`,e.message);
+    // AbortError = timed out, any other error = network/CORS
+    console.warn(`Agent ${type} ${e.name==='AbortError'?'timed out':'failed'} → LOCAL`);
     return{...fallbackAgent(type,data),aiUsed:false};
   }
 }
@@ -2256,6 +2271,11 @@ function closeMod(){document.getElementById('MOD').classList.remove('open');docu
 document.getElementById('MOD').addEventListener('click',e=>{if(e.target===document.getElementById('MOD'))closeMod();});
 
 // ═══════════════════════════════════════════════════════════
+function saveAIKey(v){
+  if(v)localStorage.setItem('apex_ai_key',v.trim());
+  else localStorage.removeItem('apex_ai_key');
+}
+
 // PERSISTENCE — saves settings & keys to localStorage
 // ═══════════════════════════════════════════════════════════
 const STORE_KEY='apex_ultra_state';
@@ -2283,6 +2303,11 @@ function saveState(){
 
 async function restoreState(){
   try{
+    // Restore AI key independently (stored separately)
+    const aiKey=localStorage.getItem('apex_ai_key')||'';
+    const aiKeyEl=document.getElementById('AIKEY');
+    if(aiKeyEl&&aiKey)aiKeyEl.value=aiKey;
+
     const raw=localStorage.getItem(STORE_KEY);
     if(!raw)return false;
     const s=JSON.parse(raw);

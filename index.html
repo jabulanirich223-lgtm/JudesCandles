@@ -595,7 +595,6 @@ const ALPD='https://data.alpaca.markets';
 
 async function alpFetch(path,opts={}){
   if(!alpKey||!alpSec)return null;
-  // Route data endpoints to data.alpaca.markets
   const isData=path.includes('/v1beta')||path.includes('/v2/stocks')||path.includes('/v2/crypto');
   const base=isData?ALPD:alpBase();
   try{
@@ -603,17 +602,27 @@ async function alpFetch(path,opts={}){
       ...opts,
       headers:{'APCA-API-KEY-ID':alpKey,'APCA-API-SECRET-KEY':alpSec,'Content-Type':'application/json',...(opts.headers||{})}
     });
-    if(!r.ok){const e=await r.json().catch(()=>{});throw new Error(e?.message||r.statusText);}
-    return r.json();
-  }catch(e){console.warn('Alpaca:',e.message);return null;}
+    const json=await r.json().catch(()=>({}));
+    if(!r.ok){
+      const msg=json?.message||json?.error||r.statusText||`HTTP ${r.status}`;
+      console.warn('Alpaca error',r.status,path,msg);
+      // Attach error to result so callers can surface it
+      return{_err:true,_status:r.status,message:msg};
+    }
+    return json;
+  }catch(e){
+    console.warn('Alpaca fetch failed:',e.message);
+    return{_err:true,message:e.message};
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
 // DATA FETCHING — FIXED: proper symbol encoding, fallback chain
 // ═══════════════════════════════════════════════════════════
-const CB_MAP={'BTC/USD':'BTC-USD','ETH/USD':'ETH-USD','SOL/USD':'SOL-USD','DOGE/USD':'DOGE-USD'};
-const CB_GRAN={'1Min':60,'5Min':300,'15Min':900,'1Hour':3600,'4Hour':14400,'1Day':86400};
-// Alpaca uses "1Min","5Min","15Min","1Hour","4Hour","1Day" directly
+// Binance symbols — their public API has full CORS support, no auth needed
+const BN_MAP={'BTC/USD':'BTCUSDT','ETH/USD':'ETHUSDT','SOL/USD':'SOLUSDT','DOGE/USD':'DOGEUSDT'};
+// Binance kline intervals
+const BN_INT={'1Min':'1m','5Min':'5m','15Min':'15m','1Hour':'1h','4Hour':'4h','1Day':'1d'};
 
 async function fetchBars(){
   const isCrypto=PAIR.includes('/');
@@ -622,49 +631,43 @@ async function fetchBars(){
   if(alpKey&&alpSec){
     let ep,d;
     if(isCrypto){
-      // FIX: Use v1beta3 crypto endpoint, encode symbol with %2F
       ep=`/v1beta3/crypto/us/bars?symbols=${encodeURIComponent(PAIR)}&timeframe=${TF}&limit=300&sort=asc`;
       d=await alpFetch(ep);
-      if(d){
+      if(d&&!d._err){
         const barArr=d.bars?.[PAIR]||d.bars?.[PAIR.replace('/','')]||[];
         if(barArr.length>4)return barArr.map(b=>({t:new Date(b.t).getTime(),o:+b.o,h:+b.h,l:+b.l,c:+b.c,v:+b.v}));
       }
-    } else {
-      // Stocks — use v2 data endpoint
+    }else{
       ep=`/v2/stocks/${PAIR}/bars?timeframe=${TF}&limit=300&adjustment=raw&sort=asc`;
       d=await alpFetch(ep);
-      if(d?.bars?.length>4)return d.bars.map(b=>({t:new Date(b.t).getTime(),o:+b.o,h:+b.h,l:+b.l,c:+b.c,v:+b.v}));
+      if(d&&!d._err&&d?.bars?.length>4)return d.bars.map(b=>({t:new Date(b.t).getTime(),o:+b.o,h:+b.h,l:+b.l,c:+b.c,v:+b.v}));
     }
   }
 
-  // Fallback: Coinbase for crypto
-  if(isCrypto&&CB_MAP[PAIR]){
-    const gran=CB_GRAN[TF]||3600;
-    const end=Math.floor(Date.now()/1000);
-    const start=end-gran*300;
+  // Fallback: Binance public klines API
+  if(isCrypto&&BN_MAP[PAIR]){
     try{
-      // Coinbase limits to 300 candles per request
-      const r=await fetch(`https://api.exchange.coinbase.com/products/${CB_MAP[PAIR]}/candles?granularity=${gran}&start=${start}&end=${end}`);
-      if(!r.ok)throw new Error('Coinbase '+r.status);
+      const sym=BN_MAP[PAIR];
+      const interval=BN_INT[TF]||'1h';
+      const r=await fetch(`https://api.binance.com/api/v3/klines?symbol=${sym}&interval=${interval}&limit=300`);
+      if(!r.ok)throw new Error(`Binance ${r.status}`);
       const raw=await r.json();
-      if(!Array.isArray(raw)||!raw.length)throw new Error('Empty Coinbase response');
-      // Coinbase: [time, low, high, open, close, volume] — time DESC
-      return raw.sort((a,b)=>a[0]-b[0]).map(k=>({t:k[0]*1000,o:+k[3],h:+k[2],l:+k[1],c:+k[4],v:+k[5]}));
+      if(!Array.isArray(raw)||raw.length<5)throw new Error('empty');
+      return raw.map(k=>({t:+k[0],o:+k[1],h:+k[2],l:+k[3],c:+k[4],v:+k[5]}));
     }catch(e){
-      console.warn('Coinbase fallback failed:',e.message);
-      // Try without time range for basic data
       try{
-        const r2=await fetch(`https://api.exchange.coinbase.com/products/${CB_MAP[PAIR]}/candles?granularity=${gran}`);
-        if(r2.ok){
-          const raw2=await r2.json();
-          if(Array.isArray(raw2)&&raw2.length)
-            return raw2.sort((a,b)=>a[0]-b[0]).map(k=>({t:k[0]*1000,o:+k[3],h:+k[2],l:+k[1],c:+k[4],v:+k[5]}));
-        }
+        const sym=BN_MAP[PAIR];
+        const interval=BN_INT[TF]||'1h';
+        const r2=await fetch(`https://api.binance.us/api/v3/klines?symbol=${sym}&interval=${interval}&limit=300`);
+        if(!r2.ok)throw new Error();
+        const raw2=await r2.json();
+        if(Array.isArray(raw2)&&raw2.length>=5)
+          return raw2.map(k=>({t:+k[0],o:+k[1],h:+k[2],l:+k[3],c:+k[4],v:+k[5]}));
       }catch(e2){}
     }
   }
 
-  // Final fallback: generate realistic synthetic data for demo
+  // Silent fallback to demo data
   return generateSyntheticBars();
 }
 
@@ -690,14 +693,13 @@ function generateSyntheticBars(){
     bars.push({t,o,h,l,c,v});
     price=c;
   }
-  toast('⚠ Using demo data — connect Alpaca for live prices','info');
   return bars;
 }
 
 async function loadData(){
   document.getElementById('LDOT').className='livdot loading';
   const bars=await fetchBars();
-  if(!bars||bars.length<5){toast('Market data unavailable','err');document.getElementById('LDOT').className='livdot dead';return;}
+  if(!bars||bars.length<5){toast('Market data unavailable — check connection','err');document.getElementById('LDOT').className='livdot dead';return;}
   candles=bars;scrollOff=0;signals=new Array(candles.length).fill(null);
   const last=candles[candles.length-1],prev=candles[candles.length-2];
   updateHdrPrice(last.c,prev?.c,last);
@@ -1872,7 +1874,12 @@ async function connectAlpaca(){
   btn.disabled=true;st.style.color='var(--gold)';st.textContent='Verifying...';
   alpKey=key;alpSec=sec;alpMode=_alpMode;
   const acc=await alpFetch('/v2/account');
-  if(!acc?.equity){alpKey=null;alpSec=null;btn.disabled=false;st.style.color='var(--bear)';st.textContent='Failed — check keys & mode match.';return;}
+  if(!acc?.equity||acc?._err){
+    const why=acc?.message||'Check keys and paper/live mode selection.';
+    alpKey=null;alpSec=null;btn.disabled=false;
+    st.style.color='var(--bear)';st.textContent='Failed: '+why;
+    return;
+  }
   st.style.color='var(--bull)';st.textContent='Connected!';
   document.getElementById('AK').value='';document.getElementById('AS').value='';
   setTimeout(async()=>{
@@ -1900,7 +1907,7 @@ async function showAccount(acc){
 async function loadPositions(){
   const pos=await alpFetch('/v2/positions');
   const el=document.getElementById('POSITIONS');
-  if(!pos?.length){el.innerHTML='<div style="padding:7px 11px;font-size:8px;color:var(--txt3)">No open positions</div>';return;}
+  if(!pos||pos._err||!pos?.length){el.innerHTML='<div style="padding:7px 11px;font-size:8px;color:var(--txt3)">No open positions</div>';return;}
   el.innerHTML=pos.map(p=>{
     const pnl=+p.unrealized_pl,pp=+p.unrealized_plpc*100;
     return`<div class="positem" onclick="document.getElementById('OSYM').value='${p.symbol}'">
@@ -1910,7 +1917,7 @@ async function loadPositions(){
   }).join('');
 }
 
-async function refreshAlp(){const a=await alpFetch('/v2/account');if(a)await showAccount(a);}
+async function refreshAlp(){const a=await alpFetch('/v2/account');if(a&&!a._err)await showAccount(a);}
 
 document.getElementById('OTYP').addEventListener('change',e=>{
   document.getElementById('LIMROW').style.display=e.target.value==='limit'?'flex':'none';
@@ -1918,24 +1925,45 @@ document.getElementById('OTYP').addEventListener('change',e=>{
 
 async function placeOrder(side){
   if(!alpKey){toast('Connect Alpaca first','err');return;}
-  const sym=document.getElementById('OSYM').value.trim();
-  const qty=+document.getElementById('OQTY').value;
+  const sym=document.getElementById('OSYM').value.trim().toUpperCase();
+  const qtyVal=document.getElementById('OQTY').value.trim();
   const type=document.getElementById('OTYP').value;
   const lim=+document.getElementById('OLIM').value;
-  if(!sym||!qty||qty<=0){toast('Enter symbol and quantity','err');return;}
-  const body={symbol:sym,qty:qty.toString(),side,type,time_in_force:'day'};
-  if(type==='limit'){if(!lim||lim<=0){toast('Enter limit price','err');return;}body.limit_price=lim.toString();}
-  const st=document.getElementById('OST');st.style.color='var(--gold)';st.textContent='Placing order...';
-  document.getElementById('BBUY').disabled=true;document.getElementById('BSELL').disabled=true;
+  if(!sym){toast('Enter a symbol','err');return;}
+  if(!qtyVal||+qtyVal<=0){toast('Enter a valid quantity','err');return;}
+  if(type==='limit'&&(!lim||lim<=0)){toast('Enter a limit price','err');return;}
+
+  const isCrypto=sym.includes('/')|| sym.endsWith('USD')&&sym.length>4;
+  // Alpaca order endpoint needs no slash: BTC/USD → BTCUSD
+  const orderSym=sym.replace('/','');
+
+  const body={
+    symbol:orderSym,
+    qty:(+qtyVal).toString(),
+    side,
+    type,
+    time_in_force:isCrypto?'gtc':'day'
+  };
+  if(type==='limit') body.limit_price=lim.toString();
+
+  const st=document.getElementById('OST');
+  st.style.color='var(--gold)';st.textContent='Placing order...';
+  document.getElementById('BBUY').disabled=true;
+  document.getElementById('BSELL').disabled=true;
+
   const res=await alpFetch('/v2/orders',{method:'POST',body:JSON.stringify(body)});
-  document.getElementById('BBUY').disabled=false;document.getElementById('BSELL').disabled=false;
+  document.getElementById('BBUY').disabled=false;
+  document.getElementById('BSELL').disabled=false;
+
   if(res?.id){
-    st.style.color='var(--bull)';st.textContent='✓ Order #'+res.id.slice(0,8)+' placed';
-    toast(side.toUpperCase()+' '+qty+' '+sym,side==='buy'?'buy':'sell');
-    setTimeout(loadPositions,2000);setTimeout(()=>{st.textContent=''},6000);
+    st.style.color='var(--bull)';st.textContent='✓ Order #'+res.id.slice(0,8);
+    toast(`${side.toUpperCase()} ${qtyVal} ${sym} ✓`,side==='buy'?'buy':'sell');
+    setTimeout(loadPositions,2000);
+    setTimeout(()=>{st.textContent=''},7000);
   }else{
-    const msg=res?.message||'Order failed';
-    st.style.color='var(--bear)';st.textContent='✗ '+msg;toast(msg,'err');
+    const msg=res?.message||'Order failed — check symbol & qty';
+    st.style.color='var(--bear)';st.textContent='✗ '+msg;
+    toast('✗ '+msg,'err');
   }
 }
 

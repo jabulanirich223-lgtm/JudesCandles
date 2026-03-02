@@ -2000,7 +2000,9 @@ async function checkSniperFire(consensus,confidence,sigData){
   const buyPower=+account.buying_power||equity;
 
   // Check for existing position in this pair
-  const isCrypto=PAIR.includes('/');
+  const _cryptoBases=['BTC','ETH','SOL','DOGE','AVAX','LINK','MATIC','UNI','LTC','BCH','XRP','ADA','DOT','SHIB','PEPE','AAVE','ATOM','ALGO','FIL','ICP','NEAR','APT','SUI','OP','ARB'];
+  const _pClean=PAIR.toUpperCase().replace(/[-/]/g,'');
+  const isCrypto=PAIR.includes('/')||PAIR.includes('-')||_cryptoBases.some(b=>_pClean.startsWith(b));
   const orderSym=PAIR.replace('/','');
   const positions=await alpFetch('/v2/positions');
   if(positions&&!positions._err){
@@ -2167,9 +2169,10 @@ async function placeOrder(side){
   if(!qtyVal||+qtyVal<=0){toast('Enter a valid quantity','err');return;}
   if(type==='limit'&&(!lim||lim<=0)){toast('Enter a limit price','err');return;}
 
-  // Robust crypto detection: explicit base list prevents false matches
-  const cryptoBases=['BTC','ETH','SOL','DOGE','AVAX','LINK','MATIC','UNI','LTC','BCH','XRP','ADA','DOT','SHIB','PEPE','AAVE','ATOM','ALGO','FIL','ICP'];
-  const isCrypto=sym.includes('/')||cryptoBases.some(b=>sym===b+'USD'||sym===b+'/USD'||sym===b+'USDT');
+  // Bulletproof crypto detection — catches BTC/USD, BTCUSD, BTC-USD, BTC variants
+  const cryptoBases=['BTC','ETH','SOL','DOGE','AVAX','LINK','MATIC','UNI','LTC','BCH','XRP','ADA','DOT','SHIB','PEPE','AAVE','ATOM','ALGO','FIL','ICP','NEAR','APT','SUI','OP','ARB'];
+  const symClean=sym.toUpperCase().replace(/[-/]/g,'');
+  const isCrypto=sym.includes('/')||sym.includes('-')||cryptoBases.some(b=>symClean.startsWith(b)&&(symClean.endsWith('USD')||symClean.endsWith('USDT')||symClean.endsWith('USDC')));
   // Alpaca crypto endpoint needs no slash: BTC/USD → BTCUSD
   const orderSym=sym.replace('/','');
 

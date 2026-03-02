@@ -603,16 +603,16 @@ async function alpFetch(path,opts={}){
   if(!alpKey||!alpSec)return null;
   const isData=path.includes('/v1beta')||path.includes('/v2/stocks')||path.includes('/v2/crypto');
   const base=isData?ALPD:alpBase();
+  const method=(opts.method||'GET').toUpperCase();
+  // Only send Content-Type on requests with a body — GET requests with Content-Type trigger CORS preflight rejections
+  const headers={'APCA-API-KEY-ID':alpKey,'APCA-API-SECRET-KEY':alpSec,...(opts.headers||{})};
+  if(method==='POST'||method==='PUT'||method==='PATCH')headers['Content-Type']='application/json';
   try{
-    const r=await fetch(base+path,{
-      ...opts,
-      headers:{'APCA-API-KEY-ID':alpKey,'APCA-API-SECRET-KEY':alpSec,'Content-Type':'application/json',...(opts.headers||{})}
-    });
+    const r=await fetch(base+path,{...opts,headers});
     const json=await r.json().catch(()=>({}));
     if(!r.ok){
       const msg=json?.message||json?.error||r.statusText||`HTTP ${r.status}`;
       console.warn('Alpaca error',r.status,path,msg);
-      // Attach error to result so callers can surface it
       return{_err:true,_status:r.status,message:msg};
     }
     return json;
@@ -623,12 +623,8 @@ async function alpFetch(path,opts={}){
 }
 
 // ═══════════════════════════════════════════════════════════
-// DATA FETCHING — FIXED: proper symbol encoding, fallback chain
+// DATA FETCHING
 // ═══════════════════════════════════════════════════════════
-// Binance symbols — their public API has full CORS support, no auth needed
-const BN_MAP={'BTC/USD':'BTCUSDT','ETH/USD':'ETHUSDT','SOL/USD':'SOLUSDT','DOGE/USD':'DOGEUSDT'};
-// Binance kline intervals
-const BN_INT={'1Min':'1m','5Min':'5m','15Min':'15m','1Hour':'1h','4Hour':'4h','1Day':'1d'};
 
 async function fetchBars(){
   const isCrypto=PAIR.includes('/');
@@ -650,27 +646,23 @@ async function fetchBars(){
     }
   }
 
-  // Fallback: Binance public klines API
-  if(isCrypto&&BN_MAP[PAIR]){
+  // Fallback: try Kraken public API (CORS friendly, works from any origin)
+  if(isCrypto){
     try{
-      const sym=BN_MAP[PAIR];
-      const interval=BN_INT[TF]||'1h';
-      const r=await fetch(`https://api.binance.com/api/v3/klines?symbol=${sym}&interval=${interval}&limit=300`);
-      if(!r.ok)throw new Error(`Binance ${r.status}`);
-      const raw=await r.json();
-      if(!Array.isArray(raw)||raw.length<5)throw new Error('empty');
-      return raw.map(k=>({t:+k[0],o:+k[1],h:+k[2],l:+k[3],c:+k[4],v:+k[5]}));
-    }catch(e){
-      try{
-        const sym=BN_MAP[PAIR];
-        const interval=BN_INT[TF]||'1h';
-        const r2=await fetch(`https://api.binance.us/api/v3/klines?symbol=${sym}&interval=${interval}&limit=300`);
-        if(!r2.ok)throw new Error();
-        const raw2=await r2.json();
-        if(Array.isArray(raw2)&&raw2.length>=5)
-          return raw2.map(k=>({t:+k[0],o:+k[1],h:+k[2],l:+k[3],c:+k[4],v:+k[5]}));
-      }catch(e2){}
-    }
+      const krakenMap={'BTC/USD':'XBTUSD','ETH/USD':'ETHUSD','SOL/USD':'SOLUSD','DOGE/USD':'XDGUSD','AVAX/USD':'AVAXUSD','LINK/USD':'LINKUSD','MATIC/USD':'MATICUSD'};
+      const krakenInt={'1Min':1,'5Min':5,'15Min':15,'1Hour':60,'4Hour':240,'1Day':1440};
+      const ksym=krakenMap[PAIR]||(PAIR.replace('/','')+'D');
+      const kint=krakenInt[TF]||60;
+      const kr=await fetch(`https://api.kraken.com/0/public/OHLC?pair=${ksym}&interval=${kint}&count=300`);
+      if(kr.ok){
+        const kd=await kr.json();
+        const key=Object.keys(kd.result||{}).find(k=>k!=='last');
+        const kbars=kd.result?.[key];
+        if(Array.isArray(kbars)&&kbars.length>=5){
+          return kbars.map(b=>({t:+b[0]*1000,o:+b[1],h:+b[2],l:+b[3],c:+b[4],v:+b[6]}));
+        }
+      }
+    }catch(e){console.warn('Kraken fallback failed:',e.message);}
   }
 
   // Silent fallback to demo data
@@ -1641,8 +1633,9 @@ function updateStats(){
 }
 
 function renderHistory(){
-  const hist=signals.map((s,i)=>({...s,i})).filter(s=>s&&s.dir!=='neutral').reverse().slice(0,100);
+  const hist=signals.map((s,i)=>s?{...s,i}:null).filter(s=>s&&s.dir&&s.dir!=='neutral').reverse().slice(0,100);
   document.getElementById('HIS').innerHTML=hist.map(s=>{
+    if(!s||!s.dir||s.dir==='neutral')return'';
     const top=s.pats?.filter(p=>p.dir!=='neu').sort((a,b)=>b.score-a.score)[0];
     const d=new Date(candles[s.i]?.t);
     const time=TF==='1Day'?d.toLocaleDateString('en-US',{month:'short',day:'numeric'}):d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
@@ -1653,7 +1646,7 @@ function renderHistory(){
       <div class="hbdg ${s.dir==='buy'?'hbuy':'hsell'}">${s.dir.toUpperCase()}</div>
       <div><div class="hpat">${top?.name||'Indicator'}${qualBadge}</div><div class="hmeta">${time} · ${f(candles[s.i]?.c)} · ${s.score?.toFixed(0)}pts</div></div>
       <div class="hout ${oc}">${ol}</div></div>`;
-  }).join('');
+  }).filter(Boolean).join('');
 }
 
 function jumpTo(idx){scrollOff=Math.max(0,candles.length-idx-40);drawAll();}

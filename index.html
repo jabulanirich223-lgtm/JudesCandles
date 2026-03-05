@@ -665,8 +665,9 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:9998;
 
     <div class="cfg-pane on" id="cp-alpaca">
       <div class="cfg-note">
-        <strong>Keys:</strong> alpaca.markets → Your Account → API Keys → Generate.<br>
-        <strong>CORS fix:</strong> Serve via <code>python3 -m http.server 8080</code> then open <code>http://localhost:8080/apex-omni-v11.html</code>
+        <strong>Get keys:</strong> alpaca.markets → login → top-right name → API Keys → Generate New Key. Copy both Key ID (starts PK…) and Secret Key.<br><br>
+        <strong>Environment:</strong> Paper keys ONLY work on Paper. Live keys ONLY work on Live. Mixing them = 403 error.<br><br>
+        <strong>If "Test" fails:</strong> The terminal auto-tries a CORS proxy (corsproxy.io). If that also fails, run <code>python3 -m http.server 8080</code> in the file's folder and open <code>http://localhost:8080/apex-omni-v11.html</code>
       </div>
       <div class="if"><label>Key ID</label><input type="text" id="CFG_KEY" placeholder="PKXXXXXXXX…"></div>
       <div class="if"><label>Secret Key</label><input type="password" id="CFG_SEC" placeholder="…"></div>
@@ -799,34 +800,114 @@ function calcAsync(d){return new Promise(res=>{const id=wkSeq++;wkQ.set(id,res);
 // ─── ALPACA ───────────────────────────────────────────────────
 const Alpaca = {
   BASE:{paper:'https://paper-api.alpaca.markets',live:'https://api.alpaca.markets'},
+  // allorigins.win is a free open CORS proxy — lets the browser send requests to Alpaca from any origin
+  PROXY:'https://api.allorigins.win/raw?url=',
+  _useProxy: false,   // auto-detected on first request
+  _lastErr: '',
+
   headers(){return{'APCA-API-KEY-ID':S.cfg.key,'APCA-API-SECRET-KEY':S.cfg.sec,'Content-Type':'application/json'};},
   base(){return this.BASE[S.cfg.env]||this.BASE.paper;},
+
+  // Try direct first, fall back to CORS proxy automatically
+  async _fetch(method, path, body){
+    if(!S.cfg.key||!S.cfg.sec) throw new Error('No API keys set');
+    const url = this.base()+path;
+    const opts = {method, headers:this.headers()};
+    if(body) opts.body = JSON.stringify(body);
+
+    // 1) Try direct (works if served via localhost or Alpaca adds CORS)
+    if(!this._useProxy){
+      try{
+        const r = await fetch(url, opts);
+        if(r.status===403||r.status===401){
+          const j=await r.json().catch(()=>({}));
+          throw new Error(`HTTP ${r.status}: ${j.message||j.code||'Unauthorized — wrong keys or wrong environment (paper vs live)'}`);
+        }
+        if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(`HTTP ${r.status}: ${j.message||'Request failed'}`);}
+        return await r.json();
+      } catch(ex){
+        // If it's a CORS/network error (not a real API error), try the proxy
+        if(ex.message.startsWith('HTTP')){this._lastErr=ex.message;throw ex;}
+        log(`Direct fetch blocked (CORS) — trying proxy…`,'warn');
+        this._useProxy = true;
+      }
+    }
+
+    // 2) CORS proxy fallback
+    // allorigins proxies GET only; for POST/DELETE we encode differently
+    if(method==='GET'){
+      const proxyUrl = this.PROXY + encodeURIComponent(url);
+      // Pass headers via URL since allorigins doesn't forward custom headers
+      // Use corsproxy.io as it DOES forward all headers including APCA auth
+      const proxyUrl2 = `https://corsproxy.io/?${encodeURIComponent(url)}`;
+      try{
+        const r = await fetch(proxyUrl2, opts);
+        if(r.status===403||r.status===401){const j=await r.json().catch(()=>({}));throw new Error(`HTTP ${r.status}: ${j.message||'Unauthorized — check keys match the environment (paper vs live)'}`);}
+        if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(`HTTP ${r.status}: ${j.message||'Proxy request failed'}`);}
+        return await r.json();
+      }catch(ex){this._lastErr=ex.message;throw ex;}
+    } else {
+      // POST/DELETE: use corsproxy.io which forwards all methods + headers
+      try{
+        const proxyUrl2 = `https://corsproxy.io/?${encodeURIComponent(url)}`;
+        const r = await fetch(proxyUrl2, opts);
+        if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(`HTTP ${r.status}: ${j.message||'failed'}`);}
+        return method==='DELETE' ? true : await r.json();
+      }catch(ex){this._lastErr=ex.message;throw ex;}
+    }
+  },
+
   async get(p){
-    if(!S.cfg.key||!S.cfg.sec)return null;
-    try{const r=await fetch(this.base()+p,{method:'GET',headers:this.headers()});
-      if(!r.ok){S.ws.errors++;return null;}S.ws.errors=0;return await r.json();}
-    catch(ex){S.ws.errors++;return null;}
+    try{const r=await this._fetch('GET',p);S.ws.errors=0;return r;}
+    catch(ex){this._lastErr=ex.message;log('Alpaca GET '+p+': '+ex.message,'err');return null;}
   },
   async post(p,body){
-    if(!S.cfg.key||!S.cfg.sec)return null;
-    try{const r=await fetch(this.base()+p,{method:'POST',headers:this.headers(),body:JSON.stringify(body)});
-      const d=await r.json();if(!r.ok)throw new Error(d.message||'failed');S.ws.errors=0;return d;}
-    catch(ex){log('Alpaca: '+ex.message,'err');return null;}
+    try{const r=await this._fetch('POST',p,body);S.ws.errors=0;return r;}
+    catch(ex){this._lastErr=ex.message;log('Alpaca POST '+p+': '+ex.message,'err');return null;}
   },
   async delete(p){
-    if(!S.cfg.key||!S.cfg.sec)return null;
-    try{const r=await fetch(this.base()+p,{method:'DELETE',headers:this.headers()});return r.ok;}
-    catch(ex){return null;}
+    try{await this._fetch('DELETE',p);return true;}
+    catch(ex){this._lastErr=ex.message;log('Alpaca DELETE '+p+': '+ex.message,'err');return false;}
   },
+
   async test(){
-    document.getElementById('ACS_DOT').style.background='var(--y1)';
-    document.getElementById('ACS_MSG').textContent='Testing…';
+    const dot=document.getElementById('ACS_DOT');
+    const msg=document.getElementById('ACS_MSG');
+    dot.style.background='var(--y1)';
+    msg.textContent='Testing direct connection…';
+    log('Testing Alpaca connection…','alp');
+
+    if(!S.cfg.key||!S.cfg.sec){
+      dot.style.background='var(--r1)';
+      msg.textContent='No keys entered. Enter Key ID and Secret Key above.';
+      return false;
+    }
+    if(S.cfg.key.length<10){
+      dot.style.background='var(--r1)';
+      msg.textContent='Key ID looks too short — copy the full key from Alpaca.';
+      return false;
+    }
+
+    this._useProxy=false; // reset so we re-detect
     const a=await this.get('/v2/account');
-    if(!a){document.getElementById('ACS_DOT').style.background='var(--r1)';document.getElementById('ACS_MSG').textContent='Failed — check keys & CORS (use localhost server)';return false;}
-    document.getElementById('ACS_DOT').style.background='var(--g1)';
-    document.getElementById('ACS_MSG').textContent=`Connected: ${a.account_number} (${S.cfg.env.toUpperCase()})`;
-    this._showDetail(a);log(`Alpaca OK: ${a.account_number} | $${parseFloat(a.equity).toLocaleString()}`,'alp');
-    S.equity=parseFloat(a.equity)||S.equity;return true;
+    if(!a){
+      dot.style.background='var(--r1)';
+      const err=this._lastErr||'Unknown error';
+      // Give actionable diagnosis
+      let hint='';
+      if(err.includes('401')||err.includes('403')||err.includes('Unauthorized')) hint='Keys are wrong or using LIVE keys on PAPER environment (or vice versa). Double-check environment dropdown.';
+      else if(err.includes('Failed to fetch')||err.includes('NetworkError')||err.includes('CORS')) hint='Opening from file:// — CORS blocked. Run: python3 -m http.server 8080, then open http://localhost:8080/';
+      else hint=err;
+      msg.textContent='✗ '+hint;
+      log('Connection failed: '+hint,'err');
+      return false;
+    }
+    dot.style.background='var(--g1)';
+    msg.textContent=`✓ Connected${this._useProxy?' (via proxy)':' (direct)'}: ${a.account_number} | ${S.cfg.env.toUpperCase()}`;
+    this._showDetail(a);
+    S.equity=parseFloat(a.equity)||S.equity;
+    log(`Alpaca connected${this._useProxy?' via CORS proxy':''}: ${a.account_number} | Equity $${parseFloat(a.equity).toLocaleString()}`,'alp');
+    return true;
   },
   _showDetail(a){
     const d=document.getElementById('ALP_DET'),g=document.getElementById('ALP_DET_GRID');
@@ -1317,8 +1398,14 @@ const UI = {
     S.cfg={key,sec,env,feed};
     try{localStorage.setItem('_aqtv11',btoa(JSON.stringify({k:key,s:sec,e:env,f:feed})));}catch(ex){}
     WSM.connect(feed);
-    if(key&&sec){Alpaca.syncAll().then(()=>Alpaca.startAutoSync(10000));}
-    this.hideCfg();log(`Config saved | Feed:${feed} | Env:${env} | ALP:${key?'CONNECTED':'SIM'}`,'sys');
+    if(key&&sec){
+      log(`Alpaca keys set — testing ${env.toUpperCase()} connection…`,'alp');
+      Alpaca.test().then(ok=>{
+        if(ok){Alpaca.syncAll().then(()=>Alpaca.startAutoSync(10000));}
+        else{log(`Alpaca connection failed. Reason: ${Alpaca._lastErr||'check keys & environment'}. Running in SIM mode.`,'warn');}
+      });
+    }
+    this.hideCfg();log(`Config saved | Feed:${feed} | Env:${env} | Keys:${key?'SET (testing…)':'NOT SET — SIM mode'}`,'sys');
   },
   loadCfg(){
     try{const d=JSON.parse(atob(localStorage.getItem('_aqtv11')||''));if(!d)return;document.getElementById('CFG_KEY').value=d.k||'';document.getElementById('CFG_SEC').value=d.s||'';if(d.e)document.getElementById('CFG_ENV').value=d.e;if(d.f)document.getElementById('CFG_FEED').value=d.f;S.cfg={key:d.k,sec:d.s,env:d.e,feed:d.f||'sim'};}catch(ex){}

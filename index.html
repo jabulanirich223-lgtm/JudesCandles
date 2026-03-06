@@ -462,7 +462,7 @@ kbd{background:var(--b0);border:1px solid var(--b1);border-radius:2px;padding:1p
 
   <!-- Sniper Panel - Upgraded -->
   <div id="SNIPER_PANEL">
-    <div class="sh"><span>🎯 SNIPER BOT <em>v2</em></span><button class="sh-toggle" id="SNP_TOGGLE" onclick="toggleSniperPanel()">▲</button></div>
+    <div class="sh"><span>🎯 SNIPER BOT <em>OMNI</em></span><button class="sh-toggle" id="SNP_TOGGLE" onclick="toggleSniperPanel()">▲</button></div>
     <div class="sniper-inner" id="SNP_INNER">
       <div class="sniper-status">
         <div class="sniper-dot disarmed" id="SDOT"></div>
@@ -474,6 +474,11 @@ kbd{background:var(--b0);border:1px solid var(--b1);border-radius:2px;padding:1p
         <div class="sstat"><div class="sstat-v ibr" id="SS_LOSS">0</div><div class="sstat-l">LOSS</div></div>
         <div class="sstat"><div class="sstat-v" id="SS_WR" style="color:var(--txt)">0%</div><div class="sstat-l">W.RATE</div></div>
       </div>
+      <div style="font-size:6.5px;letter-spacing:2px;color:var(--txt3);padding:3px 0 2px;text-transform:uppercase;display:flex;justify-content:space-between;align-items:center">
+        <span>Watching All Symbols</span>
+        <span id="OMNI_SCAN_TXT" style="color:var(--txt3)">idle</span>
+      </div>
+      <div id="OMNI_GRID" style="display:grid;grid-template-columns:repeat(4,1fr);gap:2px;margin-bottom:5px"></div>
       <div class="sniper-mode-row">
         <button class="smb on both" id="sm_both" onclick="setSniperMode('both')">BOTH</button>
         <button class="smb buy" id="sm_buy" onclick="setSniperMode('buy')">LONG</button>
@@ -485,12 +490,13 @@ kbd{background:var(--b0);border:1px solid var(--b1);border-radius:2px;padding:1p
         <div class="sg-cell"><div class="sg-lbl">TP (ATR×)</div><input class="sg-inp" id="STP" type="number" value="2.5" min="1" max="6" step="0.1"></div>
         <div class="sg-cell"><div class="sg-lbl">SL (ATR×)</div><input class="sg-inp" id="SSL" type="number" value="1.5" min="0.5" max="4" step="0.1"></div>
         <div class="sg-cell"><div class="sg-lbl">Min Votes</div><input class="sg-inp" id="SMINV" type="number" value="3" min="2" max="8"></div>
-        <div class="sg-cell"><div class="sg-lbl">Cooldown s</div><input class="sg-inp" id="SCOOL" type="number" value="60" min="10" max="600"></div>
+        <div class="sg-cell"><div class="sg-lbl">Cooldown s</div><input class="sg-inp" id="SCOOL" type="number" value="90" min="10" max="600"></div>
       </div>
-      <div style="display:flex;gap:2px;margin-bottom:2px">
+      <div style="display:flex;gap:8px;margin-bottom:3px;align-items:center">
         <label style="font-size:7px;color:var(--txt3);display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" id="S_NOREGIME" style="accent-color:var(--orange)"> Skip regime conflict</label>
+        <label style="font-size:7px;color:var(--txt3);display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" id="S_VIEWSWITCH" checked style="accent-color:var(--blue)"> Jump chart on fire</label>
       </div>
-      <button class="sniper-arm-btn" id="SARMBTN" onclick="armSniper()">⚡ ARM SNIPER</button>
+      <button class="sniper-arm-btn" id="SARMBTN" onclick="armSniper()">⚡ ARM OMNI SNIPER</button>
       <div class="sniper-log" id="SLOG"></div>
     </div>
   </div>
@@ -1652,66 +1658,272 @@ function updateAgent(id,data){
   if(el){el.classList.remove('agpulse','buy-glow','sell-glow');if(vote==='BUY')el.classList.add('buy-glow');else if(vote==='SELL')el.classList.add('sell-glow');}
 }
 
-// ─── SNIPER BOT v2 ───
+// ─── OMNI SNIPER — watches ALL symbols simultaneously ───
+
+// Per-symbol state: bars cache, last signal, last fire time
+const OMNI_STATE={};
+const ALL_SNIPER_SYMS=['BTC/USD','ETH/USD','SOL/USD','DOGE/USD','AAPL','NVDA','SPY','QQQ'];
+ALL_SNIPER_SYMS.forEach(sym=>{OMNI_STATE[sym]={bars:[],lastSig:{sym,price:0,time:0},lastFireTime:0,status:'idle',signal:'—',conf:0};});
+
+let omniLoopTimer=null;
+let omniScanIdx=0;
+
 function setSniperMode(m){
   S.sniperMode=m;
   ['both','buy','sell'].forEach(k=>{const b=document.getElementById('sm_'+k);if(b)b.className='smb '+(k===m?'on '+k:k);});
 }
+
 function armSniper(){
   if(!S.alpConn){toast('Connect Alpaca first!','err');return;}
   S.sniperArmed=!S.sniperArmed;
   const btn=document.getElementById('SARMBTN'),hdrbtn=document.getElementById('SNIPERHDRBTN');
   const sdot=document.getElementById('SDOT'),stitle=document.getElementById('STITLE');
   if(S.sniperArmed){
-    btn.className='sniper-arm-btn armed';btn.textContent='🔴 DISARM SNIPER';
+    btn.className='sniper-arm-btn armed';btn.textContent='🔴 DISARM OMNI SNIPER';
     if(hdrbtn)hdrbtn.className='hdrbtn sniperbtn armed';
-    if(sdot)sdot.className='sniper-dot armed';if(stitle){stitle.textContent='ARMED';stitle.className='sniper-title armed';}
-    slog(`Sniper ARMED · MinConf:${document.getElementById('SCONF')?.value}% · Risk:${document.getElementById('SRISK')?.value}%`,'fired');
-    toast('🎯 SNIPER ARMED','sniper');
+    if(sdot)sdot.className='sniper-dot armed';
+    if(stitle){stitle.textContent='OMNI ARMED';stitle.className='sniper-title armed';}
+    slog(`OMNI ARMED · Watching ${ALL_SNIPER_SYMS.length} symbols · MinConf:${document.getElementById('SCONF')?.value}%`,'fired');
+    toast(`🎯 OMNI SNIPER ARMED — ${ALL_SNIPER_SYMS.length} symbols`,'sniper');
+    buildOmniGrid();
+    startOmniLoop();
   }else{
-    btn.className='sniper-arm-btn';btn.textContent='⚡ ARM SNIPER';
+    stopOmniLoop();
+    btn.className='sniper-arm-btn';btn.textContent='⚡ ARM OMNI SNIPER';
     if(hdrbtn)hdrbtn.className='hdrbtn sniperbtn';
-    if(sdot)sdot.className='sniper-dot disarmed';if(stitle){stitle.textContent='DISARMED';stitle.className='sniper-title disarmed';}
-    slog('Sniper disarmed','warn');toast('Sniper disarmed','info');
+    if(sdot)sdot.className='sniper-dot disarmed';
+    if(stitle){stitle.textContent='DISARMED';stitle.className='sniper-title disarmed';}
+    slog('OMNI Sniper disarmed','warn');toast('Sniper disarmed','info');
+    resetOmniGrid();
   }
 }
-function slog(msg,type=''){
-  const el=document.getElementById('SLOG');if(!el)return;
-  const d=new Date();const ts=`${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
-  el.insertAdjacentHTML('afterbegin',`<div class="sniper-entry ${type}"><span style="color:var(--txt3)">${ts}</span><span>${msg}</span></div>`);
-  while(el.children.length>25)el.removeChild(el.lastChild);
+
+function buildOmniGrid(){
+  const el=document.getElementById('OMNI_GRID');if(!el)return;
+  el.innerHTML=ALL_SNIPER_SYMS.map(sym=>{
+    const id=sym.replace('/','_');
+    return `<div id="og_${id}" onclick="switchPair('${sym}')" style="cursor:pointer;padding:3px 2px;border-radius:3px;border:1px solid var(--b1);background:var(--b0);text-align:center;transition:all .3s">
+      <div style="font-size:7px;font-weight:700;font-family:'Orbitron',sans-serif;color:var(--txt2);letter-spacing:.5px">${sym.split('/')[0]}</div>
+      <div id="og_sig_${id}" style="font-size:7px;color:var(--txt3)">—</div>
+    </div>`;
+  }).join('');
 }
-let lastSniperSignal={sym:'',price:0,time:0};
-async function checkSniper(sig,qual,conf,price,atr,regime,mtfBull,mtfBear,votes){
+
+function resetOmniGrid(){
+  ALL_SNIPER_SYMS.forEach(sym=>{
+    const id=sym.replace('/','_');
+    const el=document.getElementById('og_'+id);
+    const sig=document.getElementById('og_sig_'+id);
+    if(el){el.style.borderColor='var(--b1)';el.style.background='var(--b0)';}
+    if(sig){sig.textContent='—';sig.style.color='var(--txt3)';}
+  });
+  const scan=document.getElementById('OMNI_SCAN_TXT');if(scan)scan.textContent='idle';
+}
+
+function updateOmniCell(sym,signal,conf,status){
+  const id=sym.replace('/','_');
+  const el=document.getElementById('og_'+id);
+  const sigEl=document.getElementById('og_sig_'+id);
+  if(!el||!sigEl)return;
+  const isBuy=signal==='BUY',isSell=signal==='SELL';
+  const col=isBuy?'var(--bull)':isSell?'var(--bear)':'var(--txt3)';
+  const bg=isBuy?'rgba(0,255,170,.07)':isSell?'rgba(255,51,102,.07)':status==='scanning'?'rgba(0,204,255,.05)':'var(--b0)';
+  const border=isBuy?'var(--bull2)':isSell?'var(--bear2)':status==='scanning'?'var(--blue2)':'var(--b1)';
+  el.style.borderColor=border;el.style.background=bg;
+  sigEl.textContent=signal==='NEUTRAL'||!signal?status==='scanning'?'…':'—':`${signal} ${conf}%`;
+  sigEl.style.color=col;
+}
+
+function startOmniLoop(){
+  stopOmniLoop();
+  // Stagger initial fetches — fetch all symbols once up front, then re-scan on interval
+  omniScanIdx=0;
+  runOmniScan();
+}
+
+function stopOmniLoop(){
+  if(omniLoopTimer){clearTimeout(omniLoopTimer);omniLoopTimer=null;}
+}
+
+// Scan one symbol at a time to avoid hammering APIs, cycling through all 8
+async function runOmniScan(){
+  if(!S.sniperArmed)return;
+  const sym=ALL_SNIPER_SYMS[omniScanIdx%ALL_SNIPER_SYMS.length];
+  omniScanIdx++;
+
+  const scan=document.getElementById('OMNI_SCAN_TXT');
+  if(scan)scan.textContent=`scanning ${sym.split('/')[0]}…`;
+  updateOmniCell(sym,'','','scanning');
+
+  try{
+    const bars=await fetchBarsForSym(sym,S.tf);
+    if(bars&&bars.length>=30){
+      OMNI_STATE[sym].bars=bars;
+      const result=analyzeForSniper(bars,sym);
+      OMNI_STATE[sym].signal=result.signal;
+      OMNI_STATE[sym].conf=result.conf;
+      updateOmniCell(sym,result.signal,result.conf,'done');
+      if(S.sniperArmed){
+        await checkSniperForSym(sym,result);
+      }
+    } else {
+      updateOmniCell(sym,'','','idle');
+    }
+  }catch(e){
+    updateOmniCell(sym,'','','idle');
+  }
+
+  if(scan&&omniScanIdx%ALL_SNIPER_SYMS.length===0)scan.textContent=`cycle ${Math.floor(omniScanIdx/ALL_SNIPER_SYMS.length)} done`;
+
+  // Space scans out: 3s between each symbol, full cycle = 24s
+  const delay=ALL_SNIPER_SYMS.length>0?3000:5000;
+  omniLoopTimer=setTimeout(runOmniScan, delay);
+}
+
+// Fetch bars for any symbol (not affecting S.pair)
+async function fetchBarsForSym(sym,tf){
+  const prev=S.pair;
+  // Temporarily spoof S.pair so existing fetch functions work
+  S.pair=sym;
+  const sources=[fetchBinanceUS,fetchCoinbase,fetchKraken,fetchBinanceProxy,fetchYahoo,fetchCoinGecko];
+  if(S.alpConn)sources.unshift(fetchAlpaca);
+  let data=null;
+  for(const src of sources){
+    try{data=await src();if(data&&data.length>=10)break;}catch{}
+  }
+  S.pair=prev; // restore immediately
+  return data;
+}
+
+// Run the full 12-system analysis engine on arbitrary bars/sym — no UI side-effects
+function analyzeForSniper(bars,sym){
+  if(!bars||bars.length<30)return{signal:'NEUTRAL',quality:'WEAK',conf:0,atr:0,regime:'ranging',votes:[],last:0};
+  const closes=bars.map(b=>b.c),n=closes.length,last=closes[n-1];
+  const atrArr=calcATR(bars);const atr=atrArr[n-1]||last*.02;
+  const rsi=calcRSI(closes)[n-1]||50;
+  const macdD=calcMACD(closes);const macdHist=macdD.hist.length?macdD.hist[macdD.hist.length-1].v:0;const macdLine=macdD.line[n-1]||0;
+  const stoch=calcStoch(bars);const stK=stoch.k[n-1]||50,stD=stoch.d[n-1]||50;
+  const adxD=calcADX(bars);const adx=adxD.adx[n-1]||20,pdi=adxD.pdi[n-1]||20,mdi=adxD.mdi[n-1]||20;
+  const mfi=calcMFI(bars)[n-1]||50;const cci=calcCCI(bars)[n-1]||0;const wr=calcWR(bars)[n-1]||-50;
+  const obv=calcOBV(bars);const obvSlope=obv.length>5?(obv[n-1]-obv[n-6])/5:0;
+  const vwap=calcVWAP(bars)[n-1];const bb=calcBB(closes);const bbLast=bb[n-1];
+  const ema8=calcEMA(closes,8),ema21=calcEMA(closes,21),ema55=calcEMA(closes,55),ema200=calcEMA(closes,200);
+  const poc=calcPOC(bars);const pats=detectPatterns(bars);const sr=findSRLevels(bars);
+  const recentBars=bars.slice(-20);
+  const bpBull=recentBars.filter(b=>b.c>b.o).reduce((s,b)=>s+(b.c-b.o)/(b.h-b.l||1)*.5+.5,0);
+  const bpBear=recentBars.filter(b=>b.c<=b.o).reduce((s,b)=>s+(b.o-b.c)/(b.h-b.l||1)*.5+.5,0);
+  const pressureRatio=bpBull/(bpBull+bpBear+.001);
+  const mtfBull=last>ema21[n-1]&&last>ema55[n-1];const mtfBear=last<ema21[n-1]&&last<ema55[n-1];
+  const fib=calcFib(bars);
+  const avgVol=bars.slice(-20).reduce((s,b)=>s+(b.v||0),0)/20;
+  const volSpike=(bars[n-1].v||0)>avgVol*1.8;
+  const priceAccel=n>5?(last-closes[n-3])/(closes[n-3]||1)*100:0;
+  const votes=[];const addV=(sys,dir,wt=1)=>votes.push({sys,dir,wt});
+  // Systems 1-12 (identical to runAnalysis)
+  let osc=0;
+  if(rsi<35)osc+=2;else if(rsi<45)osc++;else if(rsi>65)osc-=2;else if(rsi>55)osc--;
+  if(stK<25&&stK>stD)osc++;else if(stK>75&&stK<stD)osc--;
+  if(cci<-80)osc++;else if(cci>80)osc--;
+  if(wr<-80)osc++;else if(wr>-20)osc--;
+  addV(1,osc>1?'BUY':osc<-1?'SELL':'NEUTRAL');
+  let trn=0;
+  if(ema8[n-1]>ema21[n-1]&&ema21[n-1]>ema55[n-1])trn+=3;else if(ema8[n-1]<ema21[n-1]&&ema21[n-1]<ema55[n-1])trn-=3;
+  if(macdLine>0&&macdHist>0)trn+=2;else if(macdLine<0&&macdHist<0)trn-=2;
+  if(mtfBull)trn++;else if(mtfBear)trn--;
+  if(last>ema200[n-1])trn++;else if(last<ema200[n-1])trn--;
+  addV(2,trn>2?'BUY':trn<-2?'SELL':'NEUTRAL',1.5);
+  let vol=0;
+  if(mfi<30)vol+=2;else if(mfi>70)vol-=2;
+  if(obvSlope>0&&last>ema21[n-1])vol++;else if(obvSlope<0&&last<ema21[n-1])vol--;
+  if(pressureRatio>.6)vol++;else if(pressureRatio<.4)vol--;
+  if(volSpike&&last>ema21[n-1])vol++;else if(volSpike&&last<ema21[n-1])vol--;
+  addV(3,vol>0?'BUY':vol<0?'SELL':'NEUTRAL');
+  let str=0;
+  if(bbLast){if(last<bbLast.l)str+=2;else if(last>bbLast.u)str-=2;}
+  if(vwap&&last>vwap)str++;else if(vwap&&last<vwap)str--;
+  if(last>poc)str++;else str--;
+  const nearS=sr.find(l=>l.type==='S'&&Math.abs(l.price-last)<atr*1.5);
+  const nearR=sr.find(l=>l.type==='R'&&Math.abs(l.price-last)<atr*1.5);
+  if(nearS)str++;if(nearR)str--;
+  addV(4,str>1?'BUY':str<-1?'SELL':'NEUTRAL');
+  const bullPats=pats.filter(p=>p.dir==='bull'),bearPats=pats.filter(p=>p.dir==='bear');
+  const patScore=bullPats.reduce((s,p)=>s+p.strength,0)-bearPats.reduce((s,p)=>s+p.strength,0);
+  addV(5,patScore>3?'BUY':patScore<-3?'SELL':'NEUTRAL');
+  const swHigh=bars.slice(-20).reduce((m,b)=>Math.max(m,b.h),0);
+  const swLow=bars.slice(-20).reduce((m,b)=>Math.min(m,b.l),Infinity);
+  if(last>swHigh*.998)addV(6,'BUY');else if(last<swLow*1.002)addV(6,'SELL');else addV(6,'NEUTRAL');
+  addV(7,pressureRatio>.62?'BUY':pressureRatio<.38?'SELL':'NEUTRAL');
+  let regime='ranging';
+  if(adx>25&&pdi>mdi)regime='bull_trend';else if(adx>25&&mdi>pdi)regime='bear_trend';else if(adx>20)regime='mixed';
+  addV(8,regime==='bull_trend'?'BUY':regime==='bear_trend'?'SELL':'NEUTRAL',1.5);
+  if(adx>25&&pdi>mdi+5)addV(9,'BUY');else if(adx>25&&mdi>pdi+5)addV(9,'SELL');else addV(9,'NEUTRAL');
+  const obvSlp5=obv.length>5?(obv[n-1]-obv[n-6])/(Math.abs(obv[n-6])||1):0;
+  addV(10,obvSlp5>0.02&&last>ema21[n-1]?'BUY':obvSlp5<-0.02&&last<ema21[n-1]?'SELL':'NEUTRAL');
+  const fibDist=Object.values(fib).filter(v=>typeof v==='number').map(v=>Math.abs(last-v)/last);
+  const fibNear=fibDist.some(d=>d<0.004);
+  if(fibNear){if(last>ema21[n-1])addV(11,'BUY',0.8);else addV(11,'SELL',0.8);}else addV(11,'NEUTRAL',0.8);
+  addV(12,priceAccel>0.5?'BUY':priceAccel<-0.5?'SELL':'NEUTRAL',0.7);
+  let wBull=0,wBear=0,wNeu=0;
+  votes.forEach(v=>{if(v.dir==='BUY')wBull+=v.wt;else if(v.dir==='SELL')wBear+=v.wt;else wNeu+=v.wt;});
+  const totalW=wBull+wBear+wNeu;
+  const conf=Math.round(Math.max(wBull,wBear)/totalW*100);
+  let signal='NEUTRAL',quality='WEAK';
+  if(wBull>wBear+2){signal='BUY';quality=conf>=85?'ELITE':conf>=70?'STRONG':conf>=60?'MODERATE':'WEAK';}
+  else if(wBear>wBull+2){signal='SELL';quality=conf>=85?'ELITE':conf>=70?'STRONG':conf>=60?'MODERATE':'WEAK';}
+  return{signal,quality,conf,atr,regime,votes,last,mtfBull,mtfBear};
+}
+
+async function checkSniperForSym(sym,result){
+  const{signal:sig,quality:qual,conf,atr,regime,votes,last:price,mtfBull,mtfBear}=result;
   if(sig==='NEUTRAL')return;
   const minConf=parseFloat(document.getElementById('SCONF').value)||72;
   const minVotes=parseFloat(document.getElementById('SMINV')?.value||3);
-  const cooldown=parseFloat(document.getElementById('SCOOL')?.value||60)*1000;
-  if(conf<minConf){return;}
+  const cooldown=parseFloat(document.getElementById('SCOOL')?.value||90)*1000;
+  if(conf<minConf)return;
   if(S.sniperMode==='buy'&&sig!=='BUY')return;
   if(S.sniperMode==='sell'&&sig!=='SELL')return;
   if(qual==='WEAK')return;
   const bullVotes=votes.filter(v=>v.dir==='BUY').length;
   const bearVotes=votes.filter(v=>v.dir==='SELL').length;
-  if(Math.max(bullVotes,bearVotes)<minVotes){slog(`Insufficient votes: ${Math.max(bullVotes,bearVotes)}<${minVotes}`,'warn');return;}
+  if(Math.max(bullVotes,bearVotes)<minVotes){slog(`[${sym.split('/')[0]}] Insufficient votes: ${Math.max(bullVotes,bearVotes)}<${minVotes}`,'warn');return;}
   const skipRegime=document.getElementById('S_NOREGIME')?.checked;
   const regimeConflict=(sig==='BUY'&&regime==='bear_trend')||(sig==='SELL'&&regime==='bull_trend');
-  if(regimeConflict&&!skipRegime&&conf<85){slog(`Regime conflict: ${regime} vs ${sig}`,'warn');return;}
-  // Cooldown check
-  const now=Date.now();if(lastSniperSignal.sym===S.pair&&now-lastSniperSignal.time<cooldown){slog(`Cooldown: ${Math.round((cooldown-(now-lastSniperSignal.time))/1000)}s remaining`,'warn');return;}
-  // Duplicate price filter (within 0.5%)
-  if(lastSniperSignal.sym===S.pair&&Math.abs(lastSniperSignal.price-price)/price<0.005&&now-lastSniperSignal.time<300000){slog('Near-duplicate signal filtered','warn');return;}
-  lastSniperSignal={sym:S.pair,price,time:now};
-  slog(`✓ Signal: ${sig} ${S.pair} @ ${fp(price)} (${conf}% ${qual} | ${regime})`,'fired');
-  await fireSniperOrder(sig,price,atr,conf,qual,regime);
+  if(regimeConflict&&!skipRegime&&conf<85){slog(`[${sym.split('/')[0]}] Regime conflict: ${regime} vs ${sig}`,'warn');return;}
+  // Per-symbol cooldown
+  const st=OMNI_STATE[sym];const now=Date.now();
+  if(now-st.lastFireTime<cooldown){slog(`[${sym.split('/')[0]}] Cooldown: ${Math.round((cooldown-(now-st.lastFireTime))/1000)}s`,'warn');return;}
+  // Per-symbol duplicate price filter
+  if(st.lastSig.sym===sym&&Math.abs(st.lastSig.price-price)/price<0.005&&now-st.lastSig.time<300000){slog(`[${sym.split('/')[0]}] Duplicate signal filtered`,'warn');return;}
+  st.lastSig={sym,price,time:now};
+  slog(`✓ [${sym.split('/')[0]}] ${sig} @ ${fp(price)} (${conf}% ${qual} | ${regime})`,'fired');
+  // Optionally jump chart to firing symbol
+  if(document.getElementById('S_VIEWSWITCH')?.checked&&sym!==S.pair){
+    switchPair(sym);
+  }
+  await fireSniperOrder(sig,price,atr,conf,qual,regime,sym);
+  st.lastFireTime=now;
 }
-async function fireSniperOrder(sig,price,atr,conf,qual,regime){
+
+function slog(msg,type=''){
+  const el=document.getElementById('SLOG');if(!el)return;
+  const d=new Date();const ts=`${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
+  el.insertAdjacentHTML('afterbegin',`<div class="sniper-entry ${type}"><span style="color:var(--txt3)">${ts}</span><span>${msg}</span></div>`);
+  while(el.children.length>40)el.removeChild(el.lastChild);
+}
+
+// checkSniper still called from runAnalysis for the currently viewed chart (extra coverage)
+async function checkSniper(sig,qual,conf,price,atr,regime,mtfBull,mtfBear,votes){
+  if(!S.sniperArmed)return;
+  await checkSniperForSym(S.pair,{signal:sig,quality:qual,conf,atr,regime,votes,last:price,mtfBull,mtfBear});
+}
+
+async function fireSniperOrder(sig,price,atr,conf,qual,regime,sym){
+  const activeSym=sym||S.pair;
   const equity=parseFloat(document.getElementById('EQV')?.textContent?.replace(/[$,]/g,'')||10000);
   const bp=parseFloat(document.getElementById('BPV')?.textContent?.replace(/[$,]/g,'')||10000);
   const riskPct=parseFloat(document.getElementById('SRISK').value||1)/100;
   let slMult=parseFloat(document.getElementById('SSL').value||1.5);
   let tpMult=parseFloat(document.getElementById('STP').value||2.5);
-  // Dynamic adjustments
   if(['bull_trend','bear_trend'].includes(regime))slMult*=0.88;
   if(qual==='ELITE'){tpMult*=1.35;slMult*=0.92;}
   else if(qual==='STRONG')tpMult*=1.15;
@@ -1719,24 +1931,25 @@ async function fireSniperOrder(sig,price,atr,conf,qual,regime){
   const slAmt=atr*slMult;
   let qty=Math.floor(equity*riskPct/slAmt*sizeMult*1000)/1000;
   qty=Math.min(qty,Math.floor(bp*.9/price*1000)/1000,Math.floor(equity*.15/price*1000)/1000);
-  if(qty<=0){slog('Qty calc: too small, skipping','warn');return;}
+  if(qty<=0){slog(`[${activeSym.split('/')[0]}] Qty too small, skip`,'warn');return;}
   const potentialTP=fp(sig==='BUY'?price+atr*tpMult:price-atr*tpMult);
   const potentialSL=fp(sig==='BUY'?price-slAmt:price+slAmt);
-  slog(`Sizing: qty=${qty} TP=${potentialTP} SL=${potentialSL} (${(tpMult/slMult).toFixed(1)}:1 R:R)`,'fired');
+  slog(`[${activeSym.split('/')[0]}] qty=${qty} TP=${potentialTP} SL=${potentialSL} (${(tpMult/slMult).toFixed(1)}:1)`,'fired');
   try{
     const base=S.alpMode==='paper'?'https://paper-api.alpaca.markets':'https://api.alpaca.markets';
-    const isCrypto=S.pair.includes('/');
-    const body={symbol:isCrypto?S.pair:S.pair.replace('/',''),qty:qty.toString(),side:sig.toLowerCase(),type:'market',time_in_force:isCrypto?'gtc':'day'};
+    const isCrypto=activeSym.includes('/');
+    const body={symbol:isCrypto?activeSym:activeSym.replace('/',''),qty:qty.toString(),side:sig.toLowerCase(),type:'market',time_in_force:isCrypto?'gtc':'day'};
     const r=await fetch(`${base}/v2/orders`,{method:'POST',headers:{'APCA-API-KEY-ID':S.alpKey,'APCA-API-SECRET-KEY':S.alpSec,'Content-Type':'application/json'},body:JSON.stringify(body)});
-    if(!r.ok){const e=await r.json();slog('Order fail: '+(e.message||r.status),'err');S.sniperLoss++;updateSniperStats();return;}
-    slog(`FIRED ✓ ${sig} ${qty} ${S.pair} @ ${fp(price)}`,'fired');
-    toast(`🎯 ${sig} ${qty} ${S.pair.split('/')[0]} @ ${fp(price)}`,'sniper');
+    if(!r.ok){const e=await r.json();slog(`[${activeSym.split('/')[0]}] Order fail: `+(e.message||r.status),'err');S.sniperLoss++;updateSniperStats();return;}
+    slog(`🔥 FIRED ${sig} ${qty} ${activeSym} @ ${fp(price)}`,'fired');
+    toast(`🎯 ${sig} ${qty} ${activeSym.split('/')[0]} @ ${fp(price)}`,'sniper');
     S.sniperTrades++;S.sniperWins++;
     updateSniperStats();
-    const st=document.getElementById('STRADES');if(st)st.textContent=S.sniperTrades+' trades';
+    const stEl=document.getElementById('STRADES');if(stEl)stEl.textContent=S.sniperTrades+' trades';
     setTimeout(fetchAlpacaAccount,2000);
-  }catch(e){slog('Order error: '+(e.message||e),'err');S.sniperLoss++;updateSniperStats();}
+  }catch(e){slog(`[${activeSym.split('/')[0]}] Error: `+(e.message||e),'err');S.sniperLoss++;updateSniperStats();}
 }
+
 function updateSniperStats(){
   const total=S.sniperWins+S.sniperLoss;
   const wr=total?Math.round(S.sniperWins/total*100):0;

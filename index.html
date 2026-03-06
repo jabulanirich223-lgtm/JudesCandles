@@ -546,13 +546,8 @@ kbd{background:var(--b0);border:1px solid var(--b1);border-radius:2px;padding:1p
 ════════════════════════════════════════════════════ -->
 <canvas id="CV"></canvas>
 
-<!-- Load Part 2: Indicators + Signal Engine -->
-<script src="apex_v6_part2_indicators.js"></script>
-<!-- Load Part 3: Chart, UI, Alpaca, Sniper, Main Loop -->
-<script src="apex_v6_part3_main.js"></script>
 
-</body>
-</html>
+<script>
 // ═══════════════════════════════════════════════════════════════
 // APEX ULTRA v6 — PART 2 OF 3
 // Indicators + Signal Engine
@@ -1412,7 +1407,11 @@ window.APEX_INDICATORS = {
   calcIchimoku, calcFibLevels, calcSupportResistance,
   calcHeikinAshi, detectPatterns, calcWilderSmooth
 };
-window.APEX_ENGINE = { runSignalEngine, runLocalAgents, runAIAgents };// ═══════════════════════════════════════════════════════════════
+window.APEX_ENGINE = { runSignalEngine, runLocalAgents, runAIAgents };
+</script>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
 // APEX ULTRA v6 — PART 3 OF 3
 // Chart Rendering, UI Updates, Alpaca, Sniper, Main Loop
 // Load AFTER Part 1 (HTML/CSS) and Part 2 (Indicators)
@@ -3089,3 +3088,7 @@ window.removeAlert = removeAlert;
 window.setDrawTool = setDrawTool;
 window.clearDrawings = clearDrawings;
 window.isCrypto = isCrypto;
+</script>
+
+</body>
+</html>

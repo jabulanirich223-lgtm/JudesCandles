@@ -1982,8 +1982,11 @@ async function runOmniSniperFullScan() {
       try {
         const candles = await fetchCandles(sym, S.tf);
         if (candles && candles.length >= 40) {
-          sig = window.APEX_ENGINE?.runSignalEngine(candles);
-          S.omniData[sym] = { candles, sig, lastFetch: now, fetchError: false };
+          const newSig = window.APEX_ENGINE?.runSignalEngine(candles);
+          if (newSig) {
+            sig = newSig;
+            S.omniData[sym] = { candles, sig, lastFetch: now, fetchError: false };
+          }
         }
       } catch(e) {
         S.omniData[sym] = { ...( S.omniData[sym] || {}), fetchError: true, lastFetch: now };
@@ -2022,7 +2025,7 @@ async function runOmniSniperFullScan() {
 function updateOmniGridCell(sym, sig) {
   const id = `og3_${sym.replace('/','_')}`;
   let cell = document.getElementById(id);
-  if (!cell) return;
+  if (!cell || !sig) return;
   const dir = sig.direction;
   const cls = dir === 'BUY' ? 'bull' : dir === 'SELL' ? 'bear' : '';
   cell.className = `og3-cell ${cls}`;
@@ -2261,8 +2264,8 @@ async function loadData(){
     S.sig=sig;
 
     // Also cache for omni
-    S.omniData[S.pair]={candles,sig,lastFetch:Date.now()/1000,fetchError:false};
-    updateOmniGridCell(S.pair,sig);
+    S.omniData[S.pair]={candles,sig:sig||null,lastFetch:Date.now()/1000,fetchError:false};
+    if(sig) updateOmniGridCell(S.pair,sig);
 
     lb.style.width='72%';
     if(sig){

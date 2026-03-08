@@ -5195,7 +5195,7 @@ async function fetchAccount() {
       cash:             parseFloat(data.cash                 || 0),
       // buying_power is 4× leverage on margin, 1× on cash.
       // non_marginable_buying_power is always the safe "real cash" BP.
-      buyingPower:      parseFloat(data.non_marginable_buying_power || data.buying_power || 0),
+      buyingPower:      parseFloat(data.buying_power || 0),  // full BP including margin
       portfolioVal:     parseFloat(data.portfolio_value      || 0),
       dayPnl:           parseFloat(data.unrealized_intraday_pl || 0),
       status:           data.status,
@@ -5609,12 +5609,12 @@ async function placeAlpacaOrder(sig, ind) {
     console.warn('[ORDER SKIP] BP=0 or account not loaded');
     return;
   }
-  const riskDol = Math.min(bp * 0.01, 200);   // risk 1% of BP, hard cap $200
+  // ── Position sizing — uses full buying power ─────────────────────
+  // Risk per trade: 5% of BP (no hard dollar cap — scales with account size)
+  // Max position: 90% of BP so account is never fully locked
+  const riskDol         = bp * 0.05;          // risk 5% of BP per trade
+  const maxPositionCost = bp * 0.90;          // never exceed 90% of BP
   const slDelta = Math.abs(price - slPrice);
-
-  // Hard cap: never spend more than 10% of available BP in one trade.
-  // This ensures we always have room even with other open positions.
-  const maxPositionCost = bp * 0.10;
 
   // ══════════════════════════════════════════════════════════════════
   // PATH A — CRYPTO: plain market order  (bracket NOT supported)
@@ -5622,8 +5622,8 @@ async function placeAlpacaOrder(sig, ind) {
   // ══════════════════════════════════════════════════════════════════
   if (crypto) {
     let rawQty = riskDol / slDelta;
-    // Never exceed 5% of BP in one crypto trade
-    const maxQty = (bp * 0.05) / price;
+    // Never exceed 40% of BP in one crypto trade
+    const maxQty = (bp * 0.40) / price;
     rawQty = Math.min(rawQty, maxQty);
 
     // Enforce Alpaca $10 minimum notional
@@ -6089,7 +6089,7 @@ async function modalConnect() {
     ST.alpaca.account = {
       equity:      parseFloat(data.equity       || 0),
       cash:        parseFloat(data.cash         || 0),
-      buyingPower:     parseFloat(data.non_marginable_buying_power || data.buying_power || 0),
+      buyingPower:     parseFloat(data.buying_power || 0),  // full BP including margin
       shortingEnabled: data.shorting_enabled === true,
       dayPnl:      parseFloat(data.unrealized_pl|| 0),
     };

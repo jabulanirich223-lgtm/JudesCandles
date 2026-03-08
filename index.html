@@ -5488,6 +5488,18 @@ function fallbackPrice(pair) {
 }
 
 
+// ── Global order lock — prevents simultaneous orders overspending BP ──
+// Only one order executes at a time. Others wait up to 30s.
+let _orderLock = false;
+async function acquireOrderLock() {
+  const deadline = Date.now() + 30000;
+  while (_orderLock && Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, 250));
+  }
+  _orderLock = true;
+}
+function releaseOrderLock() { _orderLock = false; }
+
 // ── cancelOpenOrdersFor — cancel all pending orders for a symbol ──
 // This frees up reserved buying power before placing a new order.
 async function cancelOpenOrdersFor(sym) {
@@ -5527,43 +5539,55 @@ async function placeAlpacaOrder(sig, ind) {
   const side   = bull ? 'buy' : 'sell';
 
   // ── 0. Pre-flight ─────────────────────────────────────────────────
+  // Acquire global lock — ensures only ONE order runs at a time.
+  // This prevents two signals from both reading the same BP and
+  // each trying to spend 95% of it simultaneously.
+  await acquireOrderLock();
+
+  try { // IMPORTANT: lock must be released in finally block below
+
   // Step 1: Cancel any open orders for this symbol — they reserve BP
   await cancelOpenOrdersFor(sym);
 
-  // Step 2: Fetch live account directly right now — do NOT use cached value.
-  // This gives us the exact BP after cancellations have cleared.
-  let liveBP = 0;
+  // Step 2: Fetch live account right now — exact values after cancellations.
+  let liveBP = 0, liveEquity = 0, liveCash = 0;
   let shortingEnabled = ST.alpaca.account?.shortingEnabled || false;
   try {
     const acctR = await alpacaFetch(`${tradingURL()}/v2/account`, { headers: alpacaHeaders() });
     const acctD = await acctR.json();
     if (!acctD.id) throw new Error('bad account response');
-    liveBP = parseFloat(acctD.buying_power || 0);
+    liveBP       = parseFloat(acctD.buying_power                || 0);
+    liveEquity   = parseFloat(acctD.equity                      || 0);
+    liveCash     = parseFloat(acctD.cash                        || 0);
     shortingEnabled = acctD.shorting_enabled === true;
-    // Also update the cached object so the UI stays current
     ST.alpaca.account = {
       ...ST.alpaca.account,
       buyingPower:    liveBP,
+      equity:         liveEquity,
+      cash:           liveCash,
       shortingEnabled,
-      equity:         parseFloat(acctD.equity || 0),
-      cash:           parseFloat(acctD.cash   || 0),
     };
-    console.log(`[PRE-FLIGHT] ${sym} live BP=$${liveBP.toFixed(2)} shorting=${shortingEnabled}`);
+    console.log(`[PRE-FLIGHT] ${sym} equity=$${liveEquity.toFixed(2)} BP=$${liveBP.toFixed(2)} cash=$${liveCash.toFixed(2)}`);
   } catch(e) {
-    console.warn('[PRE-FLIGHT] Could not fetch live BP:', e.message);
-    liveBP = parseFloat(ST.alpaca.account?.buyingPower) || 0;
+    console.warn('[PRE-FLIGHT] Account fetch failed:', e.message);
+    liveEquity = parseFloat(ST.alpaca.account?.equity)      || 0;
+    liveBP     = parseFloat(ST.alpaca.account?.buyingPower) || 0;
+    liveCash   = parseFloat(ST.alpaca.account?.cash)        || 0;
   }
 
-  if (liveBP <= 0) {
-    toast(`⚠ No buying power available ($${liveBP.toFixed(2)})`, 'sell', 4000);
-    console.warn('[ORDER SKIP] BP=0');
+  // Use the SMALLER of equity and buying_power as the safe reference.
+  // buying_power on margin = 4× equity — we never want to spend that much.
+  // equity = real account value. That's what we actually have.
+  const safeRef = liveEquity > 0 ? liveEquity : liveBP;
+  if (safeRef <= 0) {
+    toast(`⚠ Account balance is $0 — cannot place order`, 'sell', 4000);
+    console.warn('[ORDER SKIP] safeRef=0');
     return;
   }
 
   // Step 3: Block short sells if account doesn't support them
   if (side === 'sell' && !crypto) {
     if (!shortingEnabled && !ST.alpaca.paper) {
-      console.log(`[ORDER SKIP] Short selling not enabled for ${sym}`);
       toast(`⚠ Short selling not enabled on this account`, 'sell', 3000);
       return;
     }
@@ -5629,13 +5653,14 @@ async function placeAlpacaOrder(sig, ind) {
     return;
   }
 
-  // ── 6. Position sizing — using LIVE BP fetched moments ago ──────────
-  // liveBP is the exact buying power available RIGHT NOW after cancellations.
-  const bp              = liveBP;
-  const riskDol         = bp * 0.05;   // risk 5% of available BP per trade
-  const maxPositionCost = bp * 0.95;   // hard ceiling: never exceed 95% of BP
+  // ── 6. Position sizing ───────────────────────────────────────────────
+  // safeRef = equity = real money we actually have (not 4× margin BP).
+  // Max per trade = 20% of equity. This means 5 simultaneous positions
+  // max, and each one is affordable even if others are open.
+  const riskDol         = safeRef * 0.05;   // target risk: 5% of equity
+  const maxPositionCost = safeRef * 0.20;   // hard ceiling: 20% of equity per trade
   const slDelta         = Math.abs(price - slPrice);
-  console.log(`[SIZING] BP=$${bp.toFixed(2)} risk=$${riskDol.toFixed(2)} maxCost=$${maxPositionCost.toFixed(2)}`);
+  console.log(`[SIZING] equity=$${safeRef.toFixed(2)} risk=$${riskDol.toFixed(2)} maxCost=$${maxPositionCost.toFixed(2)}`);
 
   // ══════════════════════════════════════════════════════════════════
   // PATH A — CRYPTO: plain market order  (bracket NOT supported)
@@ -5643,9 +5668,12 @@ async function placeAlpacaOrder(sig, ind) {
   // ══════════════════════════════════════════════════════════════════
   if (crypto) {
     let rawQty = riskDol / slDelta;
-    // Never exceed 40% of BP in one crypto trade
-    const maxQty = (bp * 0.40) / price;
+    // Never exceed maxPositionCost (20% of equity) in one crypto trade
+    const maxQty = maxPositionCost / price;
     rawQty = Math.min(rawQty, maxQty);
+    // Final check: notional must also fit within liveBP
+    const liveBPMaxQty = (liveBP * 0.90) / price;
+    rawQty = Math.min(rawQty, liveBPMaxQty);
 
     // Format qty without scientific notation
     let qtyStr;
@@ -5679,6 +5707,7 @@ async function placeAlpacaOrder(sig, ind) {
       stop_price: String(slPrice),
     }, sym, slPrice), 2000);
 
+    releaseOrderLock(); // release after entry is sent (TP/SL are async)
     return;
   }
 
@@ -5694,7 +5723,16 @@ async function placeAlpacaOrder(sig, ind) {
   // Step 3: take the minimum of both caps, minimum 1
   shares = Math.max(1, Math.min(shares, maxSharesByCost));
 
-  console.log(`[STOCK SIZING] ${sym} riskDol=${riskDol.toFixed(0)} slDelta=${slDelta.toFixed(4)} rawShares=${Math.floor(riskDol/slDelta)} cappedShares=${shares} totalCost=$${(shares*price).toFixed(0)} BP=$${bp.toFixed(0)}`);
+  // Final check: total cost must fit within actual buying_power (not equity)
+  // buying_power is what Alpaca will actually debit for the purchase
+  const totalCost = shares * price;
+  if (totalCost > liveBP) {
+    // Trim shares so total cost <= 90% of actual BP
+    shares = Math.max(1, Math.floor((liveBP * 0.90) / price));
+    console.warn(`[SIZING TRIM] ${sym} trimmed to ${shares} shares ($${(shares*price).toFixed(0)}) to fit BP=$${liveBP.toFixed(0)}`);
+  }
+
+  console.log(`[STOCK SIZING] ${sym} shares=${shares} cost=$${(shares*price).toFixed(0)} BP=$${liveBP.toFixed(0)} equity=$${safeRef.toFixed(0)}`);
 
   const stockBody = {
     symbol:        sym,
@@ -5709,6 +5747,8 @@ async function placeAlpacaOrder(sig, ind) {
 
   console.log(`[STOCK BRACKET] ${side.toUpperCase()} ${shares}x${sym} ~$${price} | SL:${slPrice} TP:${tpPrice} | cost=$${(shares*price).toFixed(0)}`, stockBody);
   await _sendOrder(stockBody, sym, price);
+
+  } finally { releaseOrderLock(); } // always release lock
 }
 
 // ── _sendOrder: POST to Alpaca, return true on success ────────────

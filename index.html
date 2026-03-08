@@ -1431,7 +1431,7 @@ input[type=range]::-webkit-slider-thumb {
       <div class="pnl-sparkline" id="pnlSpark"></div>
     </div>
     <div class="sec">
-      <div class="sh">ALPACA BROKER
+      <div class="sh" style="background:linear-gradient(90deg,rgba(0,212,255,0.12),transparent);color:#00d4ff;border-bottom:1px solid rgba(0,212,255,0.2);">⚡ ALPACA BROKER
         <span class="sh-r" id="modePill2" style="font-size:8px;letter-spacing:.1em;padding:1px 6px;border-radius:2px;background:rgba(0,212,255,0.1);color:#00d4ff;">PAPER</span>
       </div>
       <div class="api-wrap">
@@ -1470,6 +1470,10 @@ input[type=range]::-webkit-slider-thumb {
           <button class="alp-connect-btn" id="alpConnectBtn" onclick="handleConnectClick()">
             ▶ CONNECT TO ALPACA
           </button>
+          <div style="display:flex;gap:4px;padding:0 12px 8px;">
+            <button onclick="testAlpacaKeys()" style="flex:1;padding:5px;font-size:8px;letter-spacing:.1em;background:rgba(255,214,10,0.08);border:1px solid rgba(255,214,10,0.2);color:#ffd60a;cursor:pointer;border-radius:3px;">🔍 TEST KEYS</button>
+            <button onclick="togglePaper()" style="flex:1;padding:5px;font-size:8px;letter-spacing:.1em;background:rgba(0,212,255,0.06);border:1px solid rgba(0,212,255,0.15);color:#00d4ff;cursor:pointer;border-radius:3px;" id="quickPaperBtn">📄 PAPER</button>
+          </div>
 
           <!-- Account Stats (shown after connect) -->
           <div class="alp-acct" id="apiAcct">
@@ -5010,7 +5014,7 @@ async function fetchAlpacaCandles(pair, tf) {
     : `https://data.alpaca.markets/v2/stocks/${encodeURIComponent(sym)}/bars?timeframe=${tf2}&limit=300&adjustment=raw`;
 
   try {
-    const r = await fetch(endpoint, { headers: alpacaHeaders() });
+    const r = await alpacaFetch(endpoint, { headers: alpacaHeaders() });
     const data = await r.json();
     const bars = crypto
       ? (data.bars?.[sym] || data.bars?.[pair] || [])
@@ -5110,15 +5114,42 @@ function alpacaSymbol(pair) {
 function tradingURL() {
   return ST.alpaca.paper ? 'https://paper-api.alpaca.markets' : 'https://api.alpaca.markets';
 }
-function dataURL(pair) {
-  return isCrypto(pair) ? 'https://data.alpaca.markets' : 'https://data.alpaca.markets';
+function dataURL() { return 'https://data.alpaca.markets'; }
+
+// ── CORS proxy wrapper — required when running as file:// ──
+// Tries direct first, falls back to corsproxy.io
+const PROXY = 'https://corsproxy.io/?';
+function proxyURL(url) {
+  // If running from localhost or https, try direct. file:// needs proxy.
+  const origin = window.location.protocol;
+  if (origin === 'file:' || ST.alpaca._useProxy) return PROXY + encodeURIComponent(url);
+  return url;
 }
-function alpacaHeaders() {
-  return {
+
+async function alpacaFetch(url, options={}) {
+  const directURL = url;
+  const proxiedURL = PROXY + encodeURIComponent(url);
+  // First try direct
+  try {
+    const r = await fetch(directURL, options);
+    ST.alpaca._useProxy = false;
+    return r;
+  } catch(e) {
+    // CORS or network error — try proxy
+    console.warn('Direct fetch failed, trying proxy:', e.message);
+    ST.alpaca._useProxy = true;
+    const r2 = await fetch(proxiedURL, options);
+    return r2;
+  }
+}
+
+function alpacaHeaders(includeContentType=false) {
+  const h = {
     'APCA-API-KEY-ID': ST.alpaca.key,
     'APCA-API-SECRET-KEY': ST.alpaca.secret,
-    'Content-Type': 'application/json'
   };
+  if (includeContentType) h['Content-Type'] = 'application/json';
+  return h;
 }
 
 // ── setApiStatus — updates the status box in the panel ──
@@ -5133,7 +5164,7 @@ function setApiStatus(msg, type='info') {
 async function fetchAccount() {
   if (!ST.alpaca.connected) return;
   try {
-    const r = await fetch(`${tradingURL()}/v2/account`, { headers: alpacaHeaders() });
+    const r = await alpacaFetch(`${tradingURL()}/v2/account`, { headers: alpacaHeaders() });
     const data = await r.json();
     if (!data.id) { setApiStatus('⚠ Account fetch failed', 'err'); return; }
 
@@ -5181,7 +5212,7 @@ async function fetchAccount() {
 async function fetchPositions() {
   if (!ST.alpaca.connected) return;
   try {
-    const r = await fetch(`${tradingURL()}/v2/positions`, { headers: alpacaHeaders() });
+    const r = await alpacaFetch(`${tradingURL()}/v2/positions`, { headers: alpacaHeaders() });
     const positions = await r.json();
     if (!Array.isArray(positions)) return;
     ST.alpaca.positions = positions.map(p => ({
@@ -5219,6 +5250,44 @@ function renderPositions() {
 }
 
 // ── connectAlpaca ──
+
+// ── testAlpacaKeys — diagnostic fetch to show raw response ──
+async function testAlpacaKeys() {
+  const key    = document.getElementById('apiKey')?.value?.trim();
+  const secret = document.getElementById('apiSec')?.value?.trim();
+  if (!key || !secret) { toast('Enter keys first', 'sell', 2000); return; }
+  
+  setApiStatus('Testing keys...', 'info');
+  const url = (ST.alpaca.paper ? 'https://paper-api.alpaca.markets' : 'https://api.alpaca.markets') + '/v2/account';
+  try {
+    const r = await alpacaFetch(url, {
+      headers: { 'APCA-API-KEY-ID': key, 'APCA-API-SECRET-KEY': secret }
+    });
+    const txt = await r.text();
+    let data;
+    try { data = JSON.parse(txt); } catch(e) { data = { raw: txt }; }
+    
+    if (data.id) {
+      setApiStatus(`✓ KEYS VALID — Acct: ${data.id.slice(0,8)}... Status: ${data.status}`, 'ok');
+      toast(`✓ Keys valid! Equity: $${parseFloat(data.equity||0).toFixed(2)}`, 'buy', 5000);
+    } else if (data.code) {
+      setApiStatus(`✗ Error ${data.code}: ${data.message}`, 'err');
+      toast(`✗ ${data.message}`, 'sell', 5000);
+    } else {
+      setApiStatus(`Response: ${txt.slice(0,80)}`, 'err');
+    }
+    console.log('Alpaca test response:', data);
+  } catch(e) {
+    const isCORS = e.message.includes('fetch') || e.message === 'Failed to fetch' || e.message === 'Load failed' || e.message === 'NetworkError';
+    if (isCORS) {
+      setApiStatus('⚠ Proxy also failed — check internet connection', 'err');
+      toast('⚠ Network error — both direct and proxy failed', 'sell', 5000);
+    } else {
+      setApiStatus('✗ Network error: ' + e.message, 'err');
+    }
+    console.error('Alpaca test error:', e);
+  }
+}
 function connectAlpaca() {
   const key    = document.getElementById('apiKey')?.value?.trim();
   const secret = document.getElementById('apiSec')?.value?.trim();
@@ -5231,14 +5300,18 @@ function connectAlpaca() {
   setApiStatus('Connecting to Alpaca...', 'info');
   toast('Connecting to Alpaca...', 'info', 2000);
 
-  fetch(`${tradingURL()}/v2/account`, { headers: alpacaHeaders() })
-    .then(r => r.json())
+  alpacaFetch(`${tradingURL()}/v2/account`, { headers: alpacaHeaders() })
+    .then(r => {
+      if (!r.ok) return r.text().then(t => { throw new Error(`HTTP ${r.status}: ${t.slice(0,120)}`); });
+      return r.json();
+    })
     .then(data => {
-      if (!data.id) throw new Error(data.message || 'Auth failed');
+      if (data.code === 40110000) throw new Error('Invalid API key');
+      if (data.code === 40010001) throw new Error('Invalid secret key');
+      if (!data.id) throw new Error(data.message || data.error || 'Auth failed — verify keys');
 
       ST.alpaca.connected = true;
-      const acctEl = document.getElementById('apiAcct'); if(acctEl) acctEl.style.display='block';
-      _syncPillUI();
+      _setConnectedUI(true);
       const eq = parseFloat(data.equity || data.buying_power || 0).toFixed(2);
       toast(`✓ Alpaca ${paper?'PAPER':'LIVE'} connected
 Equity: $${eq}`, 'buy', 5000);
@@ -5254,8 +5327,14 @@ Equity: $${eq}`, 'buy', 5000);
       fetchAlpacaData(ST.pair, ST.tf);
     })
     .catch(err => {
-      setApiStatus('✗ ' + (err.message || 'Connection failed'), 'err');
-      toast('✗ Alpaca: ' + (err.message || 'Connection failed'), 'sell', 4000);
+      _setConnectingUI(false);
+      let msg = err.message || 'Connection failed';
+      if (msg.includes('fetch') || msg.includes('Failed') || msg === 'Load failed') {
+        msg = 'CORS error — open from file:// or use Chrome with CORS disabled';
+      }
+      setApiStatus('✗ ' + msg, 'err');
+      toast('✗ Alpaca: ' + msg, 'sell', 5000);
+      console.error('Alpaca connect error:', err);
     });
 }
 
@@ -5271,7 +5350,7 @@ function fetchAlpacaData(pair, tf) {
     ? `https://data.alpaca.markets/v1beta3/crypto/us/bars?symbols=${encodeURIComponent(sym)}&timeframe=${tf2}&limit=350`
     : `https://data.alpaca.markets/v2/stocks/${encodeURIComponent(sym)}/bars?timeframe=${tf2}&limit=350&adjustment=raw`;
 
-  fetch(endpoint, { headers: alpacaHeaders() })
+  alpacaFetch(endpoint, { headers: alpacaHeaders() })
     .then(r => r.json())
     .then(data => {
       // Crypto: data.bars[sym], Stock: data.bars array
@@ -5345,9 +5424,9 @@ async function placeAlpacaOrder(sig, ind) {
   };
 
   try {
-    const r = await fetch(`${tradingURL()}/v2/orders`, {
+    const r = await alpacaFetch(`${tradingURL()}/v2/orders`, {
       method: 'POST',
-      headers: alpacaHeaders(),
+      headers: alpacaHeaders(true),
       body: JSON.stringify(body)
     });
     const order = await r.json();
@@ -5415,15 +5494,19 @@ function _setConnectingUI(connecting) {
 }
 
 function _setConnectedUI(connected) {
-  const dot = document.getElementById('alpDot');
-  const btn = document.getElementById('alpConnectBtn');
-  const acct = document.getElementById('apiAcct');
-  const row  = document.getElementById('alpLiveOrdersRow');
-  if (dot)  dot.className  = 'alp-dot'+(connected?' connected':'');
-  if (btn)  { btn.textContent = connected ? '■ DISCONNECT' : '▶ CONNECT TO ALPACA'; btn.className = 'alp-connect-btn'+(connected?' connected':''); }
-  if (acct) acct.className = 'alp-acct'+(connected?' visible':'');
-  if (row)  row.style.display = connected ? 'flex' : 'none';
+  const dot     = document.getElementById('alpDot');
+  const btn     = document.getElementById('alpConnectBtn');
+  const acct    = document.getElementById('apiAcct');
+  const row     = document.getElementById('alpLiveOrdersRow');
+  const statusT = document.getElementById('alpStatusText');
+  if (dot)     dot.className  = 'alp-dot'+(connected?' connected':'');
+  if (btn)     { btn.textContent = connected ? '■ DISCONNECT' : '▶ CONNECT TO ALPACA'; btn.className = 'alp-connect-btn'+(connected?' connected':''); }
+  if (acct)    { acct.className = 'alp-acct'+(connected?' visible':''); }
+  if (row)     row.style.display = connected ? 'flex' : 'none';
+  if (statusT && !connected) statusT.textContent = 'NOT CONNECTED';
   _syncPillUI();
+  // Refresh orders tab to show/hide portfolio block
+  if (ST.rtab === 'orders') renderOrdersTab();
 }
 
 function disconnectAlpaca() {

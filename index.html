@@ -5653,86 +5653,138 @@ async function placeAlpacaOrder(sig, ind) {
     return;
   }
 
-  // ── 6. Position sizing ───────────────────────────────────────────────
-  // safeRef = equity = real money we actually have (not 4× margin BP).
-  // Max per trade = 20% of equity. This means 5 simultaneous positions
-  // max, and each one is affordable even if others are open.
-  const riskDol         = safeRef * 0.05;   // target risk: 5% of equity
-  const maxPositionCost = safeRef * 0.20;   // hard ceiling: 20% of equity per trade
-  const slDelta         = Math.abs(price - slPrice);
-  console.log(`[SIZING] equity=$${safeRef.toFixed(2)} risk=$${riskDol.toFixed(2)} maxCost=$${maxPositionCost.toFixed(2)}`);
+  // ── 6. Position sizing — DEAD SIMPLE ────────────────────────────────
+  // Rule: never spend more than you have.
+  // affordable = the MINIMUM of cash, equity, and buying_power.
+  // This handles cash accounts, margin accounts, everything.
+  const affordable = Math.min(
+    liveCash   > 0 ? liveCash   : Infinity,
+    liveEquity > 0 ? liveEquity : Infinity,
+    liveBP     > 0 ? liveBP     : Infinity
+  );
+  if (!isFinite(affordable) || affordable <= 0) {
+    toast(`⚠ Cannot determine account balance`, 'sell', 4000);
+    console.error('[ORDER ABORT] affordable=0', {liveCash, liveEquity, liveBP});
+    return;
+  }
+
+  // Max dollars we'll spend on this single trade: 20% of what we have.
+  // This means we can have 5 open positions and still be fully funded.
+  const maxSpend = affordable * 0.20;
+  console.log(`[SIZING] affordable=$${affordable.toFixed(2)} maxSpend=$${maxSpend.toFixed(2)} (cash=${liveCash.toFixed(2)} eq=${liveEquity.toFixed(2)} bp=${liveBP.toFixed(2)})`);
 
   // ══════════════════════════════════════════════════════════════════
-  // PATH A — CRYPTO: plain market order  (bracket NOT supported)
-  // Alpaca minimum notional = $10. After fill, place TP limit + SL stop.
+  // PATH A — CRYPTO
+  //
+  // BUY:  qty = maxSpend / price  (limited by USD balance)
+  // SELL: qty = what you actually OWN  (limited by position size)
+  //        → Alpaca rejects any sell qty > position qty
   // ══════════════════════════════════════════════════════════════════
   if (crypto) {
-    let rawQty = riskDol / slDelta;
-    // Never exceed maxPositionCost (20% of equity) in one crypto trade
-    const maxQty = maxPositionCost / price;
-    rawQty = Math.min(rawQty, maxQty);
-    // Final check: notional must also fit within liveBP
-    const liveBPMaxQty = (liveBP * 0.90) / price;
-    rawQty = Math.min(rawQty, liveBPMaxQty);
+    let qty;
+
+    if (side === 'sell') {
+      // For SELLS: look up the actual position we hold.
+      // Fetch directly from Alpaca so it's always accurate.
+      let heldQty = 0;
+      try {
+        const posR = await alpacaFetch(
+          `${tradingURL()}/v2/positions/${encodeURIComponent(sym)}`,
+          { headers: alpacaHeaders() }
+        );
+        if (posR.ok) {
+          const posD = await posR.json();
+          heldQty = parseFloat(posD.qty_available ?? posD.qty ?? 0);
+        }
+      } catch(e) {
+        // Also check cached positions array
+        const cached = ST.alpaca.positions?.find(p => p.symbol === sym);
+        heldQty = cached?.qty || 0;
+      }
+
+      if (heldQty <= 0) {
+        toast(`⚠ No ${sym} position to sell`, 'sell', 3000);
+        console.warn(`[ORDER SKIP] SELL ${sym}: heldQty=${heldQty}`);
+        releaseOrderLock();
+        return;
+      }
+
+      qty = heldQty; // sell entire position
+      console.log(`[CRYPTO SELL] selling full position: ${qty} ${sym}`);
+
+    } else {
+      // BUY: size from dollar budget — must stay within USD balance
+      qty = maxSpend / price;
+      // Verify won't exceed affordable
+      if (qty * price > affordable * 0.99) {
+        qty = (affordable * 0.99) / price;
+      }
+      console.log(`[CRYPTO BUY] qty=${qty.toFixed(8)} ${sym} notional~$${(qty*price).toFixed(2)}`);
+    }
 
     // Format qty without scientific notation
     let qtyStr;
-    if      (rawQty >= 1)     qtyStr = rawQty.toFixed(4);
-    else if (rawQty >= 0.01)  qtyStr = rawQty.toFixed(6);
-    else                      qtyStr = rawQty.toFixed(8);
-    if (qtyStr.includes('e')) qtyStr = rawQty.toFixed(8);
+    if      (qty >= 1)     qtyStr = qty.toFixed(4);
+    else if (qty >= 0.01)  qtyStr = qty.toFixed(6);
+    else                   qtyStr = qty.toFixed(8);
+    if (qtyStr.includes('e')) qtyStr = qty.toFixed(8);
 
-    const entryBody = {
-      symbol:        sym,
-      side,
-      type:          'market',
-      time_in_force: 'gtc',
-      qty:           qtyStr,
-    };
-    console.log(`[CRYPTO ENTRY] ${side.toUpperCase()} ${qtyStr} ${sym} ~$${price}`, entryBody);
+    const entryBody = { symbol: sym, side, type: 'market', time_in_force: 'gtc', qty: qtyStr };
     const entryOk = await _sendOrder(entryBody, sym, price);
     if (!entryOk) return;
 
-    // Place TP limit + SL stop after entry fills
-    const exitSide = bull ? 'sell' : 'buy';
-    setTimeout(() => _sendOrder({
-      symbol: sym, side: exitSide, type: 'limit',
-      time_in_force: 'gtc', qty: qtyStr,
-      limit_price: String(tpPrice),
-    }, sym, tpPrice), 1500);
+    // Exit orders after entry fills (only for BUY entries)
+    if (side === 'buy') {
+      const exitSide = 'sell';
+      setTimeout(() => _sendOrder({ symbol: sym, side: exitSide, type: 'limit', time_in_force: 'gtc', qty: qtyStr, limit_price: String(tpPrice) }, sym, tpPrice), 1500);
+      setTimeout(() => _sendOrder({ symbol: sym, side: exitSide, type: 'stop',  time_in_force: 'gtc', qty: qtyStr, stop_price:  String(slPrice) }, sym, slPrice), 2500);
+    }
 
-    setTimeout(() => _sendOrder({
-      symbol: sym, side: exitSide, type: 'stop',
-      time_in_force: 'gtc', qty: qtyStr,
-      stop_price: String(slPrice),
-    }, sym, slPrice), 2000);
-
-    releaseOrderLock(); // release after entry is sent (TP/SL are async)
+    releaseOrderLock();
     return;
   }
 
   // ══════════════════════════════════════════════════════════════════
-  // PATH B — STOCKS/ETFs: bracket order, whole shares only
-  // Cap total cost at 15% of BP to prevent "insufficient buying power"
+  // PATH B — STOCKS / ETFs
+  // BUY:  shares = floor(maxSpend / price)
+  // SELL: shares = shares you actually own (can't sell what you don't have)
   // ══════════════════════════════════════════════════════════════════
+  let shares;
 
-  // Step 1: shares from risk
-  let shares = Math.floor(riskDol / slDelta);
-  // Step 2: cap by total cost (THIS is what prevents the rejection)
-  const maxSharesByCost = Math.max(1, Math.floor(maxPositionCost / price));
-  // Step 3: take the minimum of both caps, minimum 1
-  shares = Math.max(1, Math.min(shares, maxSharesByCost));
+  if (side === 'sell') {
+    // Fetch live position qty for this symbol
+    let heldShares = 0;
+    try {
+      const posR = await alpacaFetch(
+        `${tradingURL()}/v2/positions/${encodeURIComponent(sym)}`,
+        { headers: alpacaHeaders() }
+      );
+      if (posR.ok) {
+        const posD = await posR.json();
+        heldShares = Math.floor(parseFloat(posD.qty_available ?? posD.qty ?? 0));
+      }
+    } catch(e) {
+      const cached = ST.alpaca.positions?.find(p => p.symbol === sym);
+      heldShares = cached ? Math.floor(cached.qty) : 0;
+    }
 
-  // Final check: total cost must fit within actual buying_power (not equity)
-  // buying_power is what Alpaca will actually debit for the purchase
-  const totalCost = shares * price;
-  if (totalCost > liveBP) {
-    // Trim shares so total cost <= 90% of actual BP
-    shares = Math.max(1, Math.floor((liveBP * 0.90) / price));
-    console.warn(`[SIZING TRIM] ${sym} trimmed to ${shares} shares ($${(shares*price).toFixed(0)}) to fit BP=$${liveBP.toFixed(0)}`);
+    if (heldShares <= 0) {
+      toast(`⚠ No ${sym} shares to sell`, 'sell', 3000);
+      console.warn(`[ORDER SKIP] SELL ${sym}: heldShares=${heldShares}`);
+      return;
+    }
+
+    shares = heldShares;
+    console.log(`[STOCK SELL] selling full position: ${shares} ${sym}`);
+  } else {
+    shares = Math.floor(maxSpend / price);
+    if (shares < 1) shares = 1;
+    // Hard verify cost fits
+    while (shares > 1 && shares * price > affordable * 0.99) shares--;
   }
 
-  console.log(`[STOCK SIZING] ${sym} shares=${shares} cost=$${(shares*price).toFixed(0)} BP=$${liveBP.toFixed(0)} equity=$${safeRef.toFixed(0)}`);
+  const orderCost = shares * price;
+  console.log(`[STOCK ORDER] ${side.toUpperCase()} ${shares}x${sym} @ ~$${price} = $${orderCost.toFixed(2)} (affordable=$${affordable.toFixed(2)})`);
 
   const stockBody = {
     symbol:        sym,
@@ -5744,11 +5796,9 @@ async function placeAlpacaOrder(sig, ind) {
     take_profit:   { limit_price: String(tpPrice) },
     stop_loss:     { stop_price:  String(slPrice)  },
   };
-
-  console.log(`[STOCK BRACKET] ${side.toUpperCase()} ${shares}x${sym} ~$${price} | SL:${slPrice} TP:${tpPrice} | cost=$${(shares*price).toFixed(0)}`, stockBody);
   await _sendOrder(stockBody, sym, price);
 
-  } finally { releaseOrderLock(); } // always release lock
+  } finally { releaseOrderLock(); }
 }
 
 // ── _sendOrder: POST to Alpaca, return true on success ────────────

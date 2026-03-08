@@ -862,33 +862,162 @@ input[type=range]::-webkit-slider-thumb {
 /* ═══════════════════════════════════════════════
    ALPACA API
 ═══════════════════════════════════════════════ */
-.api-wrap { padding:7px 8px; }
-.api-lbl { font-size:7px; letter-spacing:1px; color:var(--t3); margin-bottom:2px; }
-.api-inp {
-  width:100%; background:var(--bg0); border:1px solid var(--b1);
-  color:var(--t1); padding:4px 7px;
-  font-family:var(--font-hud); font-size:9px;
-  outline:none; margin-bottom:6px;
+/* ═══════ ALPACA CONNECTION HUB ═══════ */
+.api-wrap { padding:0; }
+
+.alp-hub {
+  background: linear-gradient(160deg, rgba(0,212,255,0.06) 0%, rgba(0,0,0,0) 60%);
+  border:1px solid rgba(0,212,255,0.2);
+  border-radius:6px;
+  margin:8px;
+  overflow:hidden;
 }
-.api-inp:focus { border-color:var(--c2); }
-.api-row { display:flex; gap:4px; }
-.api-btn {
-  flex:1; background:rgba(0,212,255,.06); border:1px solid var(--c3);
-  color:var(--c1); font-family:var(--font-hud); font-size:8px;
-  letter-spacing:2px; padding:5px; cursor:pointer; transition:all .12s;
+
+/* Status bar at top */
+.alp-status-bar {
+  display:flex; align-items:center; gap:8px;
+  padding:8px 12px;
+  background:rgba(0,0,0,0.3);
+  border-bottom:1px solid rgba(0,212,255,0.1);
 }
-.api-btn:hover { background:rgba(0,212,255,.13); border-color:var(--c2); }
+.alp-dot {
+  width:8px; height:8px; border-radius:50%;
+  background:#ff1a50; box-shadow:0 0 6px #ff1a50;
+  flex-shrink:0; transition:all .3s;
+}
+.alp-dot.connected { background:#00f87c; box-shadow:0 0 8px #00f87c; animation:alpPulse 2s infinite; }
+.alp-dot.connecting { background:#ffd60a; box-shadow:0 0 6px #ffd60a; animation:alpBlink .6s infinite; }
+@keyframes alpPulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+@keyframes alpBlink { 0%,100%{opacity:1} 50%{opacity:.2} }
+.alp-status-text { font-size:9px; letter-spacing:.08em; color:var(--t2); flex:1; }
+.alp-mode-badge {
+  font-size:8px; letter-spacing:.15em; padding:2px 7px;
+  border-radius:3px; font-weight:700;
+}
+.alp-mode-badge.paper { background:rgba(0,212,255,0.15); color:#00d4ff; border:1px solid rgba(0,212,255,0.3); }
+.alp-mode-badge.live  { background:rgba(255,26,80,0.2);  color:#ff1a50; border:1px solid rgba(255,26,80,0.4); animation:alpPulse 1.5s infinite; }
+
+/* Credential inputs */
+.alp-creds { padding:12px; display:flex; flex-direction:column; gap:8px; }
+.alp-field { position:relative; }
+.alp-field-label {
+  font-size:7px; letter-spacing:.15em; color:var(--t3);
+  margin-bottom:3px; display:flex; align-items:center; gap:4px;
+}
+.alp-field-label span { opacity:.5; }
+.alp-inp {
+  width:100%; background:rgba(0,0,0,0.4);
+  border:1px solid rgba(0,212,255,0.15);
+  border-radius:4px;
+  color:var(--t1); padding:7px 10px;
+  font-family:'JetBrains Mono',monospace; font-size:10px;
+  outline:none; transition:border-color .15s; box-sizing:border-box;
+}
+.alp-inp:focus { border-color:rgba(0,212,255,0.5); background:rgba(0,212,255,0.04); }
+.alp-inp::placeholder { color:rgba(255,255,255,0.15); font-size:9px; }
+.alp-inp.filled { border-color:rgba(0,248,124,0.3); }
+
+/* Mode toggle */
+.alp-mode-row {
+  display:flex; gap:6px; padding:0 12px 10px;
+}
+.alp-mode-btn {
+  flex:1; padding:6px; border-radius:4px; cursor:pointer;
+  font-family:var(--font-hud); font-size:8px; letter-spacing:.15em;
+  border:1px solid rgba(255,255,255,0.1); transition:all .15s;
+  background:transparent; color:var(--t3);
+}
+.alp-mode-btn.active-paper {
+  background:rgba(0,212,255,0.12); border-color:rgba(0,212,255,0.4);
+  color:#00d4ff; 
+}
+.alp-mode-btn.active-live {
+  background:rgba(255,26,80,0.15); border-color:rgba(255,26,80,0.5);
+  color:#ff1a50;
+}
+.alp-mode-btn:hover { opacity:.85; }
+
+/* Connect button */
+.alp-connect-btn {
+  width:calc(100% - 24px); margin:0 12px 12px;
+  padding:10px; border-radius:5px; cursor:pointer;
+  font-family:var(--font-hud); font-size:10px; letter-spacing:.2em;
+  border:1px solid rgba(0,212,255,0.4);
+  background:linear-gradient(90deg,rgba(0,212,255,0.15),rgba(0,248,124,0.1));
+  color:#00d4ff; font-weight:700;
+  transition:all .2s; position:relative; overflow:hidden;
+}
+.alp-connect-btn::after {
+  content:''; position:absolute; inset:0;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,0.05),transparent);
+  transform:translateX(-100%); transition:transform .5s;
+}
+.alp-connect-btn:hover::after { transform:translateX(100%); }
+.alp-connect-btn:hover { background:linear-gradient(90deg,rgba(0,212,255,0.25),rgba(0,248,124,0.18)); border-color:rgba(0,212,255,0.7); box-shadow:0 0 14px rgba(0,212,255,0.2); }
+.alp-connect-btn.connected {
+  background:linear-gradient(90deg,rgba(255,26,80,0.15),rgba(255,80,50,0.1));
+  color:#ff1a50; border-color:rgba(255,26,80,0.4);
+}
+
+/* Account stats grid */
+.alp-acct {
+  display:none; padding:0 12px 12px;
+  flex-direction:column; gap:6px;
+}
+.alp-acct.visible { display:flex; }
+.alp-acct-grid {
+  display:grid; grid-template-columns:1fr 1fr;
+  gap:4px;
+}
+.alp-stat {
+  background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.06);
+  border-radius:4px; padding:6px 8px;
+}
+.alp-stat-l { font-size:7px; letter-spacing:.1em; color:var(--t3); margin-bottom:2px; }
+.alp-stat-v { font-size:11px; font-family:'JetBrains Mono',monospace; font-weight:700; color:var(--t1); }
+.alp-stat-v.pos { color:#00f87c; }
+.alp-stat-v.neg { color:#ff1a50; }
+.alp-stat-v.neu { color:#00d4ff; }
+
+/* Live orders toggle */
+.alp-live-orders {
+  display:flex; align-items:center; justify-content:space-between;
+  background:rgba(255,26,80,0.08); border:1px solid rgba(255,26,80,0.2);
+  border-radius:4px; padding:7px 10px; margin:0 12px 10px; cursor:pointer;
+}
+.alp-live-orders-label { font-size:8px; letter-spacing:.12em; color:rgba(255,26,80,0.8); }
+.alp-live-orders-sub { font-size:7px; color:var(--t3); margin-top:1px; }
+.alp-toggle {
+  width:28px; height:15px; border-radius:8px;
+  background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.15);
+  position:relative; transition:all .2s; flex-shrink:0;
+}
+.alp-toggle::after {
+  content:''; position:absolute; top:2px; left:2px;
+  width:9px; height:9px; border-radius:50%;
+  background:var(--t3); transition:all .2s;
+}
+.alp-toggle.on { background:rgba(255,26,80,0.4); border-color:rgba(255,26,80,0.6); }
+.alp-toggle.on::after { left:15px; background:#ff1a50; box-shadow:0 0 5px #ff1a50; }
+
+/* Positions */
+#alpacaPositions { margin-top:6px; }
+.alp-divider { border:none; border-top:1px solid rgba(0,212,255,0.1); margin:4px 12px; }
+
+.api-status { display:none; } /* hidden — using alp-status-bar instead */
 .acct-row { display:flex; justify-content:space-between; font-size:10px; padding:2px 0; }
 .acct-l { color:var(--t3); }
 .acct-v { font-family:'JetBrains Mono',monospace; font-weight:700; }
 .api-status.ok  { color:#00f87c; }
 .api-status.err { color:#ff1a50; }
 .api-status.info{ color:#ffd60a; }
-#alpacaPositions { margin-top:6px; }
-.api-status {
-  margin-top:5px; text-align:center;
-  font-size:6px; letter-spacing:2px; color:var(--t3);
-}
+
+.api-lbl { font-size:7px; letter-spacing:1px; color:var(--t3); margin-bottom:2px; }
+.api-inp { width:100%; background:var(--bg0); border:1px solid var(--b1); color:var(--t1); padding:4px 7px; font-family:var(--font-hud); font-size:9px; outline:none; margin-bottom:6px; }
+.api-inp:focus { border-color:var(--c2); }
+.api-row { display:flex; gap:4px; }
+.api-btn { flex:1; background:rgba(0,212,255,.06); border:1px solid var(--c3); color:var(--c1); font-family:var(--font-hud); font-size:8px; letter-spacing:2px; padding:5px; cursor:pointer; transition:all .12s; }
+.api-btn:hover { background:rgba(0,212,255,.13); border-color:var(--c2); }
 
 /* ═══════════════════════════════════════════════
    TOAST NOTIFICATIONS
@@ -1280,29 +1409,78 @@ input[type=range]::-webkit-slider-thumb {
       <div class="pnl-sparkline" id="pnlSpark"></div>
     </div>
     <div class="sec">
-      <div class="sh">ALPACA LIVE</div>
+      <div class="sh">ALPACA BROKER
+        <span class="sh-r" id="modePill2" style="font-size:8px;letter-spacing:.1em;padding:1px 6px;border-radius:2px;background:rgba(0,212,255,0.1);color:#00d4ff;">PAPER</span>
+      </div>
       <div class="api-wrap">
-        <div class="api-lbl">API KEY</div>
-        <input class="api-inp" type="text" id="apiKey" placeholder="pk_live_...">
-        <div class="api-lbl">SECRET KEY</div>
-        <input class="api-inp" type="password" id="apiSec" placeholder="secret...">
-        <div class="api-row">
-          <button class="api-btn" onclick="connectAlpaca()">▶ CONNECT</button>
-          <button class="api-btn" onclick="disconnectAlpaca()">■ DISC</button>
-          <button class="api-btn mode-pill paper" onclick="togglePaper()" id="paperModeBtn">📄 PAPER</button>
-        </div>
-        <div class="api-status" id="apiStatus">PAPER TRADING SAFE — NO REAL FUNDS</div>
-        <div style="display:flex;align-items:center;gap:6px;margin-top:6px;">
-          <label style="font-size:10px;color:var(--t2);display:flex;align-items:center;gap:4px;cursor:pointer;">
-            <input type="checkbox" id="chkLiveOrders" onchange="ST.alpaca.liveOrdersEnabled=this.checked"
-              style="accent-color:#ff1a50;">
-            <span>ENABLE LIVE ORDERS</span>
-          </label>
-        </div>
-        <div class="api-acct" id="apiAcct" style="display:none">
-          <div class="acct-row"><span class="acct-l">EQUITY</span><span class="acct-v g" id="acctEquity">--</span></div>
-          <div class="acct-row"><span class="acct-l">CASH</span><span class="acct-v" id="acctCash">--</span></div>
-          <div class="acct-row"><span class="acct-l">BUYING PWR</span><span class="acct-v" id="acctBP">--</span></div>
+        <div class="alp-hub">
+
+          <!-- Status Bar -->
+          <div class="alp-status-bar">
+            <div class="alp-dot" id="alpDot"></div>
+            <div class="alp-status-text" id="alpStatusText">NOT CONNECTED</div>
+            <div class="alp-mode-badge paper" id="alpModeBadge">PAPER</div>
+          </div>
+
+          <!-- Credentials -->
+          <div class="alp-creds">
+            <div class="alp-field">
+              <div class="alp-field-label">🔑 API KEY <span>pk_live_... or pk_paper_...</span></div>
+              <input class="alp-inp" type="text" id="apiKey" placeholder="pk_live_xxxxxxxxxxxxxxxx" autocomplete="off" spellcheck="false" oninput="this.classList.toggle('filled',this.value.length>10)">
+            </div>
+            <div class="alp-field">
+              <div class="alp-field-label">🔒 SECRET KEY</div>
+              <input class="alp-inp" type="password" id="apiSec" placeholder="••••••••••••••••••••••••••••••••" autocomplete="off" oninput="this.classList.toggle('filled',this.value.length>10)">
+            </div>
+          </div>
+
+          <!-- Paper / Live Mode Toggle -->
+          <div class="alp-mode-row">
+            <button class="alp-mode-btn active-paper" id="btnPaper" onclick="setPaperMode(true)">
+              📄 PAPER TRADING
+            </button>
+            <button class="alp-mode-btn" id="btnLive" onclick="setPaperMode(false)">
+              ⚡ LIVE TRADING
+            </button>
+          </div>
+
+          <!-- Main Connect Button -->
+          <button class="alp-connect-btn" id="alpConnectBtn" onclick="handleConnectClick()">
+            ▶ CONNECT TO ALPACA
+          </button>
+
+          <!-- Account Stats (shown after connect) -->
+          <div class="alp-acct" id="apiAcct">
+            <div class="alp-acct-grid">
+              <div class="alp-stat">
+                <div class="alp-stat-l">EQUITY</div>
+                <div class="alp-stat-v neu" id="acctEquity">--</div>
+              </div>
+              <div class="alp-stat">
+                <div class="alp-stat-l">CASH</div>
+                <div class="alp-stat-v" id="acctCash">--</div>
+              </div>
+              <div class="alp-stat">
+                <div class="alp-stat-l">BUYING POWER</div>
+                <div class="alp-stat-v" id="acctBP">--</div>
+              </div>
+              <div class="alp-stat">
+                <div class="alp-stat-l">DAY P&amp;L</div>
+                <div class="alp-stat-v" id="acctDayPnl">--</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Live Orders Toggle (shown after connect) -->
+          <div class="alp-live-orders" id="alpLiveOrdersRow" style="display:none" onclick="toggleLiveOrders()">
+            <div>
+              <div class="alp-live-orders-label">⚡ AUTO EXECUTE ORDERS</div>
+              <div class="alp-live-orders-sub">Sniper signals place real bracket orders</div>
+            </div>
+            <div class="alp-toggle" id="liveOrdersToggle"></div>
+          </div>
+
+          <div class="api-status" id="apiStatus">PAPER TRADING SAFE — NO REAL FUNDS</div>
         </div>
       </div>
     </div>
@@ -4818,12 +4996,16 @@ async function fetchAccount() {
     setApiStatus(`✓ EQ: $${eq}  |  CASH: $${cash}  |  DAY P&L: ${pnlStr}`, 'ok');
 
     // Update any balance display elements
-    const balEl = document.getElementById('acctEquity');
+    const balEl  = document.getElementById('acctEquity');
     const cashEl = document.getElementById('acctCash');
     const bpEl   = document.getElementById('acctBP');
-    if (balEl)  balEl.textContent  = '$' + eq;
-    if (cashEl) cashEl.textContent = '$' + cash;
-    if (bpEl)   bpEl.textContent   = '$' + ST.alpaca.account.buyingPower.toFixed(2);
+    const dpEl   = document.getElementById('acctDayPnl');
+    const statusT = document.getElementById('alpStatusText');
+    if (balEl)  { balEl.textContent  = '$' + eq; }
+    if (cashEl) { cashEl.textContent = '$' + cash; }
+    if (bpEl)   { bpEl.textContent   = '$' + ST.alpaca.account.buyingPower.toFixed(2); }
+    if (dpEl)   { dpEl.textContent = (pnl>=0?'+$':'-$')+Math.abs(pnl).toFixed(2); dpEl.className='alp-stat-v '+(pnl>=0?'pos':'neg'); }
+    if (statusT){ statusT.textContent = `${ST.alpaca.paper?'PAPER':'LIVE'} · EQ $${eq} · BP $${ST.alpaca.account.buyingPower.toFixed(2)}`; }
 
     // Fetch open positions too
     fetchPositions();
@@ -4882,7 +5064,8 @@ function connectAlpaca() {
   if (!key || !secret) { toast('Enter API Key + Secret', 'sell', 3000); return; }
 
   ST.alpaca = { ...ST.alpaca, connected: false, key, secret, paper, account: null, positions: [] };
-  setApiStatus('Connecting...', 'info');
+  _setConnectingUI(true);
+  setApiStatus('Connecting to Alpaca...', 'info');
   toast('Connecting to Alpaca...', 'info', 2000);
 
   fetch(`${tradingURL()}/v2/account`, { headers: alpacaHeaders() })
@@ -5023,24 +5206,61 @@ ID: ${order.id.slice(0,8)}`, 'buy', 6000);
   }
 }
 
-function togglePaper() {
-  if (ST.alpaca.connected) {
-    toast('Disconnect first to switch mode', 'sell', 3000); return;
-  }
-  ST.alpaca.paper = !ST.alpaca.paper;
-  _syncPillUI();
-}
+function togglePaper() { setPaperMode(!ST.alpaca.paper); }
 function _syncPillUI() {
   const paper = ST.alpaca.paper;
-  const label = paper ? '📄 PAPER' : '⚡ LIVE';
-  const cls   = 'mode-pill ' + (paper ? 'paper' : 'live');
+  const connected = ST.alpaca.connected;
   // Header pill
   const hdr = document.getElementById('modePill');
-  if (hdr) { hdr.textContent = paper ? 'PAPER' : 'LIVE'; hdr.className = cls; }
-  // Panel button
-  const btn = document.getElementById('paperModeBtn');
-  if (btn) { btn.textContent = label; btn.className = 'api-btn ' + cls; }
-  setApiStatus(paper ? 'PAPER TRADING — NO REAL FUNDS' : '⚠ LIVE TRADING — REAL MONEY', paper ? 'info' : 'err');
+  if (hdr) { hdr.textContent = connected ? (paper?'PAPER':'LIVE') : 'DEMO'; hdr.className = 'mode-pill '+(connected?(paper?'paper':'live'):'demo'); }
+  // Hub mode badge
+  const badge = document.getElementById('alpModeBadge');
+  if (badge) { badge.textContent = paper?'PAPER':'LIVE'; badge.className = 'alp-mode-badge '+(paper?'paper':'live'); }
+  // Hub header badge
+  const badge2 = document.getElementById('modePill2');
+  if (badge2) { badge2.textContent = paper?'PAPER':'LIVE'; badge2.style.background = paper?'rgba(0,212,255,0.1)':'rgba(255,26,80,0.15)'; badge2.style.color = paper?'#00d4ff':'#ff1a50'; }
+  // Mode buttons
+  const btnP = document.getElementById('btnPaper'), btnL = document.getElementById('btnLive');
+  if (btnP) btnP.className = 'alp-mode-btn' + (paper ? ' active-paper' : '');
+  if (btnL) btnL.className = 'alp-mode-btn' + (!paper ? ' active-live' : '');
+}
+
+function setPaperMode(paper) {
+  if (ST.alpaca.connected) { toast('Disconnect first to change mode', 'sell', 2500); return; }
+  ST.alpaca.paper = paper;
+  _syncPillUI();
+  setApiStatus(paper ? 'PAPER TRADING — NO REAL FUNDS' : '⚠ LIVE TRADING — REAL MONEY', paper?'info':'err');
+}
+
+function toggleLiveOrders() {
+  ST.alpaca.liveOrdersEnabled = !ST.alpaca.liveOrdersEnabled;
+  const tog = document.getElementById('liveOrdersToggle');
+  if (tog) tog.className = 'alp-toggle' + (ST.alpaca.liveOrdersEnabled ? ' on' : '');
+  toast(ST.alpaca.liveOrdersEnabled ? '⚡ Auto-orders ENABLED' : 'Auto-orders disabled', ST.alpaca.liveOrdersEnabled ? 'buy' : 'info', 2500);
+}
+
+function handleConnectClick() {
+  if (ST.alpaca.connected) { disconnectAlpaca(); return; }
+  connectAlpaca();
+}
+
+function _setConnectingUI(connecting) {
+  const dot = document.getElementById('alpDot');
+  const btn = document.getElementById('alpConnectBtn');
+  if (dot) dot.className = 'alp-dot' + (connecting ? ' connecting' : '');
+  if (btn) { btn.textContent = connecting ? '⟳ CONNECTING...' : (ST.alpaca.connected ? '■ DISCONNECT' : '▶ CONNECT TO ALPACA'); btn.className = 'alp-connect-btn' + (ST.alpaca.connected ? ' connected' : ''); }
+}
+
+function _setConnectedUI(connected) {
+  const dot = document.getElementById('alpDot');
+  const btn = document.getElementById('alpConnectBtn');
+  const acct = document.getElementById('apiAcct');
+  const row  = document.getElementById('alpLiveOrdersRow');
+  if (dot)  dot.className  = 'alp-dot'+(connected?' connected':'');
+  if (btn)  { btn.textContent = connected ? '■ DISCONNECT' : '▶ CONNECT TO ALPACA'; btn.className = 'alp-connect-btn'+(connected?' connected':''); }
+  if (acct) acct.className = 'alp-acct'+(connected?' visible':'');
+  if (row)  row.style.display = connected ? 'flex' : 'none';
+  _syncPillUI();
 }
 
 function disconnectAlpaca() {
@@ -5048,7 +5268,8 @@ function disconnectAlpaca() {
   ST.alpaca.connected = false;
   ST.alpaca.account = null;
   ST.alpaca.positions = [];
-  setApiStatus('DISCONNECTED', 'err');
+  _setConnectedUI(false);
+  setApiStatus('DISCONNECTED — ENTER CREDENTIALS TO RECONNECT', 'err');
   toast('Alpaca disconnected', 'info', 2000);
   ST.alpaca.paper = true;
   _syncPillUI();

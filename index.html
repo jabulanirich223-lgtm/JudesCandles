@@ -5405,434 +5405,368 @@ function fetchAlpacaData(pair, tf) {
     });
 }
 
-// ═══════════════════════════════════════════════════════════════════
-//  ALPACA PRICE + ORDER  ─  final, verified implementation
+// ═══════════════════════════════════════════════════════════════════════
+//  APEX ORDER SYSTEM  —  complete rewrite, ground-up clean
 //
-//  Alpaca rules (confirmed from official docs):
-//
-//  STOCKS / ETFs:
-//    • bracket orders: type=market, order_class=bracket, time_in_force=gtc ✓
-//    • take_profit.limit_price must be ABOVE the last-trade price at submission
-//    • stop_loss.stop_price  must be BELOW the last-trade price at submission
-//    • All prices must be multiples of $0.01  (2 decimal places ONLY)
-//    • qty must be a whole number (no fractional with bracket orders)
-//
-//  CRYPTO:
-//    • bracket orders NOT supported — only market / limit / stop_limit
-//    • time_in_force: gtc or ioc only
-//    • fractional qty is fine
-//    • After market entry, we place separate TP limit + SL stop orders
-//
-//  PRICE FETCHING:
-//    • Stock snapshot gives latestTrade.p — most reliable regardless of market hours
-//    • Crypto orderbook gives live bid/ask 24/7
-//    • We add generous buffers so legs can never cross actual price
-// ═══════════════════════════════════════════════════════════════════
+//  ALPACA FACTS (official docs, verified):
+//    STOCKS  : bracket order, type=market, time_in_force=gtc, whole shares only
+//              prices must be $0.01 increments (2dp), TP above ask, SL below bid
+//    CRYPTO  : NO bracket orders. market entry + separate limit TP + stop SL
+//              time_in_force=gtc, fractional qty allowed, 24/7
+//    SELL    : qty MUST NOT exceed what you actually hold (position qty_available)
+//    BUY     : cost MUST NOT exceed available cash (buying_power for stocks, cash for crypto)
+// ═══════════════════════════════════════════════════════════════════════
 
-// ── snapPrice: single authoritative price for a symbol ────────────
-// Returns a plain number (never 0). Uses the best available endpoint.
-async function snapPrice(pair) {
+// ─── 1. PRICE FEED ───────────────────────────────────────────────────────────
+// Returns the current market price for a pair. Never returns 0.
+async function livePrice(pair) {
   const sym    = alpacaDataSym(pair);
   const crypto = isCrypto(pair);
-  if (!sym) return fallbackPrice(pair);
+  if (!sym) return _candlePrice(pair);
 
   if (crypto) {
-    // Crypto: orderbook is always live (24/7 market)
+    // Orderbook: always live, 24/7
     try {
-      const url = `https://data.alpaca.markets/v1beta3/crypto/us/latest/orderbooks?symbols=${encodeURIComponent(sym)}`;
-      const r = await alpacaFetch(url, { headers: alpacaHeaders() });
-      const d = await r.json();
-      const ob = d.orderbooks?.[sym];
+      const d = await _alpacaGet(`https://data.alpaca.markets/v1beta3/crypto/us/latest/orderbooks?symbols=${encodeURIComponent(sym)}`);
+      const ob  = d?.orderbooks?.[sym];
       const bid = ob?.b?.[0]?.p || 0;
       const ask = ob?.a?.[0]?.p || 0;
       if (bid > 0 && ask > 0) return (bid + ask) / 2;
-    } catch(e) {}
-    // Crypto trade fallback
+    } catch(_) {}
+    // Trade fallback
     try {
-      const url = `https://data.alpaca.markets/v1beta3/crypto/us/latest/trades?symbols=${encodeURIComponent(sym)}`;
-      const r = await alpacaFetch(url, { headers: alpacaHeaders() });
-      const d = await r.json();
-      const p = d.trades?.[sym]?.p;
+      const d = await _alpacaGet(`https://data.alpaca.markets/v1beta3/crypto/us/latest/trades?symbols=${encodeURIComponent(sym)}`);
+      const p = d?.trades?.[sym]?.p;
       if (p > 0) return p;
-    } catch(e) {}
+    } catch(_) {}
   } else {
-    // Stocks: snapshot endpoint — works during and outside market hours
+    // Stock snapshot — works 24/7, has pre/post market prices
     try {
-      const url = `https://data.alpaca.markets/v2/stocks/${encodeURIComponent(sym)}/snapshot`;
-      const r = await alpacaFetch(url, { headers: alpacaHeaders() });
-      const d = await r.json();
-      // latestTrade is most accurate; fall back to bars
-      const p = d.latestTrade?.p
-             || d.minuteBar?.c
-             || d.dailyBar?.c
-             || d.prevDailyBar?.c;
+      const d = await _alpacaGet(`https://data.alpaca.markets/v2/stocks/${encodeURIComponent(sym)}/snapshot`);
+      const p = d?.latestTrade?.p || d?.minuteBar?.c || d?.dailyBar?.c || d?.prevDailyBar?.c;
       if (p > 0) return p;
-    } catch(e) {}
-    // Stock latest trade fallback
+    } catch(_) {}
+    // Latest trade fallback
     try {
-      const url = `https://data.alpaca.markets/v2/stocks/${encodeURIComponent(sym)}/trades/latest`;
-      const r = await alpacaFetch(url, { headers: alpacaHeaders() });
-      const d = await r.json();
-      const p = d.trade?.p;
+      const d = await _alpacaGet(`https://data.alpaca.markets/v2/stocks/${encodeURIComponent(sym)}/trades/latest`);
+      const p = d?.trade?.p;
       if (p > 0) return p;
-    } catch(e) {}
+    } catch(_) {}
   }
-  return fallbackPrice(pair);
+  return _candlePrice(pair);
 }
 
-function fallbackPrice(pair) {
-  const c = ST.candles;
-  const last = c?.[c.length - 1]?.c;
-  if (last > 0) return last;
-  return PAIR_CONFIG[pair]?.base || 100;
+function _candlePrice(pair) {
+  const last = ST.candles?.[ST.candles.length - 1]?.c;
+  return last > 0 ? last : (PAIR_CONFIG[pair]?.base || 100);
 }
 
+// ─── 2. ACCOUNT SNAPSHOT ─────────────────────────────────────────────────────
+// Returns { cash, equity, buyingPower, shortingEnabled } directly from Alpaca.
+async function liveAccount() {
+  const d = await _alpacaGet(`${tradingURL()}/v2/account`);
+  if (!d?.id) throw new Error('Account fetch failed');
+  const cash        = parseFloat(d.cash           || 0);
+  const equity      = parseFloat(d.equity         || 0);
+  const buyingPower = parseFloat(d.buying_power   || 0);
+  // Update UI cache while we're here
+  ST.alpaca.account = {
+    ...ST.alpaca.account,
+    cash, equity, buyingPower,
+    shortingEnabled:  d.shorting_enabled === true,
+    patternDayTrader: d.pattern_day_trader === true,
+  };
+  return ST.alpaca.account;
+}
 
-// ── Global order lock — prevents simultaneous orders overspending BP ──
-// Only one order executes at a time. Others wait up to 30s.
+// ─── 3. POSITION SNAPSHOT ────────────────────────────────────────────────────
+// Returns qty_available for a symbol, or 0 if no position.
+async function heldQty(sym) {
+  try {
+    const d = await _alpacaGet(`${tradingURL()}/v2/positions/${encodeURIComponent(sym)}`);
+    return parseFloat(d?.qty_available ?? d?.qty ?? 0);
+  } catch(_) {
+    // 404 = no position = 0
+    return 0;
+  }
+}
+
+// ─── 4. CANCEL OPEN ORDERS ───────────────────────────────────────────────────
+async function cancelOrdersFor(sym) {
+  try {
+    const orders = await _alpacaGet(`${tradingURL()}/v2/orders?status=open&limit=100`);
+    if (!Array.isArray(orders)) return;
+    const mine = orders.filter(o => o.symbol === sym);
+    for (const o of mine) {
+      await alpacaFetch(`${tradingURL()}/v2/orders/${o.id}`, { method: 'DELETE', headers: alpacaHeaders() });
+      console.log(`[CANCEL] ${o.side} ${o.qty} ${sym} id=${o.id}`);
+    }
+    if (mine.length > 0) await _sleep(400); // let cancellations clear
+  } catch(e) { console.warn('[cancelOrdersFor]', e.message); }
+}
+
+// ─── 5. GLOBAL ORDER LOCK ────────────────────────────────────────────────────
+// One order at a time. Prevents simultaneous orders each spending 100% of BP.
 let _orderLock = false;
-async function acquireOrderLock() {
-  const deadline = Date.now() + 30000;
-  while (_orderLock && Date.now() < deadline) {
-    await new Promise(r => setTimeout(r, 250));
-  }
+async function _acquireLock() {
+  const t = Date.now() + 30000;
+  while (_orderLock && Date.now() < t) await _sleep(300);
   _orderLock = true;
 }
-function releaseOrderLock() { _orderLock = false; }
+function _releaseLock() { _orderLock = false; }
+function _sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-// ── cancelOpenOrdersFor — cancel all pending orders for a symbol ──
-// This frees up reserved buying power before placing a new order.
-async function cancelOpenOrdersFor(sym) {
-  try {
-    const r = await alpacaFetch(
-      `${tradingURL()}/v2/orders?status=open&limit=50`,
-      { headers: alpacaHeaders() }
-    );
-    const orders = await r.json();
-    if (!Array.isArray(orders)) return;
-    const toCancel = orders.filter(o => o.symbol === sym);
-    for (const o of toCancel) {
-      await alpacaFetch(`${tradingURL()}/v2/orders/${o.id}`, {
-        method: 'DELETE', headers: alpacaHeaders()
-      });
-      console.log(`[CANCEL] Cancelled pending ${o.side} ${o.qty} ${sym} id=${o.id}`);
-    }
-    if (toCancel.length) await new Promise(r => setTimeout(r, 300)); // brief pause
-  } catch(e) {
-    console.warn('[cancelOpenOrdersFor] error:', e.message);
-  }
+// ─── 6. HTTP HELPERS ─────────────────────────────────────────────────────────
+async function _alpacaGet(url) {
+  const r = await alpacaFetch(url, { headers: alpacaHeaders() });
+  return r.json();
 }
-// ── placeAlpacaOrder ──────────────────────────────────────────────
+async function _alpacaPost(url, body) {
+  const r = await alpacaFetch(url, {
+    method: 'POST',
+    headers: alpacaHeaders(true),
+    body: JSON.stringify(body),
+  });
+  return r.json();
+}
+
+// ─── 7. SL / TP PRICE BUILDER ────────────────────────────────────────────────
+// Returns { slPrice, tpPrice } guaranteed to be on the correct side of entry.
+// For stocks: 2dp, min 2% gap. For crypto: enough decimals, min 1.5% gap.
+function buildExitPrices(price, isBuy, isCryptoAsset, sig, ind) {
+  const dec     = isCryptoAsset
+    ? (price >= 1000 ? 2 : price >= 1 ? 4 : price >= 0.01 ? 6 : 8)
+    : 2;
+
+  // SL distance: use signal's SL if sane, else ATR×1.5, else 2% floor
+  const atrv    = ind?.atrv || 0;
+  const sigSLD  = (sig.sl && sig.entry) ? Math.abs(sig.entry - sig.sl) : 0;
+  const minSLD  = isCryptoAsset ? price * 0.015 : price * 0.02; // min 1.5% crypto, 2% stocks
+  const slDist  = Math.max(
+    sigSLD > 0 && sigSLD < price * 0.20 ? sigSLD : 0,
+    atrv  > 0 ? atrv * 1.5 : 0,
+    minSLD
+  );
+
+  // RR: use signal's RR if sane, else default 2.0
+  const sigRR   = (sig.tp2 && sig.entry && sig.sl && sigSLD > 0)
+    ? Math.abs(sig.tp2 - sig.entry) / sigSLD : 0;
+  const rr      = (sigRR >= 1.5 && sigRR <= 6) ? sigRR : 2.0;
+
+  let sl, tp;
+  if (isBuy) {
+    sl = Math.min(price - slDist, price * 0.98); // at most -2%
+    tp = Math.max(price + slDist * rr, price * 1.02); // at least +2%
+  } else {
+    sl = Math.max(price + slDist, price * 1.02);
+    tp = Math.min(price - slDist * rr, price * 0.98);
+  }
+
+  // Round to correct precision
+  sl = +sl.toFixed(dec);
+  tp = +tp.toFixed(dec);
+
+  // Final hard enforcement — if rounding moved them wrong, force it
+  if (isBuy) {
+    if (sl >= price) sl = +(price * 0.98).toFixed(dec);
+    if (tp <= price) tp = +(price * 1.02).toFixed(dec);
+  } else {
+    if (sl <= price) sl = +(price * 1.02).toFixed(dec);
+    if (tp >= price) tp = +(price * 0.98).toFixed(dec);
+  }
+
+  return { slPrice: sl, tpPrice: tp };
+}
+
+// ─── 8. QTY FORMATTER ────────────────────────────────────────────────────────
+// Formats a crypto qty as a string, never scientific notation.
+function fmtQty(qty) {
+  if (qty >= 1)     return qty.toFixed(4);
+  if (qty >= 0.01)  return qty.toFixed(6);
+  if (qty >= 0.0001)return qty.toFixed(8);
+  const s = qty.toFixed(10);
+  // strip trailing zeros
+  return s.replace(/\.?0+$/, '') || '0';
+}
+
+// ─── 9. MAIN ORDER FUNCTION ──────────────────────────────────────────────────
 async function placeAlpacaOrder(sig, ind) {
   if (!ST.alpaca.connected) return;
   if (!ST.alpaca.paper && !ST.alpaca.liveOrdersEnabled) {
-    toast('⚠ Enable LIVE ORDERS in Alpaca Hub to trade real funds', 'sell', 4000);
-    return;
+    toast('⚠ Enable live orders in Alpaca Hub first', 'sell', 4000); return;
   }
 
-  const pair = ST.pair;
+  const pair   = ST.pair;
   if (!alpacaSupported(pair)) return;
 
-  const sym    = PAIR_CONFIG[pair].alpacaSym;   // guaranteed non-null
+  const sym    = PAIR_CONFIG[pair].alpacaSym;
   const crypto = isCrypto(pair);
-  const bull   = sig.dir === 'bull';
-  const side   = bull ? 'buy' : 'sell';
+  const isBuy  = sig.dir === 'bull';
+  const side   = isBuy ? 'buy' : 'sell';
 
-  // ── 0. Pre-flight ─────────────────────────────────────────────────
-  // Acquire global lock — ensures only ONE order runs at a time.
-  // This prevents two signals from both reading the same BP and
-  // each trying to spend 95% of it simultaneously.
-  await acquireOrderLock();
-
-  try { // IMPORTANT: lock must be released in finally block below
-
-  // Step 1: Cancel any open orders for this symbol — they reserve BP
-  await cancelOpenOrdersFor(sym);
-
-  // Step 2: Fetch live account right now — exact values after cancellations.
-  let liveBP = 0, liveEquity = 0, liveCash = 0;
-  let shortingEnabled = ST.alpaca.account?.shortingEnabled || false;
+  // ── LOCK — serialize all orders ──────────────────────────────────
+  await _acquireLock();
   try {
-    const acctR = await alpacaFetch(`${tradingURL()}/v2/account`, { headers: alpacaHeaders() });
-    const acctD = await acctR.json();
-    if (!acctD.id) throw new Error('bad account response');
-    liveBP       = parseFloat(acctD.buying_power                || 0);
-    liveEquity   = parseFloat(acctD.equity                      || 0);
-    liveCash     = parseFloat(acctD.cash                        || 0);
-    shortingEnabled = acctD.shorting_enabled === true;
-    ST.alpaca.account = {
-      ...ST.alpaca.account,
-      buyingPower:    liveBP,
-      equity:         liveEquity,
-      cash:           liveCash,
-      shortingEnabled,
-    };
-    console.log(`[PRE-FLIGHT] ${sym} equity=$${liveEquity.toFixed(2)} BP=$${liveBP.toFixed(2)} cash=$${liveCash.toFixed(2)}`);
-  } catch(e) {
-    console.warn('[PRE-FLIGHT] Account fetch failed:', e.message);
-    liveEquity = parseFloat(ST.alpaca.account?.equity)      || 0;
-    liveBP     = parseFloat(ST.alpaca.account?.buyingPower) || 0;
-    liveCash   = parseFloat(ST.alpaca.account?.cash)        || 0;
-  }
 
-  // Use the SMALLER of equity and buying_power as the safe reference.
-  // buying_power on margin = 4× equity — we never want to spend that much.
-  // equity = real account value. That's what we actually have.
-  const safeRef = liveEquity > 0 ? liveEquity : liveBP;
-  if (safeRef <= 0) {
-    toast(`⚠ Account balance is $0 — cannot place order`, 'sell', 4000);
-    console.warn('[ORDER SKIP] safeRef=0');
-    return;
-  }
+    // ── STEP 1: Cancel any pending orders for this symbol ─────────
+    await cancelOrdersFor(sym);
 
-  // Step 3: Block short sells if account doesn't support them
-  if (side === 'sell' && !crypto) {
-    if (!shortingEnabled && !ST.alpaca.paper) {
-      toast(`⚠ Short selling not enabled on this account`, 'sell', 3000);
-      return;
+    // ── STEP 2: Get live account state ────────────────────────────
+    let acct;
+    try { acct = await liveAccount(); }
+    catch(e) {
+      toast(`⚠ Cannot read account: ${e.message}`, 'sell', 4000); return;
     }
-  }
+    console.log(`[ORDER] ${side.toUpperCase()} ${sym} | cash=$${acct.cash.toFixed(2)} equity=$${acct.equity.toFixed(2)} bp=$${acct.buyingPower.toFixed(2)}`);
 
-  // ── 1. Fetch current price ────────────────────────────────────────
-  const price = await snapPrice(pair);
-  if (!price || price <= 0) {
-    console.warn(`[ORDER SKIP] No price for ${sym}`);
-    toast(`⚠ No price for ${sym}`, 'sell', 3000);
-    return;
-  }
+    // ── STEP 3: Get live market price ─────────────────────────────
+    const price = await livePrice(pair);
+    if (!price || price <= 0) {
+      toast(`⚠ Cannot get price for ${sym}`, 'sell', 3000); return;
+    }
 
-  // ── 2. SL distance: ATR-based with generous minimum ──────────────
-  const atrv    = ind?.atrv || 0;
-  // Minimum SL distance: the LARGER of (ATR×1.5) or (1% of price)
-  // This 1% buffer ensures legs are never rejected due to small price moves
-  const rawSLD  = (sig.sl && sig.entry) ? Math.abs(sig.entry - sig.sl) : 0;
-  const slDist  = Math.max(
-    rawSLD > 0 && rawSLD < price * 0.20 ? rawSLD : 0,
-    atrv > 0 ? atrv * 1.5 : 0,
-    price * 0.01    // HARD FLOOR: 1% of price — no matter what
-  );
+    // ── STEP 4: Build SL / TP prices ──────────────────────────────
+    const { slPrice, tpPrice } = buildExitPrices(price, isBuy, crypto, sig, ind);
+    console.log(`[ORDER] price=${price} sl=${slPrice} tp=${tpPrice}`);
 
-  // ── 3. RR ratio ───────────────────────────────────────────────────
-  const rawRR  = (sig.tp2 && sig.entry && sig.sl && rawSLD > 0)
-    ? Math.abs(sig.tp2 - sig.entry) / rawSLD : 0;
-  const rr     = (rawRR >= 1.5 && rawRR <= 6) ? rawRR : 2.0;
+    // ── STEP 5: ROUTE by asset type and direction ─────────────────
 
-  console.log(`[ORDER CALC] ${sym} price=${price} slDist=${slDist.toFixed(6)} rr=${rr} side=${side}`);
-
-  // ── 4. SL + TP prices ─────────────────────────────────────────────
-  // For stocks: EXACTLY 2 decimal places (Alpaca rejects anything else)
-  // For crypto: enough decimals for the price magnitude
-  const stockDec  = 2;
-  const cryptoDec = price >= 1000 ? 2 : price >= 1 ? 4 : price >= 0.01 ? 6 : 8;
-  const dec       = crypto ? cryptoDec : stockDec;
-
-  let slPrice, tpPrice;
-  if (bull) {
-    slPrice = +(price - slDist).toFixed(dec);
-    tpPrice = +(price + slDist * rr).toFixed(dec);
-    // Hard floors: SL must be < price, TP must be > price
-    // Use 0.5% as absolute minimum gap so a small tick never crosses legs
-    if (slPrice >= price) slPrice = +(price * 0.995).toFixed(dec);
-    if (tpPrice <= price) tpPrice = +(price * 1.010).toFixed(dec);
-  } else {
-    slPrice = +(price + slDist).toFixed(dec);
-    tpPrice = +(price - slDist * rr).toFixed(dec);
-    if (slPrice <= price) slPrice = +(price * 1.005).toFixed(dec);
-    if (tpPrice >= price) tpPrice = +(price * 0.990).toFixed(dec);
-  }
-
-  console.log(`[ORDER LEVELS] ${sym} entry~${price} sl=${slPrice} tp=${tpPrice} (${dec} dec)`);
-
-  // ── 5. Final absolute sanity (abort rather than send garbage) ─────
-  const slOk  = bull ? slPrice < price : slPrice > price;
-  const tpOk  = bull ? tpPrice > price : tpPrice < price;
-  const sltpOk = bull ? tpPrice > slPrice : tpPrice < slPrice;
-  if (!slOk || !tpOk || !sltpOk) {
-    console.error(`[ORDER ABORT] Price logic broken: price=${price} sl=${slPrice} tp=${tpPrice}`);
-    toast(`⚠ Price calc error for ${sym}`, 'sell', 3000);
-    return;
-  }
-
-  // ── 6. Position sizing — DEAD SIMPLE ────────────────────────────────
-  // Rule: never spend more than you have.
-  // affordable = the MINIMUM of cash, equity, and buying_power.
-  // This handles cash accounts, margin accounts, everything.
-  const affordable = Math.min(
-    liveCash   > 0 ? liveCash   : Infinity,
-    liveEquity > 0 ? liveEquity : Infinity,
-    liveBP     > 0 ? liveBP     : Infinity
-  );
-  if (!isFinite(affordable) || affordable <= 0) {
-    toast(`⚠ Cannot determine account balance`, 'sell', 4000);
-    console.error('[ORDER ABORT] affordable=0', {liveCash, liveEquity, liveBP});
-    return;
-  }
-
-  // Max dollars we'll spend on this single trade: 20% of what we have.
-  // This means we can have 5 open positions and still be fully funded.
-  const maxSpend = affordable * 0.20;
-  console.log(`[SIZING] affordable=$${affordable.toFixed(2)} maxSpend=$${maxSpend.toFixed(2)} (cash=${liveCash.toFixed(2)} eq=${liveEquity.toFixed(2)} bp=${liveBP.toFixed(2)})`);
-
-  // ══════════════════════════════════════════════════════════════════
-  // PATH A — CRYPTO
-  //
-  // BUY:  qty = maxSpend / price  (limited by USD balance)
-  // SELL: qty = what you actually OWN  (limited by position size)
-  //        → Alpaca rejects any sell qty > position qty
-  // ══════════════════════════════════════════════════════════════════
-  if (crypto) {
-    let qty;
-
-    if (side === 'sell') {
-      // For SELLS: look up the actual position we hold.
-      // Fetch directly from Alpaca so it's always accurate.
-      let heldQty = 0;
-      try {
-        const posR = await alpacaFetch(
-          `${tradingURL()}/v2/positions/${encodeURIComponent(sym)}`,
-          { headers: alpacaHeaders() }
-        );
-        if (posR.ok) {
-          const posD = await posR.json();
-          heldQty = parseFloat(posD.qty_available ?? posD.qty ?? 0);
-        }
-      } catch(e) {
-        // Also check cached positions array
-        const cached = ST.alpaca.positions?.find(p => p.symbol === sym);
-        heldQty = cached?.qty || 0;
-      }
-
-      if (heldQty <= 0) {
-        toast(`⚠ No ${sym} position to sell`, 'sell', 3000);
-        console.warn(`[ORDER SKIP] SELL ${sym}: heldQty=${heldQty}`);
-        releaseOrderLock();
-        return;
-      }
-
-      qty = heldQty; // sell entire position
-      console.log(`[CRYPTO SELL] selling full position: ${qty} ${sym}`);
-
+    if (crypto) {
+      await _cryptoOrder(sym, side, isBuy, price, slPrice, tpPrice, acct);
     } else {
-      // BUY: size from dollar budget — must stay within USD balance
-      qty = maxSpend / price;
-      // Verify won't exceed affordable
-      if (qty * price > affordable * 0.99) {
-        qty = (affordable * 0.99) / price;
-      }
-      console.log(`[CRYPTO BUY] qty=${qty.toFixed(8)} ${sym} notional~$${(qty*price).toFixed(2)}`);
+      await _stockOrder(sym, side, isBuy, price, slPrice, tpPrice, acct);
     }
 
-    // Format qty without scientific notation
-    let qtyStr;
-    if      (qty >= 1)     qtyStr = qty.toFixed(4);
-    else if (qty >= 0.01)  qtyStr = qty.toFixed(6);
-    else                   qtyStr = qty.toFixed(8);
-    if (qtyStr.includes('e')) qtyStr = qty.toFixed(8);
-
-    const entryBody = { symbol: sym, side, type: 'market', time_in_force: 'gtc', qty: qtyStr };
-    const entryOk = await _sendOrder(entryBody, sym, price);
-    if (!entryOk) return;
-
-    // Exit orders after entry fills (only for BUY entries)
-    if (side === 'buy') {
-      const exitSide = 'sell';
-      setTimeout(() => _sendOrder({ symbol: sym, side: exitSide, type: 'limit', time_in_force: 'gtc', qty: qtyStr, limit_price: String(tpPrice) }, sym, tpPrice), 1500);
-      setTimeout(() => _sendOrder({ symbol: sym, side: exitSide, type: 'stop',  time_in_force: 'gtc', qty: qtyStr, stop_price:  String(slPrice) }, sym, slPrice), 2500);
-    }
-
-    releaseOrderLock();
-    return;
+  } finally {
+    _releaseLock();
   }
-
-  // ══════════════════════════════════════════════════════════════════
-  // PATH B — STOCKS / ETFs
-  // BUY:  shares = floor(maxSpend / price)
-  // SELL: shares = shares you actually own (can't sell what you don't have)
-  // ══════════════════════════════════════════════════════════════════
-  let shares;
-
-  if (side === 'sell') {
-    // Fetch live position qty for this symbol
-    let heldShares = 0;
-    try {
-      const posR = await alpacaFetch(
-        `${tradingURL()}/v2/positions/${encodeURIComponent(sym)}`,
-        { headers: alpacaHeaders() }
-      );
-      if (posR.ok) {
-        const posD = await posR.json();
-        heldShares = Math.floor(parseFloat(posD.qty_available ?? posD.qty ?? 0));
-      }
-    } catch(e) {
-      const cached = ST.alpaca.positions?.find(p => p.symbol === sym);
-      heldShares = cached ? Math.floor(cached.qty) : 0;
-    }
-
-    if (heldShares <= 0) {
-      toast(`⚠ No ${sym} shares to sell`, 'sell', 3000);
-      console.warn(`[ORDER SKIP] SELL ${sym}: heldShares=${heldShares}`);
-      return;
-    }
-
-    shares = heldShares;
-    console.log(`[STOCK SELL] selling full position: ${shares} ${sym}`);
-  } else {
-    shares = Math.floor(maxSpend / price);
-    if (shares < 1) shares = 1;
-    // Hard verify cost fits
-    while (shares > 1 && shares * price > affordable * 0.99) shares--;
-  }
-
-  const orderCost = shares * price;
-  console.log(`[STOCK ORDER] ${side.toUpperCase()} ${shares}x${sym} @ ~$${price} = $${orderCost.toFixed(2)} (affordable=$${affordable.toFixed(2)})`);
-
-  const stockBody = {
-    symbol:        sym,
-    side,
-    type:          'market',
-    time_in_force: 'gtc',
-    order_class:   'bracket',
-    qty:           String(shares),
-    take_profit:   { limit_price: String(tpPrice) },
-    stop_loss:     { stop_price:  String(slPrice)  },
-  };
-  await _sendOrder(stockBody, sym, price);
-
-  } finally { releaseOrderLock(); }
 }
 
-// ── _sendOrder: POST to Alpaca, return true on success ────────────
-async function _sendOrder(body, sym, refPrice) {
+// ─── 9a. CRYPTO ORDER ────────────────────────────────────────────────────────
+async function _cryptoOrder(sym, side, isBuy, price, slPrice, tpPrice, acct) {
+  let qty;
+
+  if (isBuy) {
+    // Size from available cash: 20% of cash per trade
+    const budget = acct.cash * 0.20;
+    if (budget <= 0) { toast(`⚠ No cash to buy ${sym}`, 'sell', 3000); return; }
+    qty = budget / price;
+    console.log(`[CRYPTO BUY] budget=$${budget.toFixed(2)} qty=${fmtQty(qty)} ${sym}`);
+  } else {
+    // Sell only what we actually hold
+    qty = await heldQty(sym);
+    if (qty <= 0) {
+      toast(`⚠ No ${sym} held — nothing to sell`, 'sell', 3000); return;
+    }
+    console.log(`[CRYPTO SELL] held=${fmtQty(qty)} ${sym}`);
+  }
+
+  if (qty <= 0) { toast(`⚠ ${sym}: qty is 0`, 'sell', 3000); return; }
+
+  // ── Entry order ──────────────────────────────────────────────────
+  const entryBody = {
+    symbol: sym, side,
+    type: 'market', time_in_force: 'gtc',
+    qty: fmtQty(qty),
+  };
+  console.log('[CRYPTO ENTRY]', JSON.stringify(entryBody));
+  const ok = await _post(entryBody, sym, price);
+  if (!ok) return;
+
+  // ── Exit orders (TP + SL) — only after a BUY entry ──────────────
+  if (isBuy) {
+    const exitSide = 'sell';
+    const exitQty  = fmtQty(qty);
+
+    // TP: limit order
+    await _sleep(1500);
+    await _post({
+      symbol: sym, side: exitSide,
+      type: 'limit', time_in_force: 'gtc',
+      qty: exitQty, limit_price: String(tpPrice),
+    }, sym, tpPrice);
+
+    // SL: stop order
+    await _sleep(500);
+    await _post({
+      symbol: sym, side: exitSide,
+      type: 'stop', time_in_force: 'gtc',
+      qty: exitQty, stop_price: String(slPrice),
+    }, sym, slPrice);
+  }
+}
+
+// ─── 9b. STOCK / ETF ORDER ───────────────────────────────────────────────────
+async function _stockOrder(sym, side, isBuy, price, slPrice, tpPrice, acct) {
+  let shares;
+
+  if (isBuy) {
+    // Use buying_power (what Alpaca actually lets us spend on stocks)
+    // but cap at 20% per trade so we never blow up the account
+    const budget = Math.min(acct.buyingPower, acct.equity) * 0.20;
+    if (budget <= 0) { toast(`⚠ No buying power for ${sym}`, 'sell', 3000); return; }
+    shares = Math.floor(budget / price);
+    if (shares < 1) { toast(`⚠ ${sym} @ $${price} exceeds 20% budget`, 'sell', 3000); return; }
+    // Belt-and-suspenders: make absolutely sure cost < 95% of actual buying_power
+    while (shares > 1 && shares * price > acct.buyingPower * 0.95) shares--;
+    console.log(`[STOCK BUY] budget=$${budget.toFixed(2)} shares=${shares} cost=$${(shares*price).toFixed(2)} bp=$${acct.buyingPower.toFixed(2)}`);
+  } else {
+    // Short-sell check
+    if (!acct.shortingEnabled && !ST.alpaca.paper) {
+      toast(`⚠ Short selling not enabled on this account`, 'sell', 3000); return;
+    }
+    // Sell only what we hold
+    const held = await heldQty(sym);
+    if (held <= 0) {
+      toast(`⚠ No ${sym} shares held — nothing to sell`, 'sell', 3000); return;
+    }
+    shares = Math.floor(held);
+    if (shares < 1) { toast(`⚠ ${sym}: held qty rounds to 0`, 'sell', 3000); return; }
+    console.log(`[STOCK SELL] held=${held} selling ${shares} ${sym}`);
+  }
+
+  const body = {
+    symbol: sym, side,
+    type: 'market', time_in_force: 'gtc',
+    order_class: 'bracket',
+    qty: String(shares),
+    take_profit: { limit_price: String(tpPrice) },
+    stop_loss:   { stop_price:  String(slPrice)  },
+  };
+  console.log('[STOCK BRACKET]', JSON.stringify(body));
+  await _post(body, sym, price);
+}
+
+// ─── 10. POST + RESPONSE HANDLER ─────────────────────────────────────────────
+async function _post(body, sym, refPrice) {
   try {
-    const r = await alpacaFetch(`${tradingURL()}/v2/orders`, {
-      method:  'POST',
-      headers: alpacaHeaders(true),
-      body:    JSON.stringify(body),
-    });
+    const resp = await _alpacaPost(`${tradingURL()}/v2/orders`, body);
 
-    let resp;
-    try   { resp = await r.json(); }
-    catch (e) { toast(`✗ Bad JSON response for ${sym}`, 'sell', 5000); return false; }
-
-    if (resp.id) {
-      toast(`✓ ${body.side.toUpperCase()} ${body.qty} ${sym} ~$${refPrice}`, 'buy', 6000);
-      console.log(`[ORDER OK] id=${resp.id} status=${resp.status}`);
+    if (resp?.id) {
+      console.log(`[ORDER OK] id=${resp.id} status=${resp.status} symbol=${resp.symbol}`);
+      toast(`✓ ${body.side.toUpperCase()} ${body.qty} ${sym} ~$${typeof refPrice==='number'?refPrice.toFixed(2):refPrice}`, 'buy', 6000);
       saveState();
       setTimeout(fetchAccount,   2000);
-      setTimeout(fetchPositions, 3000);
+      setTimeout(fetchPositions, 3500);
       return true;
     } else {
-      const msg = resp.message || resp.code || JSON.stringify(resp).slice(0, 300);
-      toast(`✗ ${sym}: ${msg}`, 'sell', 9000);
-      console.error('[ORDER REJECTED]', JSON.stringify(body, null, 2), '\nResponse:', JSON.stringify(resp));
+      const msg = resp?.message || resp?.code || JSON.stringify(resp).slice(0, 200);
+      console.error('[ORDER REJECTED]', msg, '\nBody sent:', JSON.stringify(body, null, 2));
+      toast(`✗ ${sym}: ${msg}`, 'sell', 10000);
       return false;
     }
-  } catch (e) {
-    toast(`✗ Network: ${e.message}`, 'sell', 5000);
+  } catch(e) {
     console.error('[ORDER EXCEPTION]', e.message, body);
+    toast(`✗ ${sym} network error: ${e.message}`, 'sell', 5000);
     return false;
   }
 }
+
+// Legacy alias — some call paths use _sendOrder
+const _sendOrder = _post;
+
+// snapPrice kept for any other callers (candle data etc.)
+const snapPrice = livePrice;
 
 function togglePaper() { setPaperMode(!ST.alpaca.paper); }
 function _syncPillUI() {

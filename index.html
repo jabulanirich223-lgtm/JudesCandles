@@ -5557,18 +5557,28 @@ async function placeAlpacaOrder(sig, ind) {
   }
 
   // ── 6. Position sizing ────────────────────────────────────────────
-  const bp      = ST.alpaca.account?.buyingPower || 10000;
-  const riskDol = Math.min(bp * 0.01, 500);
+  // Re-fetch BP fresh from account object (mapped by fetchAccount as buyingPower)
+  const bp      = parseFloat(ST.alpaca.account?.buyingPower) || 10000;
+  const riskDol = Math.min(bp * 0.01, 500);       // 1% of BP, max $500
   const slDelta = Math.abs(price - slPrice);
+
+  // CRITICAL: cap total position cost at 15% of BP regardless of risk calc
+  // This prevents "insufficient buying power" when SL is very tight
+  const maxPositionCost = bp * 0.15;
 
   // ══════════════════════════════════════════════════════════════════
   // PATH A — CRYPTO: plain market order  (bracket NOT supported)
-  // After entry, place separate limit TP + stop SL orders
+  // Alpaca minimum notional = $10. After fill, place TP limit + SL stop.
   // ══════════════════════════════════════════════════════════════════
   if (crypto) {
     let rawQty = riskDol / slDelta;
+    // Never exceed 5% of BP in one crypto trade
     const maxQty = (bp * 0.05) / price;
-    rawQty = Math.max(0.00001, Math.min(rawQty, maxQty));
+    rawQty = Math.min(rawQty, maxQty);
+
+    // Enforce Alpaca $10 minimum notional
+    const minQty = 10 / price;
+    rawQty = Math.max(minQty, rawQty);
 
     // Format qty without scientific notation
     let qtyStr;
@@ -5577,6 +5587,14 @@ async function placeAlpacaOrder(sig, ind) {
     else                      qtyStr = rawQty.toFixed(8);
     if (qtyStr.includes('e')) qtyStr = rawQty.toFixed(8);
 
+    // Verify notional >= $10 after formatting
+    const notional = parseFloat(qtyStr) * price;
+    if (notional < 10) {
+      console.warn(`[ORDER SKIP] ${sym} notional $${notional.toFixed(2)} below $10 minimum`);
+      toast(`⚠ ${sym}: order too small (min $10)`, 'sell', 3000);
+      return;
+    }
+
     const entryBody = {
       symbol:        sym,
       side,
@@ -5584,45 +5602,40 @@ async function placeAlpacaOrder(sig, ind) {
       time_in_force: 'gtc',
       qty:           qtyStr,
     };
-    console.log(`[CRYPTO ENTRY] ${side.toUpperCase()} ${qtyStr} ${sym}`, entryBody);
+    console.log(`[CRYPTO ENTRY] ${side.toUpperCase()} ${qtyStr} ${sym} ~$${price} (notional $${notional.toFixed(2)})`, entryBody);
     const entryOk = await _sendOrder(entryBody, sym, price);
     if (!entryOk) return;
 
-    // After entry, place TP limit order (opposite side)
-    const tpSide = bull ? 'sell' : 'buy';
-    const tpBody = {
-      symbol:        sym,
-      side:          tpSide,
-      type:          'limit',
-      time_in_force: 'gtc',
-      qty:           qtyStr,
-      limit_price:   String(tpPrice),
-    };
-    console.log(`[CRYPTO TP] ${tpSide.toUpperCase()} limit @ ${tpPrice}`, tpBody);
-    setTimeout(() => _sendOrder(tpBody, sym, tpPrice), 1500);
+    // Place TP limit + SL stop after entry fills
+    const exitSide = bull ? 'sell' : 'buy';
+    setTimeout(() => _sendOrder({
+      symbol: sym, side: exitSide, type: 'limit',
+      time_in_force: 'gtc', qty: qtyStr,
+      limit_price: String(tpPrice),
+    }, sym, tpPrice), 1500);
 
-    // After entry, place SL stop-limit order
-    const slBody = {
-      symbol:        sym,
-      side:          tpSide,   // same side as TP (exit direction)
-      type:          'stop',
-      time_in_force: 'gtc',
-      qty:           qtyStr,
-      stop_price:    String(slPrice),
-    };
-    console.log(`[CRYPTO SL] ${tpSide.toUpperCase()} stop @ ${slPrice}`, slBody);
-    setTimeout(() => _sendOrder(slBody, sym, slPrice), 2000);
+    setTimeout(() => _sendOrder({
+      symbol: sym, side: exitSide, type: 'stop',
+      time_in_force: 'gtc', qty: qtyStr,
+      stop_price: String(slPrice),
+    }, sym, slPrice), 2000);
 
     return;
   }
 
   // ══════════════════════════════════════════════════════════════════
-  // PATH B — STOCKS/ETFs: bracket order with whole shares
+  // PATH B — STOCKS/ETFs: bracket order, whole shares only
+  // Cap total cost at 15% of BP to prevent "insufficient buying power"
   // ══════════════════════════════════════════════════════════════════
+
+  // Step 1: shares from risk
   let shares = Math.floor(riskDol / slDelta);
-  shares = Math.max(1, shares);
-  const maxShares = Math.max(1, Math.floor((bp * 0.08) / price));
-  shares = Math.min(shares, maxShares);
+  // Step 2: cap by total cost (THIS is what prevents the rejection)
+  const maxSharesByCost = Math.max(1, Math.floor(maxPositionCost / price));
+  // Step 3: take the minimum of both caps, minimum 1
+  shares = Math.max(1, Math.min(shares, maxSharesByCost));
+
+  console.log(`[STOCK SIZING] ${sym} riskDol=${riskDol.toFixed(0)} slDelta=${slDelta.toFixed(4)} rawShares=${Math.floor(riskDol/slDelta)} cappedShares=${shares} totalCost=$${(shares*price).toFixed(0)} BP=$${bp.toFixed(0)}`);
 
   const stockBody = {
     symbol:        sym,
@@ -5635,7 +5648,7 @@ async function placeAlpacaOrder(sig, ind) {
     stop_loss:     { stop_price:  String(slPrice)  },
   };
 
-  console.log(`[STOCK BRACKET] ${side.toUpperCase()} ${shares} ${sym} @ ~${price} | SL:${slPrice} TP:${tpPrice}`, stockBody);
+  console.log(`[STOCK BRACKET] ${side.toUpperCase()} ${shares}x${sym} ~$${price} | SL:${slPrice} TP:${tpPrice} | cost=$${(shares*price).toFixed(0)}`, stockBody);
   await _sendOrder(stockBody, sym, price);
 }
 

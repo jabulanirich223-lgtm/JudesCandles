@@ -5391,146 +5391,184 @@ function fetchAlpacaData(pair, tf) {
     });
 }
 
-// ── getLivePrice — fetch real-time trade price from Alpaca ───────
-async function getLivePrice(pair) {
-  if (!ST.alpaca.connected) {
-    const candles = ST.candles;
-    return candles?.[candles.length-1]?.c || PAIR_CONFIG[pair]?.base || 0;
-  }
+// ── getLiveBidAsk — fetch real-time bid + ask from Alpaca ─────────
+// Returns {bid, ask, mid} or null if unavailable.
+// BUY orders fill at ASK. SELL orders fill at BID.
+// ALL stop/limit prices must be validated against the correct side.
+async function getLiveBidAsk(pair) {
   const sym    = alpacaDataSym(pair);
   const crypto = isCrypto(pair);
-  if (!sym) {
-    // Not on Alpaca — use candle close
-    const candles = ST.candles;
-    return candles?.[candles.length-1]?.c || PAIR_CONFIG[pair]?.base || 0;
-  }
+  if (!sym) return null;
+
   try {
-    let price = 0;
+    let bid = 0, ask = 0;
     if (crypto) {
-      // Crypto: latest trade
-      const url = `https://data.alpaca.markets/v1beta3/crypto/us/latest/trades?symbols=${encodeURIComponent(sym)}`;
-      const r = await alpacaFetch(url, { headers: alpacaHeaders() });
-      const data = await r.json();
-      price = data.trades?.[sym]?.p || 0;
+      const url = `https://data.alpaca.markets/v1beta3/crypto/us/latest/quotes?symbols=${encodeURIComponent(sym)}`;
+      const r   = await alpacaFetch(url, { headers: alpacaHeaders() });
+      const d   = await r.json();
+      const q   = d.quotes?.[sym];
+      if (q && q.bp > 0 && q.ap > 0) { bid = q.bp; ask = q.ap; }
     } else {
-      // Stocks/ETFs: latest trade
-      const url = `https://data.alpaca.markets/v2/stocks/${encodeURIComponent(sym)}/trades/latest`;
-      const r = await alpacaFetch(url, { headers: alpacaHeaders() });
-      const data = await r.json();
-      price = data.trade?.p || 0;
+      const url = `https://data.alpaca.markets/v2/stocks/${encodeURIComponent(sym)}/quotes/latest`;
+      const r   = await alpacaFetch(url, { headers: alpacaHeaders() });
+      const d   = await r.json();
+      const q   = d.quote;
+      if (q && q.bp > 0 && q.ap > 0) { bid = q.bp; ask = q.ap; }
     }
-    if (price > 0) return price;
+    if (bid > 0 && ask > 0 && ask >= bid) {
+      return { bid, ask, mid: (bid + ask) / 2 };
+    }
   } catch(e) {
-    console.warn('getLivePrice failed:', pair, e.message);
+    console.warn('[getLiveBidAsk] failed for', pair, e.message);
   }
-  // Fallback to candle close
+  return null;
+}
+
+// Kept for backwards compat (omniScan price display)
+async function getLivePrice(pair) {
+  const q = await getLiveBidAsk(pair);
+  if (q) return q.mid;
   const candles = ST.candles;
-  return candles?.[candles.length-1]?.c || PAIR_CONFIG[pair]?.base || 0;
+  return candles?.[candles.length-1]?.c || 0;
 }
 
 // ── placeAlpacaOrder ──────────────────────────────────────────────
+// The DEFINITIVE version. Core rule:
+//   BUY  fills at ASK  → TP must be > ASK,  SL must be < ASK
+//   SELL fills at BID  → TP must be < BID,  SL must be > BID
+// We fetch real bid+ask and build every price from the fill side.
 async function placeAlpacaOrder(sig, ind) {
   if (!ST.alpaca.connected) return;
   if (!ST.alpaca.paper && !ST.alpaca.liveOrdersEnabled) {
-    toast('⚠ Enable LIVE ORDERS in panel to trade real funds', 'sell', 4000);
+    toast('⚠ Enable LIVE ORDERS to trade real funds', 'sell', 4000);
     return;
   }
 
   const pair = ST.pair;
 
-  // ── Gate 1: Check if Alpaca supports this asset ───────────────────
-  if (!alpacaSupported(pair)) {
-    console.log(`[ORDER SKIPPED] ${pair} not supported on Alpaca`);
-    return;
-  }
+  // ── 1. Asset supported? ───────────────────────────────────────────
+  if (!alpacaSupported(pair)) return;
 
-  const sym    = PAIR_CONFIG[pair].alpacaSym; // guaranteed non-null
+  const sym    = PAIR_CONFIG[pair].alpacaSym;
   const crypto = isCrypto(pair);
-  const cat    = PAIR_CONFIG[pair].cat;
   const bull   = sig.dir === 'bull';
   const side   = bull ? 'buy' : 'sell';
 
-  // ── Gate 2: Short sells — Alpaca paper supports them; live depends on account
-  // We'll attempt it and let Alpaca reject if no margin — don't pre-block
-  if (side === 'sell' && !crypto) {
-    console.log(`[ORDER] Short sell ${sym} — paper=${ST.alpaca.paper} (Alpaca will reject if no margin)`);
-  }
-
-  // ── Get live price ────────────────────────────────────────────────
-  const livePrice = await getLivePrice(pair);
-  if (!livePrice || livePrice <= 0) {
-    console.warn(`[ORDER SKIPPED] Could not get live price for ${sym}`);
+  // ── 2. Fetch live bid + ask — ABORT if unavailable ────────────────
+  // Never use stale/hardcoded prices. If we can't get a live quote,
+  // it's safer to skip than to place an order with wrong prices.
+  const quote = await getLiveBidAsk(pair);
+  if (!quote) {
+    console.warn(`[ORDER SKIP] No live quote for ${sym}`);
+    toast(`⚠ No live quote for ${sym} — order skipped`, 'sell', 4000);
     return;
   }
 
-  // ── Compute ATR-based SL/TP anchored to live price ────────────────
-  const atr = Math.max(ind?.atrv || 0, livePrice * 0.005);
-  const sigSlDist = sig.sl ? Math.abs((sig.entry||livePrice) - sig.sl) : 0;
-  const slDist = (sigSlDist > 0 && sigSlDist < livePrice * 0.20)
-    ? sigSlDist : atr * 1.5;
-  const sigRR = (sig.tp2 && sig.entry && sig.sl)
-    ? Math.abs(sig.tp2 - sig.entry) / Math.abs(sig.entry - sig.sl) : 0;
-  const rrUsed = (sigRR >= 1 && sigRR <= 8) ? sigRR : 2.0;
+  // The price the order will actually FILL at:
+  const fillRef = bull ? quote.ask : quote.bid;  // buy fills at ask, sell at bid
+  const spread  = quote.ask - quote.bid;
+  const mid     = quote.mid;
 
-  // Decimal precision based on price magnitude
-  const dec = livePrice >= 1000 ? 2 : livePrice >= 10 ? 4 : livePrice >= 0.1 ? 6 : 8;
+  console.log(`[ORDER] ${sym} bid=${quote.bid} ask=${quote.ask} fillRef=${fillRef} spread=${spread.toFixed(6)}`);
 
-  let slPrice = bull
-    ? +(livePrice - slDist).toFixed(dec)
-    : +(livePrice + slDist).toFixed(dec);
-  let tpPrice = bull
-    ? +(livePrice + slDist * rrUsed).toFixed(dec)
-    : +(livePrice - slDist * rrUsed).toFixed(dec);
+  // ── 3. Compute SL distance ────────────────────────────────────────
+  // Use signal's SL distance if it's sane, else fall back to ATR
+  const atrv    = ind?.atrv || 0;
+  const atrFall = Math.max(atrv, fillRef * 0.008); // at least 0.8% of price
+  const sigSlDist = (sig.sl && sig.entry)
+    ? Math.abs(sig.entry - sig.sl) : 0;
+  const slDist = (sigSlDist > fillRef * 0.001 && sigSlDist < fillRef * 0.25)
+    ? sigSlDist : atrFall * 1.5;
 
-  // Hard enforce correct side — never let these be wrong
-  const minGap = livePrice * 0.003; // 0.3% minimum gap
+  // ── 4. Compute RR ─────────────────────────────────────────────────
+  const sigRR  = (sig.tp2 && sig.entry && sig.sl && sigSlDist > 0)
+    ? Math.abs(sig.tp2 - sig.entry) / sigSlDist : 0;
+  const rrUsed = (sigRR >= 1.0 && sigRR <= 8.0) ? sigRR : 2.0;
+
+  // ── 5. Decimal precision ──────────────────────────────────────────
+  const dec = fillRef >= 10000 ? 2
+            : fillRef >= 100   ? 2
+            : fillRef >= 1     ? 4
+            : fillRef >= 0.01  ? 6
+            : 8;
+
+  // ── 6. Build SL and TP anchored to FILL price ─────────────────────
+  // Minimum gap = max(slDist * 0.5, 0.5% of price, 2x spread)
+  const minGap = Math.max(slDist * 0.5, fillRef * 0.005, spread * 2);
+
+  let slPrice, tpPrice;
   if (bull) {
-    slPrice = Math.min(slPrice, +(livePrice - minGap).toFixed(dec));
-    tpPrice = Math.max(tpPrice, +(livePrice + minGap * 2).toFixed(dec));
+    // BUY: SL below ask, TP above ask
+    slPrice = fillRef - slDist;
+    tpPrice = fillRef + (slDist * rrUsed);
+    // Hard floor: SL must be < bid (well below fill)
+    slPrice = Math.min(slPrice, quote.bid - minGap);
+    // Hard ceil: TP must be > ask (above fill)
+    tpPrice = Math.max(tpPrice, fillRef + minGap);
   } else {
-    slPrice = Math.max(slPrice, +(livePrice + minGap).toFixed(dec));
-    tpPrice = Math.min(tpPrice, +(livePrice - minGap * 2).toFixed(dec));
+    // SELL: SL above bid, TP below bid
+    slPrice = fillRef + slDist;
+    tpPrice = fillRef - (slDist * rrUsed);
+    // Hard ceil: SL must be > ask (well above fill)
+    slPrice = Math.max(slPrice, quote.ask + minGap);
+    // Hard floor: TP must be < bid (below fill)
+    tpPrice = Math.min(tpPrice, fillRef - minGap);
   }
 
-  // ── Position sizing ───────────────────────────────────────────────
-  const bp      = ST.alpaca.account?.buyingPower || 10000;
-  const riskDol = Math.min(bp * 0.01, 500); // 1% risk, max $500
-  const actualSlDist = Math.abs(livePrice - slPrice);
+  // Round to correct decimals
+  slPrice = +slPrice.toFixed(dec);
+  tpPrice = +tpPrice.toFixed(dec);
+
+  // ── 7. Final sanity assertions (these should never trip) ──────────
+  if (bull && (slPrice >= quote.ask || tpPrice <= quote.ask)) {
+    console.error(`[ORDER ABORT] BUY sanity fail: ask=${quote.ask} sl=${slPrice} tp=${tpPrice}`);
+    toast(`⚠ Price calculation error for ${sym} — skipped`, 'sell', 4000);
+    return;
+  }
+  if (!bull && (slPrice <= quote.bid || tpPrice >= quote.bid)) {
+    console.error(`[ORDER ABORT] SELL sanity fail: bid=${quote.bid} sl=${slPrice} tp=${tpPrice}`);
+    toast(`⚠ Price calculation error for ${sym} — skipped`, 'sell', 4000);
+    return;
+  }
+
+  // ── 8. Position sizing ────────────────────────────────────────────
+  const bp        = ST.alpaca.account?.buyingPower || 10000;
+  const riskDol   = Math.min(bp * 0.01, 500);         // risk 1% BP, max $500
+  const actualSLD = Math.abs(fillRef - slPrice);       // real SL distance from fill
 
   let qty;
   if (crypto) {
-    // Crypto: fractional qty from risk/SL-distance
-    let rawQty = riskDol / actualSlDist;
-    const capQty = (bp * 0.05) / livePrice;   // never more than 5% BP in one trade
-    rawQty = Math.max(0.0001, Math.min(rawQty, capQty));
-    // Format without scientific notation: use enough decimals for the magnitude
-    const qtyDecimals = Math.max(2, Math.min(8, Math.ceil(-Math.log10(rawQty)) + 3));
-    qty = rawQty.toFixed(isFinite(qtyDecimals) ? qtyDecimals : 8);
-    // Verify it parsed back correctly
-    if (!parseFloat(qty) || parseFloat(qty) <= 0) qty = '0.001';
+    let rawQty = riskDol / actualSLD;
+    const maxQty = (bp * 0.05) / fillRef;              // cap at 5% BP
+    rawQty = Math.max(0.00001, Math.min(rawQty, maxQty));
+    // toFixed with enough decimals, no scientific notation
+    const places = Math.max(2, Math.min(8, Math.ceil(-Math.log10(rawQty)) + 2));
+    qty = rawQty.toFixed(isFinite(places) ? places : 6);
+    if (isNaN(parseFloat(qty)) || parseFloat(qty) <= 0) qty = '0.001';
   } else {
-    // Stocks/ETFs: WHOLE shares only — Alpaca rejects fractional with bracket orders
-    const shareQty = Math.max(1, Math.floor(riskDol / actualSlDist));
-    const maxShares = Math.max(1, Math.floor((bp * 0.08) / livePrice));
-    qty = String(Math.min(shareQty, maxShares));
+    // Stocks: whole shares only
+    let shares = Math.floor(riskDol / actualSLD);
+    shares = Math.max(1, shares);
+    const maxShares = Math.max(1, Math.floor((bp * 0.08) / fillRef));
+    qty = String(Math.min(shares, maxShares));
   }
 
-  // ── time_in_force: gtc for all — works for crypto and stocks ────────
-  const tif = 'gtc';
-
-  // ── Build order body ──────────────────────────────────────────────
+  // ── 9. Build and send ─────────────────────────────────────────────
+  const tif  = crypto ? 'gtc' : 'gtc'; // gtc safe for both
   const body = {
     symbol:        sym,
     side,
     type:          'market',
     time_in_force: tif,
     order_class:   'bracket',
-    qty:           qty,                           // already a string from toFixed above
-    take_profit:   { limit_price: String(tpPrice) },
-    stop_loss:     { stop_price:  String(slPrice) },
+    qty:           qty,
+    take_profit: { limit_price: String(tpPrice) },
+    stop_loss:   { stop_price:  String(slPrice) },
   };
 
-  console.log(`[APEX ORDER] ${side.toUpperCase()} ${qty} ${sym} live@${livePrice} SL:${slPrice} TP:${tpPrice} tif:${tif}`, body);
+  console.log(`[APEX ORDER PLACING] ${side.toUpperCase()} ${qty} ${sym}`,
+    `| fillRef=${fillRef} | SL=${slPrice} | TP=${tpPrice}`,
+    `| slDist=${actualSLD.toFixed(6)} | RR=${rrUsed}`, body);
 
   try {
     const r = await alpacaFetch(`${tradingURL()}/v2/orders`, {
@@ -5538,20 +5576,30 @@ async function placeAlpacaOrder(sig, ind) {
       headers: alpacaHeaders(true),
       body:    JSON.stringify(body),
     });
-    const order = await r.json();
+    const resp = await r.json();
 
-    if (order.id) {
-      const label = `${qty} ${sym}`;
-      toast(`✓ ${side.toUpperCase()} ${label}\n@ ~$${livePrice}  SL:${slPrice}  TP:${tpPrice}`, 'buy', 6000);
-      setTimeout(fetchAccount,   2500);
-      setTimeout(fetchPositions, 3500);
+    if (resp.id) {
+      toast(`✓ ${side.toUpperCase()} ${qty} ${sym}\n~${fillRef}  SL:${slPrice}  TP:${tpPrice}`, 'buy', 7000);
+      setTimeout(fetchAccount,   2000);
+      setTimeout(fetchPositions, 3000);
+      console.log(`[ORDER SUCCESS] id=${resp.id} status=${resp.status}`);
     } else {
-      const errMsg = order.message || order.code || JSON.stringify(order).slice(0,200);
-      toast(`✗ ${sym}: ${errMsg}`, 'sell', 8000);
-      console.error('[ORDER REJECTED]', JSON.stringify(order), '\nBody:', JSON.stringify(body));
+      // Log everything so we can debug
+      const msg = resp.message || resp.code || JSON.stringify(resp).slice(0, 300);
+      toast(`✗ ${sym}: ${msg}`, 'sell', 9000);
+      console.error('[ORDER REJECTED]', {
+        error: resp,
+        body,
+        quote,
+        fillRef,
+        slPrice,
+        tpPrice,
+        actualSLD,
+        qty,
+      });
     }
   } catch(e) {
-    toast('✗ Order error: ' + e.message, 'sell', 5000);
+    toast(`✗ Network error placing ${sym}: ${e.message}`, 'sell', 5000);
     console.error('[ORDER EXCEPTION]', e, body);
   }
 }

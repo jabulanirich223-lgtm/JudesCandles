@@ -878,6 +878,13 @@ input[type=range]::-webkit-slider-thumb {
   letter-spacing:2px; padding:5px; cursor:pointer; transition:all .12s;
 }
 .api-btn:hover { background:rgba(0,212,255,.13); border-color:var(--c2); }
+.acct-row { display:flex; justify-content:space-between; font-size:10px; padding:2px 0; }
+.acct-l { color:var(--t3); }
+.acct-v { font-family:'JetBrains Mono',monospace; font-weight:700; }
+.api-status.ok  { color:#00f87c; }
+.api-status.err { color:#ff1a50; }
+.api-status.info{ color:#ffd60a; }
+#alpacaPositions { margin-top:6px; }
 .api-status {
   margin-top:5px; text-align:center;
   font-size:6px; letter-spacing:2px; color:var(--t3);
@@ -1281,9 +1288,15 @@ input[type=range]::-webkit-slider-thumb {
         <input class="api-inp" type="password" id="apiSec" placeholder="secret...">
         <div class="api-row">
           <button class="api-btn" onclick="connectAlpaca()">▶ CONNECT</button>
-          <button class="api-btn" onclick="togglePaper()" id="paperBtn">PAPER</button>
+          <button class="api-btn" onclick="disconnectAlpaca()">■ DISC</button>
+          <button class="api-btn" onclick="togglePaper()" id="modePill" class="mode-pill paper">PAPER</button>
         </div>
         <div class="api-status" id="apiStatus">PAPER TRADING SAFE — NO REAL FUNDS</div>
+        <div class="api-acct" id="apiAcct" style="display:none">
+          <div class="acct-row"><span class="acct-l">EQUITY</span><span class="acct-v g" id="acctEquity">--</span></div>
+          <div class="acct-row"><span class="acct-l">CASH</span><span class="acct-v" id="acctCash">--</span></div>
+          <div class="acct-row"><span class="acct-l">BUYING PWR</span><span class="acct-v" id="acctBP">--</span></div>
+        </div>
       </div>
     </div>
   </div>
@@ -2838,7 +2851,7 @@ function fireSignal(sig,ind,gateResult){
   );
   playBeep(bull,sig.quality);
 
-  if(ST.alpaca.live) placeAlpacaOrder(sig,ind);
+  if(ST.alpaca.connected) placeAlpacaOrder(sig,ind);
 }
 
 function updateKPIs(){
@@ -4730,100 +4743,301 @@ function setThresh(val) {
 // ─────────────────────────────────────────────
 //  ALPACA INTEGRATION
 // ─────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
+//  ALPACA INTEGRATION — Full rewrite: account sync, real orders
+// ─────────────────────────────────────────────────────────────────
+
+// Determine if symbol is crypto vs stock
+function isCrypto(pair) {
+  const cfg = PAIR_CONFIG[pair];
+  return cfg ? cfg.cat === 'crypto' : pair.endsWith('USD') && !['GOLDUSD','SILVERUSD','CRUDEUSD','SPYUSD','QQQUSO','IWMUSD'].includes(pair);
+}
+
+// Build correct Alpaca symbol: crypto = "BTC/USD", stock = "AAPL"
+function alpacaSymbol(pair) {
+  if (isCrypto(pair)) {
+    // Handle USDT pairs
+    if (pair.endsWith('USDT')) return pair.replace('USDT','/USDT');
+    return pair.slice(0,-3) + '/' + pair.slice(-3); // BTCUSD -> BTC/USD
+  }
+  return pair; // stocks: AAPL, NVDA etc
+}
+
+// Alpaca base URLs
+function tradingURL() {
+  return ST.alpaca.paper ? 'https://paper-api.alpaca.markets' : 'https://api.alpaca.markets';
+}
+function dataURL(pair) {
+  return isCrypto(pair) ? 'https://data.alpaca.markets' : 'https://data.alpaca.markets';
+}
+function alpacaHeaders() {
+  return {
+    'APCA-API-KEY-ID': ST.alpaca.key,
+    'APCA-API-SECRET-KEY': ST.alpaca.secret,
+    'Content-Type': 'application/json'
+  };
+}
+
+// ── setApiStatus — updates the status box in the panel ──
+function setApiStatus(msg, type='info') {
+  const el = document.getElementById('apiStatus');
+  if (!el) return;
+  el.textContent = msg;
+  el.className = 'api-status ' + type;
+}
+
+// ── fetchAccount — pulls balance, equity, positions ──
+async function fetchAccount() {
+  if (!ST.alpaca.connected) return;
+  try {
+    const r = await fetch(`${tradingURL()}/v2/account`, { headers: alpacaHeaders() });
+    const data = await r.json();
+    if (!data.id) { setApiStatus('⚠ Account fetch failed', 'err'); return; }
+
+    ST.alpaca.account = {
+      equity:       parseFloat(data.equity        || 0),
+      cash:         parseFloat(data.cash          || 0),
+      buyingPower:  parseFloat(data.buying_power  || 0),
+      portfolioVal: parseFloat(data.portfolio_value || 0),
+      dayPnl:       parseFloat(data.unrealized_intraday_pl || 0),
+      status:       data.status,
+    };
+
+    // Update status display
+    const eq   = ST.alpaca.account.equity.toFixed(2);
+    const cash = ST.alpaca.account.cash.toFixed(2);
+    const pnl  = ST.alpaca.account.dayPnl;
+    const pnlStr = (pnl >= 0 ? '+$' : '-$') + Math.abs(pnl).toFixed(2);
+    setApiStatus(`✓ EQ: $${eq}  |  CASH: $${cash}  |  DAY P&L: ${pnlStr}`, 'ok');
+
+    // Update any balance display elements
+    const balEl = document.getElementById('acctEquity');
+    const cashEl = document.getElementById('acctCash');
+    const bpEl   = document.getElementById('acctBP');
+    if (balEl)  balEl.textContent  = '$' + eq;
+    if (cashEl) cashEl.textContent = '$' + cash;
+    if (bpEl)   bpEl.textContent   = '$' + ST.alpaca.account.buyingPower.toFixed(2);
+
+    // Fetch open positions too
+    fetchPositions();
+  } catch(e) {
+    setApiStatus('⚠ Account sync error', 'err');
+  }
+}
+
+// ── fetchPositions — pulls all open positions ──
+async function fetchPositions() {
+  if (!ST.alpaca.connected) return;
+  try {
+    const r = await fetch(`${tradingURL()}/v2/positions`, { headers: alpacaHeaders() });
+    const positions = await r.json();
+    if (!Array.isArray(positions)) return;
+    ST.alpaca.positions = positions.map(p => ({
+      symbol:   p.symbol,
+      side:     p.side,
+      qty:      parseFloat(p.qty),
+      avgEntry: parseFloat(p.avg_entry_price),
+      mktVal:   parseFloat(p.market_value),
+      unrealPnl:parseFloat(p.unrealized_pl),
+      unrealPct:parseFloat(p.unrealized_plpc) * 100,
+    }));
+    renderPositions();
+  } catch(e) {}
+}
+
+// ── renderPositions — shows open positions in orders tab ──
+function renderPositions() {
+  const el = document.getElementById('alpacaPositions');
+  if (!el || !ST.alpaca.positions?.length) return;
+  el.innerHTML = `<div class="ss-title">OPEN POSITIONS (${ST.alpaca.positions.length})</div>` +
+    ST.alpaca.positions.map(p => {
+      const pnlClass = p.unrealPnl >= 0 ? 'g' : 'r';
+      const pnlStr   = (p.unrealPnl >= 0 ? '+$' : '-$') + Math.abs(p.unrealPnl).toFixed(2);
+      return `<div class="order-card ${p.side}">
+        <div class="oc-row"><b>${p.symbol}</b>
+          <span class="${pnlClass}">${pnlStr} (${p.unrealPct.toFixed(2)}%)</span>
+        </div>
+        <div class="oc-row small">
+          <span>${p.side.toUpperCase()} ${p.qty}</span>
+          <span>@ $${p.avgEntry.toFixed(4)}</span>
+          <span>MKT: $${p.mktVal.toFixed(2)}</span>
+        </div>
+      </div>`;
+    }).join('');
+}
+
+// ── connectAlpaca ──
 function connectAlpaca() {
   const key    = document.getElementById('apiKey')?.value?.trim();
   const secret = document.getElementById('apiSec')?.value?.trim();
-  const paper  = document.getElementById('paperBtn')?.checked ?? true;
+  const paper  = ST.alpaca.paper !== false; // default paper
 
   if (!key || !secret) { toast('Enter API Key + Secret', 'sell', 3000); return; }
 
-  ST.alpaca = { connected: false, key, secret, paper, live: false };
+  ST.alpaca = { ...ST.alpaca, connected: false, key, secret, paper, account: null, positions: [] };
+  setApiStatus('Connecting...', 'info');
   toast('Connecting to Alpaca...', 'info', 2000);
 
-  // Test connection
-  const baseURL = paper ? 'https://paper-api.alpaca.markets' : 'https://api.alpaca.markets';
-  fetch(`${baseURL}/v2/account`, {
-    headers: { 'APCA-API-KEY-ID': key, 'APCA-API-SECRET-KEY': secret }
-  }).then(r => r.json()).then(data => {
-    if (data.id) {
+  fetch(`${tradingURL()}/v2/account`, { headers: alpacaHeaders() })
+    .then(r => r.json())
+    .then(data => {
+      if (!data.id) throw new Error(data.message || 'Auth failed');
+
       ST.alpaca.connected = true;
-      ST.alpaca.live = !paper;
+      const acctEl = document.getElementById('apiAcct'); if(acctEl) acctEl.style.display='block';
       const pill = document.getElementById('modePill');
       if (pill) { pill.textContent = paper ? 'PAPER' : 'LIVE'; pill.className = 'mode-pill ' + (paper ? 'paper' : 'live'); }
-      toast(`✓ Alpaca ${paper?'PAPER':'LIVE'} connected\nBalance: $${parseFloat(data.buying_power||0).toFixed(2)}`, 'buy', 5000);
+
+      const eq = parseFloat(data.equity || data.buying_power || 0).toFixed(2);
+      toast(`✓ Alpaca ${paper?'PAPER':'LIVE'} connected
+Equity: $${eq}`, 'buy', 5000);
+
+      // Immediately sync account data
+      fetchAccount();
+
+      // Start polling account every 30s
+      if (ST.alpaca._pollTimer) clearInterval(ST.alpaca._pollTimer);
+      ST.alpaca._pollTimer = setInterval(fetchAccount, 30000);
+
+      // Load market data
       fetchAlpacaData(ST.pair, ST.tf);
-    } else {
-      toast('✗ Alpaca connection failed', 'sell', 4000);
-    }
-  }).catch(() => toast('✗ Network error — check CORS/credentials', 'sell', 4000));
+    })
+    .catch(err => {
+      setApiStatus('✗ ' + (err.message || 'Connection failed'), 'err');
+      toast('✗ Alpaca: ' + (err.message || 'Connection failed'), 'sell', 4000);
+    });
 }
 
+// ── fetchAlpacaData — load bars for current pair/TF ──
 function fetchAlpacaData(pair, tf) {
   if (!ST.alpaca.connected) { loadData(pair, tf); return; }
-  const { key, secret, paper } = ST.alpaca;
-  const baseURL = 'https://data.alpaca.markets';
-  const symbol  = pair.replace('USD', '/USD');
-  const tfMap   = { '1Min':'1Min','5Min':'5Min','15Min':'15Min','1Hour':'1Hour','4Hour':'4Hour','1Day':'1Day' };
+  const sym    = alpacaSymbol(pair);
+  const crypto = isCrypto(pair);
+  const tfMap  = { '1Min':'1Min','5Min':'5Min','15Min':'15Min','1Hour':'1Hour','4Hour':'4Hour','1Day':'1Day' };
+  const tf2    = tfMap[tf] || '5Min';
 
-  fetch(`${baseURL}/v1beta3/crypto/us/bars?symbols=${symbol}&timeframe=${tfMap[tf]}&limit=350`, {
-    headers: { 'APCA-API-KEY-ID': key, 'APCA-API-SECRET-KEY': secret }
-  }).then(r => r.json()).then(data => {
-    const bars = data.bars?.[symbol] || data.bars?.[pair];
-    if (bars && bars.length > 10) {
-      ST.candles = normCandles(bars.map(b => ({
-        t: new Date(b.t).getTime(),
-        o: b.o, h: b.h, l: b.l, c: b.c, v: b.v,
-        open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v
-      })));
-      runAnalysis();
-      startTick();
-      toast(`✓ Loaded ${bars.length} ${tf} bars for ${pair}`, 'buy', 2500);
-    } else {
-      toast(`No data for ${pair} — using simulation`, 'info', 3000);
+  const endpoint = crypto
+    ? `https://data.alpaca.markets/v1beta3/crypto/us/bars?symbols=${encodeURIComponent(sym)}&timeframe=${tf2}&limit=350`
+    : `https://data.alpaca.markets/v2/stocks/${encodeURIComponent(sym)}/bars?timeframe=${tf2}&limit=350&adjustment=raw`;
+
+  fetch(endpoint, { headers: alpacaHeaders() })
+    .then(r => r.json())
+    .then(data => {
+      // Crypto: data.bars[sym], Stock: data.bars array
+      const bars = crypto
+        ? (data.bars?.[sym] || data.bars?.[pair] || [])
+        : (Array.isArray(data.bars) ? data.bars : []);
+
+      if (bars.length > 10) {
+        ST.candles = normCandles(bars.map(b => ({
+          t: new Date(b.t).getTime(),
+          o: b.o, h: b.h, l: b.l, c: b.c, v: b.v,
+          open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v
+        })));
+        runAnalysis(); startTick();
+        toast(`✓ ${bars.length} ${tf} bars — ${sym}`, 'buy', 2500);
+      } else {
+        toast(`No live data for ${pair} → simulation`, 'info', 2500);
+        ST.candles = normCandles(genCandles(pair, tf, 350));
+        runAnalysis(); startTick();
+      }
+    })
+    .catch(() => {
       ST.candles = normCandles(genCandles(pair, tf, 350));
-      runAnalysis();
-      startTick();
-    }
-  }).catch(() => {
-    ST.candles = normCandles(genCandles(pair, tf, 350));
-    runAnalysis();
-    startTick();
-  });
+      runAnalysis(); startTick();
+    });
 }
 
-function placeAlpacaOrder(sig, ind) {
-  if (!ST.alpaca.live || !ST.alpaca.connected) return;
-  const { key, secret, paper } = ST.alpaca;
-  const baseURL = paper ? 'https://paper-api.alpaca.markets' : 'https://api.alpaca.markets';
-  const symbol  = ST.pair.replace('USD', '/USD');
-  const qty     = 0.001; // fractional
+// ── placeAlpacaOrder — fixed order placement ──
+async function placeAlpacaOrder(sig, ind) {
+  if (!ST.alpaca.connected) return;
+  // Paper mode: always place. Live mode: only if explicitly enabled
+  if (!ST.alpaca.paper && !ST.alpaca.liveOrdersEnabled) {
+    toast('⚠ Enable LIVE ORDERS in settings to trade real funds', 'sell', 4000);
+    return;
+  }
+
+  const sym    = alpacaSymbol(ST.pair);
+  const crypto = isCrypto(ST.pair);
+  const side   = sig.dir === 'bull' ? 'buy' : 'sell'; // fix: bull/bear -> buy/sell
+
+  // Position sizing: risk 1% of buying power, max $500
+  const bp      = ST.alpaca.account?.buyingPower || 10000;
+  const riskDol = Math.min(bp * 0.01, 500);
+  const slDist  = Math.abs(sig.entry - sig.sl);
+  const price   = sig.entry;
+
+  let qty, notional;
+  if (crypto) {
+    // Fractional crypto qty from risk
+    qty = slDist > 0 ? +(riskDol / (slDist / price * price)).toFixed(6) : 0.001;
+    qty = Math.max(0.0001, Math.min(qty, riskDol / price));
+  } else {
+    // Stock: use notional (dollar amount)
+    notional = Math.min(riskDol * (sig.rr || 2), bp * 0.05);
+    notional = +notional.toFixed(2);
+  }
+
+  // Build order — use bracket for defined-risk orders
+  const tpPrice = +sig.tp2.toFixed(crypto ? 4 : 2);
+  const slPrice = +sig.sl.toFixed(crypto ? 4 : 2);
 
   const body = {
-    symbol, qty, side: sig.dir,
-    type: 'market', time_in_force: 'gtc',
+    symbol: sym,
+    side,
+    type: 'market',
+    time_in_force: crypto ? 'gtc' : 'day',
     order_class: 'bracket',
-    take_profit: { limit_price: sig.tp2.toFixed(4) },
-    stop_loss:   { stop_price: sig.sl.toFixed(4) }
+    take_profit: { limit_price: String(tpPrice) },
+    stop_loss:   { stop_price: String(slPrice) },
+    ...(crypto ? { qty: String(qty) } : { notional: String(notional) }),
   };
 
-  fetch(`${baseURL}/v2/orders`, {
-    method: 'POST',
-    headers: { 'APCA-API-KEY-ID': key, 'APCA-API-SECRET-KEY': secret, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  }).then(r => r.json()).then(order => {
+  try {
+    const r = await fetch(`${tradingURL()}/v2/orders`, {
+      method: 'POST',
+      headers: alpacaHeaders(),
+      body: JSON.stringify(body)
+    });
+    const order = await r.json();
+
     if (order.id) {
-      toast(`✓ Order placed: ${sig.dir.toUpperCase()} ${qty} ${symbol}\nID: ${order.id.slice(0,8)}`, 'buy', 5000);
+      const qtyLabel = crypto ? qty + ' ' + ST.pair.replace('USD','') : '$' + notional;
+      toast(`✓ ${side.toUpperCase()} ${qtyLabel}
+SL: ${slPrice}  TP: ${tpPrice}
+ID: ${order.id.slice(0,8)}`, 'buy', 6000);
+      // Refresh account after order
+      setTimeout(fetchAccount, 2000);
     } else {
-      toast(`✗ Order failed: ${order.message || 'Unknown error'}`, 'sell', 4000);
+      const errMsg = order.message || order.code || JSON.stringify(order);
+      toast(`✗ Order rejected: ${errMsg}`, 'sell', 6000);
+      console.error('Alpaca order error:', order);
     }
-  }).catch(() => toast('✗ Order placement failed', 'sell', 3000));
+  } catch(e) {
+    toast('✗ Order failed: ' + e.message, 'sell', 4000);
+  }
 }
 
 function togglePaper() {
+  if (ST.alpaca.connected) {
+    toast('Disconnect first to change mode', 'sell', 3000); return;
+  }
   ST.alpaca.paper = !ST.alpaca.paper;
   const pill = document.getElementById('modePill');
   if (pill) { pill.textContent = ST.alpaca.paper ? 'PAPER' : 'LIVE'; pill.className = 'mode-pill ' + (ST.alpaca.paper ? 'paper' : 'live'); }
+  setApiStatus(ST.alpaca.paper ? 'PAPER TRADING — NO REAL FUNDS' : '⚠ LIVE TRADING — REAL MONEY', ST.alpaca.paper ? 'info' : 'err');
   toast(`Mode: ${ST.alpaca.paper ? 'PAPER TRADING' : '⚠ LIVE TRADING'}`, ST.alpaca.paper ? 'info' : 'sell', 3000);
+}
+
+function disconnectAlpaca() {
+  if (ST.alpaca._pollTimer) clearInterval(ST.alpaca._pollTimer);
+  ST.alpaca.connected = false;
+  ST.alpaca.account = null;
+  ST.alpaca.positions = [];
+  setApiStatus('DISCONNECTED', 'err');
+  toast('Alpaca disconnected', 'info', 2000);
+  const pill = document.getElementById('modePill');
+  if (pill) { pill.textContent = 'OFFLINE'; pill.className = 'mode-pill paper'; }
 }
 
 // ─────────────────────────────────────────────

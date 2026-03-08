@@ -5526,15 +5526,43 @@ async function placeAlpacaOrder(sig, ind) {
   const bull   = sig.dir === 'bull';
   const side   = bull ? 'buy' : 'sell';
 
-  // ── 0. Pre-flight: cancel stale pending orders + refresh BP ─────────
-  // Pending orders reserve BP. Cancel them first so we have accurate BP.
+  // ── 0. Pre-flight ─────────────────────────────────────────────────
+  // Step 1: Cancel any open orders for this symbol — they reserve BP
   await cancelOpenOrdersFor(sym);
-  await fetchAccount();  // get fresh BP right now
-  await new Promise(r => setTimeout(r, 200)); // let account update settle
 
-  // Block short sells if account doesn't support them
+  // Step 2: Fetch live account directly right now — do NOT use cached value.
+  // This gives us the exact BP after cancellations have cleared.
+  let liveBP = 0;
+  let shortingEnabled = ST.alpaca.account?.shortingEnabled || false;
+  try {
+    const acctR = await alpacaFetch(`${tradingURL()}/v2/account`, { headers: alpacaHeaders() });
+    const acctD = await acctR.json();
+    if (!acctD.id) throw new Error('bad account response');
+    liveBP = parseFloat(acctD.buying_power || 0);
+    shortingEnabled = acctD.shorting_enabled === true;
+    // Also update the cached object so the UI stays current
+    ST.alpaca.account = {
+      ...ST.alpaca.account,
+      buyingPower:    liveBP,
+      shortingEnabled,
+      equity:         parseFloat(acctD.equity || 0),
+      cash:           parseFloat(acctD.cash   || 0),
+    };
+    console.log(`[PRE-FLIGHT] ${sym} live BP=$${liveBP.toFixed(2)} shorting=${shortingEnabled}`);
+  } catch(e) {
+    console.warn('[PRE-FLIGHT] Could not fetch live BP:', e.message);
+    liveBP = parseFloat(ST.alpaca.account?.buyingPower) || 0;
+  }
+
+  if (liveBP <= 0) {
+    toast(`⚠ No buying power available ($${liveBP.toFixed(2)})`, 'sell', 4000);
+    console.warn('[ORDER SKIP] BP=0');
+    return;
+  }
+
+  // Step 3: Block short sells if account doesn't support them
   if (side === 'sell' && !crypto) {
-    if (!ST.alpaca.account?.shortingEnabled && !ST.alpaca.paper) {
+    if (!shortingEnabled && !ST.alpaca.paper) {
       console.log(`[ORDER SKIP] Short selling not enabled for ${sym}`);
       toast(`⚠ Short selling not enabled on this account`, 'sell', 3000);
       return;
@@ -5601,20 +5629,13 @@ async function placeAlpacaOrder(sig, ind) {
     return;
   }
 
-  // ── 6. Position sizing ────────────────────────────────────────────
-  // Re-fetch BP fresh from account object (mapped by fetchAccount as buyingPower)
-  const bp      = parseFloat(ST.alpaca.account?.buyingPower) || 0;
-  if (bp <= 0) {
-    toast(`⚠ No buying power available`, 'sell', 3000);
-    console.warn('[ORDER SKIP] BP=0 or account not loaded');
-    return;
-  }
-  // ── Position sizing — uses full buying power ─────────────────────
-  // Risk per trade: 5% of BP (no hard dollar cap — scales with account size)
-  // Max position: 90% of BP so account is never fully locked
-  const riskDol         = bp * 0.05;          // risk 5% of BP per trade
-  const maxPositionCost = bp * 0.90;          // never exceed 90% of BP
-  const slDelta = Math.abs(price - slPrice);
+  // ── 6. Position sizing — using LIVE BP fetched moments ago ──────────
+  // liveBP is the exact buying power available RIGHT NOW after cancellations.
+  const bp              = liveBP;
+  const riskDol         = bp * 0.05;   // risk 5% of available BP per trade
+  const maxPositionCost = bp * 0.95;   // hard ceiling: never exceed 95% of BP
+  const slDelta         = Math.abs(price - slPrice);
+  console.log(`[SIZING] BP=$${bp.toFixed(2)} risk=$${riskDol.toFixed(2)} maxCost=$${maxPositionCost.toFixed(2)}`);
 
   // ══════════════════════════════════════════════════════════════════
   // PATH A — CRYPTO: plain market order  (bracket NOT supported)

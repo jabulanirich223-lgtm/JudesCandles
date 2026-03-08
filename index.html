@@ -5379,73 +5379,105 @@ function fetchAlpacaData(pair, tf) {
     });
 }
 
-// ── placeAlpacaOrder — fixed order placement ──
+// ── placeAlpacaOrder ──────────────────────────────────────────────
 async function placeAlpacaOrder(sig, ind) {
   if (!ST.alpaca.connected) return;
-  // Paper mode: always place. Live mode: only if explicitly enabled
   if (!ST.alpaca.paper && !ST.alpaca.liveOrdersEnabled) {
-    toast('⚠ Enable LIVE ORDERS in settings to trade real funds', 'sell', 4000);
+    toast('⚠ Enable LIVE ORDERS in panel to trade real funds', 'sell', 4000);
     return;
   }
 
-  const sym    = alpacaSymbol(ST.pair);
-  const crypto = isCrypto(ST.pair);
-  const side   = sig.dir === 'bull' ? 'buy' : 'sell'; // fix: bull/bear -> buy/sell
+  const pair   = ST.pair;
+  const sym    = alpacaSymbol(pair);
+  const crypto = isCrypto(pair);
+  const bull   = sig.dir === 'bull';
+  const side   = bull ? 'buy' : 'sell';
 
-  // Position sizing: risk 1% of buying power, max $500
-  const bp      = ST.alpaca.account?.buyingPower || 10000;
-  const riskDol = Math.min(bp * 0.01, 500);
-  const slDist  = Math.abs(sig.entry - sig.sl);
-  const price   = sig.entry;
+  // ── 1. Validate SL/TP exist and are on correct side ──────────────
+  const entry = +sig.entry;
+  let sl  = +sig.sl;
+  let tp  = +(sig.tp2 || sig.tp1);
 
-  let qty, notional;
-  if (crypto) {
-    // Fractional crypto qty from risk
-    qty = slDist > 0 ? +(riskDol / (slDist / price * price)).toFixed(6) : 0.001;
-    qty = Math.max(0.0001, Math.min(qty, riskDol / price));
-  } else {
-    // Stock: use notional (dollar amount)
-    notional = Math.min(riskDol * (sig.rr || 2), bp * 0.05);
-    notional = +notional.toFixed(2);
+  if (!entry || !sl || !tp || isNaN(entry) || isNaN(sl) || isNaN(tp)) {
+    console.warn('Order skipped: invalid entry/sl/tp', {entry, sl, tp});
+    return;
   }
 
-  // Build order — use bracket for defined-risk orders
-  const tpPrice = +sig.tp2.toFixed(crypto ? 4 : 2);
-  const slPrice = +sig.sl.toFixed(crypto ? 4 : 2);
+  // Fix SL on wrong side — use ATR-based fallback
+  const atr = ind?.atr || entry * 0.008;
+  if (bull && sl >= entry) sl = +(entry - atr * 1.5).toFixed(6);
+  if (!bull && sl <= entry) sl = +(entry + atr * 1.5).toFixed(6);
 
+  // Fix TP on wrong side
+  if (bull && tp <= entry) tp = +(entry + atr * 3).toFixed(6);
+  if (!bull && tp >= entry) tp = +(entry - atr * 3).toFixed(6);
+
+  // Round prices appropriately
+  const dec = crypto ? 6 : 2;
+  const slPrice = +sl.toFixed(dec);
+  const tpPrice = +tp.toFixed(dec);
+
+  // ── 2. Position sizing ───────────────────────────────────────────
+  const bp      = ST.alpaca.account?.buyingPower || 10000;
+  const riskDol = Math.min(bp * 0.01, 500);           // risk 1% of BP, max $500
+  const slDist  = Math.abs(entry - slPrice);
+
+  let qty;
+  if (crypto) {
+    qty = slDist > 0.000001
+      ? +(riskDol / slDist).toFixed(6)    // units risked at SL distance
+      : +(riskDol / entry).toFixed(6);    // fallback: buy $riskDol worth
+    qty = Math.max(0.0001, qty);
+    // Cap: no more than 5% of BP in one trade
+    const maxQty = +(bp * 0.05 / entry).toFixed(6);
+    qty = Math.min(qty, maxQty);
+  } else {
+    // Stocks: qty = shares, calculated from risk. Fractional if needed.
+    qty = slDist > 0.01
+      ? Math.floor(riskDol / slDist)
+      : Math.floor(riskDol / entry);
+    qty = Math.max(1, qty);  // at least 1 share
+  }
+
+  if (!qty || qty <= 0) { console.warn('Order skipped: qty=0'); return; }
+
+  // ── 3. Build order body ──────────────────────────────────────────
+  // Bracket orders require qty (NOT notional), gtc, and correct leg prices
   const body = {
-    symbol: sym,
+    symbol:        sym,
     side,
-    type: 'market',
-    time_in_force: crypto ? 'gtc' : 'day',
-    order_class: 'bracket',
+    type:          'market',
+    time_in_force: 'gtc',          // gtc works for both crypto and stocks
+    order_class:   'bracket',
+    qty:           String(qty),
     take_profit: { limit_price: String(tpPrice) },
-    stop_loss:   { stop_price: String(slPrice) },
-    ...(crypto ? { qty: String(qty) } : { notional: String(notional) }),
+    stop_loss:   { stop_price:  String(slPrice) },
   };
+
+  console.log('Placing order:', JSON.stringify(body, null, 2));
 
   try {
     const r = await alpacaFetch(`${tradingURL()}/v2/orders`, {
-      method: 'POST',
+      method:  'POST',
       headers: alpacaHeaders(true),
-      body: JSON.stringify(body)
+      body:    JSON.stringify(body),
     });
     const order = await r.json();
 
     if (order.id) {
-      const qtyLabel = crypto ? qty + ' ' + ST.pair.replace('USD','') : '$' + notional;
-      toast(`✓ ${side.toUpperCase()} ${qtyLabel}
-SL: ${slPrice}  TP: ${tpPrice}
-ID: ${order.id.slice(0,8)}`, 'buy', 6000);
-      // Refresh account after order
-      setTimeout(fetchAccount, 2000);
+      const label = crypto ? `${qty} ${sym.split('/')[0]}` : `${qty} ${sym}`;
+      toast(`✓ ${side.toUpperCase()} ${label}\nSL:${slPrice}  TP:${tpPrice}\n${order.id.slice(0,8)}`, 'buy', 6000);
+      setTimeout(fetchAccount, 2500);
+      setTimeout(fetchPositions, 3000);
     } else {
-      const errMsg = order.message || order.code || JSON.stringify(order);
-      toast(`✗ Order rejected: ${errMsg}`, 'sell', 6000);
-      console.error('Alpaca order error:', order);
+      // Log full error for debugging
+      const errMsg = order.message || order.code || JSON.stringify(order).slice(0, 120);
+      toast(`✗ ${errMsg}`, 'sell', 7000);
+      console.error('Order rejected:', order, '\nBody sent:', body);
     }
   } catch(e) {
-    toast('✗ Order failed: ' + e.message, 'sell', 4000);
+    toast('✗ Order error: ' + e.message, 'sell', 5000);
+    console.error('placeAlpacaOrder exception:', e);
   }
 }
 

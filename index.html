@@ -1019,6 +1019,26 @@ input[type=range]::-webkit-slider-thumb {
 .api-btn { flex:1; background:rgba(0,212,255,.06); border:1px solid var(--c3); color:var(--c1); font-family:var(--font-hud); font-size:8px; letter-spacing:2px; padding:5px; cursor:pointer; transition:all .12s; }
 .api-btn:hover { background:rgba(0,212,255,.13); border-color:var(--c2); }
 
+
+/* ── Portfolio Summary in Orders Tab ── */
+.port-summary {
+  background:linear-gradient(135deg,rgba(0,248,124,0.06),rgba(0,212,255,0.04));
+  border:1px solid rgba(0,248,124,0.2);
+  border-radius:5px; margin:8px; padding:10px;
+}
+.port-header { display:flex; align-items:center; gap:6px; margin-bottom:8px; }
+.port-label { font-size:8px; letter-spacing:.15em; color:var(--t3); }
+.port-mode { font-size:8px; letter-spacing:.1em; padding:2px 6px; border-radius:3px; font-weight:700; }
+.port-mode.paper { background:rgba(0,212,255,0.12); color:#00d4ff; }
+.port-mode.live  { background:rgba(255,26,80,0.15);  color:#ff1a50; }
+.port-grid { display:grid; grid-template-columns:1fr 1fr; gap:4px; }
+.port-stat { background:rgba(0,0,0,0.25); border-radius:3px; padding:5px 7px; }
+.ps-l { display:block; font-size:7px; letter-spacing:.1em; color:var(--t3); margin-bottom:1px; }
+.ps-v { display:block; font-size:11px; font-family:'JetBrains Mono',monospace; font-weight:700; }
+.ps-v.g   { color:#00f87c; }
+.ps-v.r   { color:#ff1a50; }
+.ps-v.neu { color:#00d4ff; }
+
 /* ═══════════════════════════════════════════════
    TOAST NOTIFICATIONS
 ═══════════════════════════════════════════════ */
@@ -1354,6 +1374,8 @@ input[type=range]::-webkit-slider-thumb {
     <span class="live-price" id="livePriceEl">--</span>
     <span class="price-chg up" id="priceChgEl">+0.00%</span>
     <span class="mode-pill demo" id="modePill">DEMO</span>
+    <span id="hdrEquity" style="font-size:9px;letter-spacing:.08em;color:rgba(0,248,124,0.8);padding:2px 8px;background:rgba(0,248,124,0.08);border:1px solid rgba(0,248,124,0.2);border-radius:3px;display:none">$--</span>
+    <span id="hdrBP" style="font-size:9px;letter-spacing:.08em;color:rgba(0,212,255,0.7);padding:2px 8px;background:rgba(0,212,255,0.06);border:1px solid rgba(0,212,255,0.15);border-radius:3px;display:none">BP: $--</span>
     <button class="sniper-btn idle" id="sniperBtn" onclick="toggleSniper()">○ SNIPER IDLE</button>
   </div>
 </div>
@@ -2740,7 +2762,7 @@ function evalSignal(ind){
     best.tp1=bull2?ind.p+reward*.45:ind.p-reward*.45;
     best.tp2=bull2?ind.p+reward:ind.p-reward;
     best.tp3=bull2?ind.p+reward*1.5:ind.p-reward*1.5;
-    best.rr=rrMult.toFixed(1);
+    best.rr=rrMult; // keep as number
 
     // Adjust SL to nearest order block if closer
     if(bull2&&ind.nearestBullOB&&ind.nearestBullOB.bot){
@@ -2755,7 +2777,7 @@ function evalSignal(ind){
     // Recalculate RR
     const slDist=Math.abs(ind.p-best.sl);
     const tpDist=Math.abs(best.tp2-ind.p);
-    best.actualRR=(tpDist/slDist).toFixed(1);
+    best.actualRR=+(tpDist/slDist).toFixed(2);
     best.rr=best.actualRR;
   }
 
@@ -2849,9 +2871,11 @@ function runGates(signal,ind){
 
   // 14. Cooldown (time + price separation)
   const now=Date.now();
-  const timeSinceLast=now-sn.cooldownAt;
-  const minCooldown=ST.strategy==='scalp'?15000:45000;
-  const priceMovedEnough=!sn.lastPrice||Math.abs(ind.p-sn.lastPrice)/ind.p>0.0005;
+  // Per-pair cooldown: use omniCooldowns for background pairs, sn.cooldownAt for active
+  const pairCooldown = omniCooldowns[ST.pair] || sn.cooldownAt || 0;
+  const timeSinceLast=now-pairCooldown;
+  const minCooldown=ST.strategy==='scalp'?15000:60000;
+  const priceMovedEnough=!sn.lastPrice||Math.abs(ind.p-sn.lastPrice)/ind.p>0.0003;
   const dirChanged=sn.lastDir!==signal.dir;
   gates.cooldown=timeSinceLast>minCooldown||dirChanged||priceMovedEnough;
 
@@ -2990,8 +3014,9 @@ function fireSignal(sig,ind,gateResult){
   pnlHistory.push({pnl:pnlDollar,time:Date.now()});
   if(pnlHistory.length>50) pnlHistory.shift();
 
+  const firedPair = ST.pair; // captured at call time (omniScan temporarily sets ST.pair)
   const order={
-    bull,pair:ST.pair,entry:sig.entry,sl:sig.sl,
+    bull,pair:firedPair,entry:sig.entry,sl:sig.sl,
     tp1:sig.tp1,tp2:sig.tp2,tp3:sig.tp3,
     rr:sig.rr,quality:sig.quality,
     score:gateResult.score,ev:gateResult.ev,
@@ -4000,11 +4025,56 @@ function renderOrdersTab() {
   const el = document.getElementById('rp-orders');
   if (!el) return;
   const sn = ST.sniper;
-  if (!snOrders.length) {
-    el.innerHTML = `<div class="empty-msg">NO ORDERS YET<br><span style="color:var(--t3);font-size:10px">Awaiting APEX SNIPER signal...</span></div>`;
+
+  // ── Portfolio summary (Alpaca account) ──
+  let portfolioHTML = '';
+  if (ST.alpaca.connected && ST.alpaca.account) {
+    const acct = ST.alpaca.account;
+    const pnl  = acct.dayPnl;
+    const pnlStr = (pnl >= 0 ? '+$' : '-$') + Math.abs(pnl).toFixed(2);
+    const pnlCls = pnl >= 0 ? 'g' : 'r';
+    portfolioHTML = `
+    <div class="port-summary">
+      <div class="port-header">
+        <span class="port-mode ${ST.alpaca.paper?'paper':'live'}">${ST.alpaca.paper?'📄 PAPER':'⚡ LIVE'}</span>
+        <span class="port-label">ALPACA ACCOUNT</span>
+      </div>
+      <div class="port-grid">
+        <div class="port-stat"><span class="ps-l">EQUITY</span><span class="ps-v g">$${acct.equity.toFixed(2)}</span></div>
+        <div class="port-stat"><span class="ps-l">CASH</span><span class="ps-v">$${acct.cash.toFixed(2)}</span></div>
+        <div class="port-stat"><span class="ps-l">BUYING POWER</span><span class="ps-v neu">$${acct.buyingPower.toFixed(2)}</span></div>
+        <div class="port-stat"><span class="ps-l">DAY P&L</span><span class="ps-v ${pnlCls}">${pnlStr}</span></div>
+      </div>
+    </div>`;
+  }
+
+  // ── Open Positions from Alpaca ──
+  let positionsHTML = '';
+  if (ST.alpaca.positions?.length) {
+    positionsHTML = `<div class="ss-title" style="padding:6px 8px 3px">OPEN POSITIONS (${ST.alpaca.positions.length})</div>` +
+      ST.alpaca.positions.map(p => {
+        const pnlCls = p.unrealPnl >= 0 ? 'g' : 'r';
+        return `<div class="order-card ${p.side}">
+          <div class="oc-top">
+            <span class="oc-dir ${p.side}">${p.side==='long'?'▲ LONG':'▼ SHORT'}</span>
+            <span class="oc-pair">${p.symbol}</span>
+            <span class="oc-pnl ${p.unrealPnl>=0?'win':'loss'}">${p.unrealPnl>=0?'+$':'-$'}${Math.abs(p.unrealPnl).toFixed(2)}</span>
+          </div>
+          <div class="oc-row">
+            <span class="oc-l">QTY</span><span class="oc-v">${p.qty}</span>
+            <span class="oc-l">AVG</span><span class="oc-v">$${p.avgEntry.toFixed(4)}</span>
+            <span class="oc-l">MKT</span><span class="oc-v neu">$${p.mktVal.toFixed(2)}</span>
+          </div>
+        </div>`;
+      }).join('');
+  }
+
+  if (!snOrders.length && !portfolioHTML && !positionsHTML) {
+    el.innerHTML = portfolioHTML + `<div class="empty-msg">NO ORDERS YET<br><span style="color:var(--t3);font-size:10px">Omni sniper scanning ${Object.keys(ST.wl).length} assets...</span></div>`;
     return;
   }
-  el.innerHTML = snOrders.slice().reverse().slice(0,15).map(o => {
+
+  const ordersHTML = snOrders.slice().reverse().slice(0,15).map(o => {
     const bull = o.dir === 'buy';
     const pnl  = o.pnl != null ? (o.pnl >= 0 ? `+$${o.pnl.toFixed(0)}` : `-$${Math.abs(o.pnl).toFixed(0)}`) : 'OPEN';
     const pnlCls = o.pnl == null ? 'open' : o.pnl >= 0 ? 'win' : 'loss';
@@ -4059,7 +4129,7 @@ function renderLogTab() {
         <span>CONF <b>${s.confidence}%</b></span>
         <span>SCORE <b>${entry.gate.score}</b></span>
         <span>EV <b>${entry.gate.ev?.toFixed(2)}</b></span>
-        <span>RR <b>${s.rr?.toFixed(1)}</b></span>
+        <span>RR <b>${parseFloat(s.rr||2).toFixed(1)}</b></span>
       </div>
       <div class="lc-row small">
         <span>E:${pf(s.entry)}</span>
@@ -4430,7 +4500,7 @@ function updateSignalBar(sig, ind) {
   setEl('sbSL', pf(sig.sl || 0));
   setEl('sbTP1', pf(sig.tp1 || 0));
   setEl('sbTP2', pf(sig.tp2 || 0));
-  setEl('sbRR', sig.rr?.toFixed(2) || '--');
+  setEl('sbRR', parseFloat(sig.rr||2).toFixed(2) || '--');
 
   // Regime badge
   const rb = document.getElementById('regimeBadge');
@@ -4796,7 +4866,7 @@ function runAnalysis() {
   ST.ind = ind;
 
   // Run signal pipeline
-  const sig = runPipeline(ind, candles);
+  const sig = evalSignal(ind);
   ST.sig = sig;
 
   // Update signal bar
@@ -4851,19 +4921,107 @@ function loadData(pair, tf) {
 // ─────────────────────────────────────────────
 //  OMNI SCANNER — scan all pairs, update signals
 // ─────────────────────────────────────────────
-function omniScan() {
-  Object.keys(ST.wl).forEach(pair => {
-    if (pair === ST.pair) return; // already analyzed
-    const c = genCandles(pair, ST.tf, 200);
-    try {
-      const ind = calcIndicators(c);
-      const sig = runPipeline(ind, c);
-      ST.wl[pair].sig   = sig.dir || 'none';
-      ST.wl[pair].score = sig.confidence || 0;
-      const psig = document.getElementById('psig-' + pair);
-      if (psig) psig.className = 'pair-sig ' + (sig.quality === 'NONE' ? 'none' : sig.dir);
-    } catch(e) {}
-  });
+// ── OMNI SNIPER: scan every asset simultaneously, fire real orders ──
+const omniCooldowns = {}; // per-pair cooldown timestamps
+
+async function omniScan() {
+  const pairs = Object.keys(ST.wl);
+  const tf = ST.tf;
+  const now = Date.now();
+  const COOLDOWN_MS = 120000; // 2 min per pair
+
+  // Stagger fetches to avoid rate limits
+  for (let i = 0; i < pairs.length; i++) {
+    const pair = pairs[i];
+    setTimeout(() => omniScanPair(pair, tf, now), i * 300);
+  }
+}
+
+async function omniScanPair(pair, tf, now) {
+  const COOLDOWN_MS = 120000;
+  if (omniCooldowns[pair] && (now - omniCooldowns[pair]) < COOLDOWN_MS) return;
+
+  try {
+    let candles;
+    // Use live Alpaca data if connected, else simulate
+    if (ST.alpaca.connected) {
+      candles = await fetchAlpacaCandles(pair, tf);
+    }
+    if (!candles || candles.length < 60) {
+      candles = normCandles(genCandles(pair, tf, 300));
+    }
+
+    const ind = calcIndicators(candles);
+    const sig = evalSignal(ind);
+
+    if (!sig) return;
+
+    // Update watchlist display
+    const sigDir = sig.dir === 'bull' ? 'buy' : sig.dir === 'bear' ? 'sell' : 'none';
+    ST.wl[pair].sig     = sigDir;
+    ST.wl[pair].score   = sig.confidence || 0;
+    ST.wl[pair].quality = sig.quality || 'NONE';
+    ST.wl[pair].regime  = ind.regimeData?.regime || 'ranging';
+
+    const psig = document.getElementById('psig-' + pair);
+    if (psig) psig.className = 'pair-sig ' + (sig.quality === 'NONE' ? 'none' : sigDir);
+
+    // ── FIRE ORDERS for high-quality signals ──
+    if (sig.allPass && sig.quality !== 'NONE' && sig.quality !== 'WEAK') {
+      const gateResult = runGates(sig, ind);
+      if (gateResult && gateResult.allGatesPass) {
+        omniCooldowns[pair] = now; // set cooldown BEFORE firing
+        // Store current pair context temporarily
+        const prevPair = ST.pair;
+        ST.pair = pair; // temporarily set so placeAlpacaOrder uses right symbol
+        fireSignal(sig, ind, gateResult);
+        ST.pair = prevPair;
+        // Flash the watchlist item
+        const wlEl = document.getElementById('wli-' + pair);
+        if (wlEl) {
+          wlEl.style.background = sig.dir === 'bull' ? 'rgba(0,248,124,0.15)' : 'rgba(255,26,80,0.15)';
+          setTimeout(() => { if(wlEl) wlEl.style.background = ''; }, 2000);
+        }
+      }
+    }
+
+    // Update current chart if this pair is active
+    if (pair === ST.pair && candles) {
+      ST.candles = candles;
+      ST.ind = ind;
+      renderChart();
+      renderOscillator();
+      updateSignalBar(sig, ind);
+    }
+  } catch(e) {
+    console.warn('omniScan error for', pair, e);
+  }
+}
+
+// ── fetchAlpacaCandles: get real OHLCV from Alpaca for any asset ──
+async function fetchAlpacaCandles(pair, tf) {
+  const sym    = alpacaSymbol(pair);
+  const crypto = isCrypto(pair);
+  const tfMap  = { '1Min':'1Min','5Min':'5Min','15Min':'15Min','1Hour':'1Hour','4Hour':'4Hour','1Day':'1Day' };
+  const tf2    = tfMap[tf] || '5Min';
+
+  const endpoint = crypto
+    ? `https://data.alpaca.markets/v1beta3/crypto/us/bars?symbols=${encodeURIComponent(sym)}&timeframe=${tf2}&limit=300`
+    : `https://data.alpaca.markets/v2/stocks/${encodeURIComponent(sym)}/bars?timeframe=${tf2}&limit=300&adjustment=raw`;
+
+  try {
+    const r = await fetch(endpoint, { headers: alpacaHeaders() });
+    const data = await r.json();
+    const bars = crypto
+      ? (data.bars?.[sym] || data.bars?.[pair] || [])
+      : (Array.isArray(data.bars) ? data.bars : []);
+    if (bars.length < 10) return null;
+    return normCandles(bars.map(b => ({
+      t: new Date(b.t).getTime(),
+      o: b.o, h: b.h, l: b.l, c: b.c, v: b.v,
+      open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v
+    })));
+  } catch(e) { return null; }
 }
 
 // ─────────────────────────────────────────────
@@ -5006,6 +5164,11 @@ async function fetchAccount() {
     if (bpEl)   { bpEl.textContent   = '$' + ST.alpaca.account.buyingPower.toFixed(2); }
     if (dpEl)   { dpEl.textContent = (pnl>=0?'+$':'-$')+Math.abs(pnl).toFixed(2); dpEl.className='alp-stat-v '+(pnl>=0?'pos':'neg'); }
     if (statusT){ statusT.textContent = `${ST.alpaca.paper?'PAPER':'LIVE'} · EQ $${eq} · BP $${ST.alpaca.account.buyingPower.toFixed(2)}`; }
+    // Update header portfolio badges
+    const hdrEq = document.getElementById('hdrEquity');
+    const hdrBP = document.getElementById('hdrBP');
+    if (hdrEq) { hdrEq.textContent = '$'+eq; hdrEq.style.display=''; hdrEq.style.color=pnl>=0?'rgba(0,248,124,0.9)':'rgba(255,26,80,0.9)'; }
+    if (hdrBP) { hdrBP.textContent = 'BP: $'+ST.alpaca.account.buyingPower.toFixed(2); hdrBP.style.display=''; }
 
     // Fetch open positions too
     fetchPositions();
@@ -5269,6 +5432,9 @@ function disconnectAlpaca() {
   ST.alpaca.account = null;
   ST.alpaca.positions = [];
   _setConnectedUI(false);
+  // Hide header portfolio badges
+  const hEq = document.getElementById('hdrEquity'); if(hEq) hEq.style.display='none';
+  const hBP = document.getElementById('hdrBP'); if(hBP) hBP.style.display='none';
   setApiStatus('DISCONNECTED — ENTER CREDENTIALS TO RECONNECT', 'err');
   toast('Alpaca disconnected', 'info', 2000);
   ST.alpaca.paper = true;
@@ -5351,7 +5517,7 @@ window.addEventListener('load', () => {
     loadData(ST.pair, ST.tf);
 
     // Start omni scanner interval (every 30s)
-    setInterval(omniScan, 30000);
+    omniScan(); setInterval(omniScan, 15000);
 
     // Start heatmap refresh
     setInterval(renderHeatmap, 5000);

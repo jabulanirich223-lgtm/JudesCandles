@@ -5626,24 +5626,12 @@ async function placeAlpacaOrder(sig, ind) {
     const maxQty = (bp * 0.40) / price;
     rawQty = Math.min(rawQty, maxQty);
 
-    // Enforce Alpaca $10 minimum notional
-    const minQty = 10 / price;
-    rawQty = Math.max(minQty, rawQty);
-
     // Format qty without scientific notation
     let qtyStr;
     if      (rawQty >= 1)     qtyStr = rawQty.toFixed(4);
     else if (rawQty >= 0.01)  qtyStr = rawQty.toFixed(6);
     else                      qtyStr = rawQty.toFixed(8);
     if (qtyStr.includes('e')) qtyStr = rawQty.toFixed(8);
-
-    // Verify notional >= $10 after formatting
-    const notional = parseFloat(qtyStr) * price;
-    if (notional < 10) {
-      console.warn(`[ORDER SKIP] ${sym} notional $${notional.toFixed(2)} below $10 minimum`);
-      toast(`⚠ ${sym}: order too small (min $10)`, 'sell', 3000);
-      return;
-    }
 
     const entryBody = {
       symbol:        sym,
@@ -5652,7 +5640,7 @@ async function placeAlpacaOrder(sig, ind) {
       time_in_force: 'gtc',
       qty:           qtyStr,
     };
-    console.log(`[CRYPTO ENTRY] ${side.toUpperCase()} ${qtyStr} ${sym} ~$${price} (notional $${notional.toFixed(2)})`, entryBody);
+    console.log(`[CRYPTO ENTRY] ${side.toUpperCase()} ${qtyStr} ${sym} ~$${price}`, entryBody);
     const entryOk = await _sendOrder(entryBody, sym, price);
     if (!entryOk) return;
 

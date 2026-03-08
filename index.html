@@ -5379,6 +5379,34 @@ function fetchAlpacaData(pair, tf) {
     });
 }
 
+// ── getLivePrice — fetch real-time quote from Alpaca ─────────────
+async function getLivePrice(pair) {
+  const sym    = alpacaSymbol(pair);
+  const crypto = isCrypto(pair);
+  try {
+    let url;
+    if (crypto) {
+      url = `https://data.alpaca.markets/v1beta3/crypto/us/latest/quotes?symbols=${encodeURIComponent(sym)}`;
+    } else {
+      url = `https://data.alpaca.markets/v2/stocks/${encodeURIComponent(sym)}/quotes/latest`;
+    }
+    const r = await alpacaFetch(url, { headers: alpacaHeaders() });
+    const data = await r.json();
+    if (crypto) {
+      const q = data.quotes?.[sym];
+      if (q) return (q.ap + q.bp) / 2; // mid of ask+bid
+    } else {
+      const q = data.quote;
+      if (q) return (q.ap + q.bp) / 2;
+    }
+  } catch(e) {
+    console.warn('getLivePrice failed, using candle close:', e.message);
+  }
+  // Fallback to last candle close
+  const candles = ST.candles;
+  return candles?.[candles.length - 1]?.c || 0;
+}
+
 // ── placeAlpacaOrder ──────────────────────────────────────────────
 async function placeAlpacaOrder(sig, ind) {
   if (!ST.alpaca.connected) return;
@@ -5393,68 +5421,74 @@ async function placeAlpacaOrder(sig, ind) {
   const bull   = sig.dir === 'bull';
   const side   = bull ? 'buy' : 'sell';
 
-  // ── 1. Validate SL/TP exist and are on correct side ──────────────
-  const entry = +sig.entry;
-  let sl  = +sig.sl;
-  let tp  = +(sig.tp2 || sig.tp1);
-
-  if (!entry || !sl || !tp || isNaN(entry) || isNaN(sl) || isNaN(tp)) {
-    console.warn('Order skipped: invalid entry/sl/tp', {entry, sl, tp});
+  // ── 1. Get live market price — NOT stale candle close ────────────
+  // Alpaca rejects bracket legs that are on the wrong side of the LIVE price
+  const livePrice = await getLivePrice(pair);
+  if (!livePrice || livePrice <= 0) {
+    console.warn('Order skipped: could not get live price');
     return;
   }
 
-  // Fix SL on wrong side — use ATR-based fallback
-  const atr = ind?.atr || entry * 0.008;
-  if (bull && sl >= entry) sl = +(entry - atr * 1.5).toFixed(6);
-  if (!bull && sl <= entry) sl = +(entry + atr * 1.5).toFixed(6);
+  // ── 2. Compute ATR for leg sizing ────────────────────────────────
+  const atr = ind?.atr || livePrice * 0.008;
 
-  // Fix TP on wrong side
-  if (bull && tp <= entry) tp = +(entry + atr * 3).toFixed(6);
-  if (!bull && tp >= entry) tp = +(entry - atr * 3).toFixed(6);
+  // Derive SL/TP from LIVE price using signal's risk ratios as guide
+  const sigSlDist = Math.abs((sig.entry || livePrice) - (sig.sl || 0));
+  const slDist    = (sigSlDist > 0 && sigSlDist < livePrice * 0.15)
+    ? sigSlDist             // use signal's SL distance if sane
+    : atr * 1.5;            // else ATR fallback
 
-  // Round prices appropriately
-  const dec = crypto ? 6 : 2;
-  const slPrice = +sl.toFixed(dec);
-  const tpPrice = +tp.toFixed(dec);
+  const sigRR  = Math.abs((sig.tp2 || sig.tp1 || 0) - (sig.entry || livePrice)) / (sigSlDist || 1);
+  const rrUsed = (sigRR > 0.5 && sigRR < 10) ? sigRR : 2.5; // clamp RR 0.5–10
 
-  // ── 2. Position sizing ───────────────────────────────────────────
+  const dec = crypto ? (livePrice > 1000 ? 2 : livePrice > 1 ? 4 : 6) : 2;
+
+  // SL always behind live price, TP always ahead
+  let slPrice = bull
+    ? +(livePrice - slDist).toFixed(dec)
+    : +(livePrice + slDist).toFixed(dec);
+  let tpPrice = bull
+    ? +(livePrice + slDist * rrUsed).toFixed(dec)
+    : +(livePrice - slDist * rrUsed).toFixed(dec);
+
+  // Final sanity: enforce strict ordering
+  if (bull) {
+    if (slPrice >= livePrice) slPrice = +(livePrice * 0.992).toFixed(dec);
+    if (tpPrice <= livePrice) tpPrice = +(livePrice * 1.015).toFixed(dec);
+  } else {
+    if (slPrice <= livePrice) slPrice = +(livePrice * 1.008).toFixed(dec);
+    if (tpPrice >= livePrice) tpPrice = +(livePrice * 0.985).toFixed(dec);
+  }
+
+  // ── 3. Position sizing ───────────────────────────────────────────
   const bp      = ST.alpaca.account?.buyingPower || 10000;
-  const riskDol = Math.min(bp * 0.01, 500);           // risk 1% of BP, max $500
-  const slDist  = Math.abs(entry - slPrice);
+  const riskDol = Math.min(bp * 0.01, 500);
+  const actualSlDist = Math.abs(livePrice - slPrice);
 
   let qty;
   if (crypto) {
-    qty = slDist > 0.000001
-      ? +(riskDol / slDist).toFixed(6)    // units risked at SL distance
-      : +(riskDol / entry).toFixed(6);    // fallback: buy $riskDol worth
-    qty = Math.max(0.0001, qty);
-    // Cap: no more than 5% of BP in one trade
-    const maxQty = +(bp * 0.05 / entry).toFixed(6);
-    qty = Math.min(qty, maxQty);
+    qty = +(riskDol / actualSlDist).toFixed(6);
+    qty = Math.max(0.0001, Math.min(qty, +(bp * 0.05 / livePrice).toFixed(6)));
   } else {
-    // Stocks: qty = shares, calculated from risk. Fractional if needed.
-    qty = slDist > 0.01
-      ? Math.floor(riskDol / slDist)
-      : Math.floor(riskDol / entry);
-    qty = Math.max(1, qty);  // at least 1 share
+    qty = Math.max(1, Math.floor(riskDol / actualSlDist));
+    // Cap at 10% of BP
+    const maxShares = Math.floor((bp * 0.10) / livePrice);
+    qty = Math.min(qty, Math.max(1, maxShares));
   }
 
-  if (!qty || qty <= 0) { console.warn('Order skipped: qty=0'); return; }
-
-  // ── 3. Build order body ──────────────────────────────────────────
-  // Bracket orders require qty (NOT notional), gtc, and correct leg prices
+  // ── 4. Build and send bracket order ─────────────────────────────
   const body = {
     symbol:        sym,
     side,
     type:          'market',
-    time_in_force: 'gtc',          // gtc works for both crypto and stocks
+    time_in_force: 'gtc',
     order_class:   'bracket',
     qty:           String(qty),
-    take_profit: { limit_price: String(tpPrice) },
-    stop_loss:   { stop_price:  String(slPrice) },
+    take_profit:   { limit_price: String(tpPrice) },
+    stop_loss:     { stop_price:  String(slPrice) },
   };
 
-  console.log('Placing order:', JSON.stringify(body, null, 2));
+  console.log(`[APEX ORDER] ${side.toUpperCase()} ${qty} ${sym} @ ~${livePrice}  SL:${slPrice}  TP:${tpPrice}`, body);
 
   try {
     const r = await alpacaFetch(`${tradingURL()}/v2/orders`, {
@@ -5466,18 +5500,17 @@ async function placeAlpacaOrder(sig, ind) {
 
     if (order.id) {
       const label = crypto ? `${qty} ${sym.split('/')[0]}` : `${qty} ${sym}`;
-      toast(`✓ ${side.toUpperCase()} ${label}\nSL:${slPrice}  TP:${tpPrice}\n${order.id.slice(0,8)}`, 'buy', 6000);
-      setTimeout(fetchAccount, 2500);
+      toast(`✓ ${side.toUpperCase()} ${label} @ ~${livePrice}\nSL: ${slPrice}  TP: ${tpPrice}`, 'buy', 6000);
+      setTimeout(fetchAccount,   2500);
       setTimeout(fetchPositions, 3000);
     } else {
-      // Log full error for debugging
-      const errMsg = order.message || order.code || JSON.stringify(order).slice(0, 120);
-      toast(`✗ ${errMsg}`, 'sell', 7000);
-      console.error('Order rejected:', order, '\nBody sent:', body);
+      const errMsg = order.message || order.code || JSON.stringify(order).slice(0, 200);
+      toast(`✗ ${errMsg}`, 'sell', 8000);
+      console.error('[APEX ORDER REJECTED]', order, '\nBody:', body);
     }
   } catch(e) {
     toast('✗ Order error: ' + e.message, 'sell', 5000);
-    console.error('placeAlpacaOrder exception:', e);
+    console.error('[APEX ORDER EXCEPTION]', e);
   }
 }
 

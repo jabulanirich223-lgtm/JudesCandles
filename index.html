@@ -1633,7 +1633,7 @@ const ST = {
     armed:true,
     fired:0,win:0,loss:0,pnl:0,
     lastDir:null,lastPrice:null,cooldownAt:0,
-    threshold:60,
+    threshold:52,
     gates:{},gateScore:0,
     history:[],              // rolling P&L history
     streak:0,                // current win/loss streak
@@ -2603,7 +2603,7 @@ function stage3Entry(ind,dir){
     // 1. Near key level (EMA21/EMA55 acting as dynamic S/R)
     Math.abs(ind.p-ind.e21v)<ind.atrv*2.5||Math.abs(ind.p-ind.e55v)<ind.atrv*3,
     // 2. Candle pattern confirmation
-    bull?(ind.pats?.bullScore||0>0):(ind.pats?.bearScore||0>0),
+    bull?((ind.pats?.bullScore||0)>0):((ind.pats?.bearScore||0)>0),
     // 3. Volume surge
     ind.vr>1.02,
     // 4. Near Fibonacci or S/R
@@ -2862,7 +2862,7 @@ function runGates(signal,ind){
 
   // 11. Pattern
   if(document.getElementById('chkPat').checked){
-    gates.pattern=bull?ind.pats?.bullScore||0>0:ind.pats?.bearScore||0>0;
+    gates.pattern=bull?((ind.pats?.bullScore||0)>0):((ind.pats?.bearScore||0)>0);
   } else gates.pattern=true;
 
   // 12. SMC (OB or FVG)
@@ -2892,8 +2892,12 @@ function runGates(signal,ind){
   }
   const gatePassPct=weightedScore/maxWeight;
 
-  // All gates must pass
-  const allGatesPass=Object.values(gates).every(Boolean);
+  // Core gates MUST all pass (pipeline, confidence, adx, quality, cooldown)
+  // Soft gates contribute to score but don't hard-block
+  const HARD_GATES = ['pipeline','confidence','adx','quality','cooldown'];
+  const allGatesPass = HARD_GATES.every(g => gates[g]) &&
+    // Plus at least 6 of the remaining 9 soft gates must pass
+    Object.keys(gates).filter(g => !HARD_GATES.includes(g) && gates[g]).length >= 6;
 
   // ── Final Score Calculation ──────────────────────────────────
   let score=signal.confidence;
@@ -3003,7 +3007,7 @@ function fireSignal(sig,ind,gateResult){
   if(bull?ind.cvdMomentum>0:ind.cvdMomentum<0) tags.push('CVD+');
   if(ind.nearFib) tags.push('FIB');
   if(ind.nearSR) tags.push('S/R');
-  if(bull?ind.pats?.bullScore||0>=3:ind.pats?.bearScore||0>=3) tags.push('PATTERN-STRONG');
+  if(bull?(ind.pats?.bullScore||0)>=3:(ind.pats?.bearScore||0)>=3) tags.push('PATTERN-STRONG');
 
   // Simulate P&L
   const rrNum=parseFloat(sig.rr)||2.5;
@@ -3066,7 +3070,10 @@ function fireSignal(sig,ind,gateResult){
   );
   playBeep(bull,sig.quality);
 
+  // Log every signal fire to console for debugging
+  console.log(`[SNIPER FIRED] ${sig.dir?.toUpperCase()} ${ST.pair} | quality=${sig.quality} | conf=${sig.confidence} | gates=${gateResult.passCount}/${gateResult.totalGates} | alpaca=${ST.alpaca.connected}`);
   if(ST.alpaca.connected) placeAlpacaOrder(sig,ind);
+  else console.log('[SNIPER] Not connected to Alpaca — signal logged only');
 }
 
 function updateKPIs(){
@@ -4933,7 +4940,7 @@ async function omniScan() {
   const pairs = Object.keys(ST.wl);
   const tf = ST.tf;
   const now = Date.now();
-  const COOLDOWN_MS = 120000; // 2 min per pair
+  const COOLDOWN_MS = 45000; // 45s per pair
 
   // Stagger fetches to avoid rate limits
   for (let i = 0; i < pairs.length; i++) {
@@ -4943,7 +4950,7 @@ async function omniScan() {
 }
 
 async function omniScanPair(pair, tf, now) {
-  const COOLDOWN_MS = 120000;
+  const COOLDOWN_MS = 45000;
   if (omniCooldowns[pair] && (now - omniCooldowns[pair]) < COOLDOWN_MS) return;
 
   try {
@@ -4972,7 +4979,7 @@ async function omniScanPair(pair, tf, now) {
     if (psig) psig.className = 'pair-sig ' + (sig.quality === 'NONE' ? 'none' : sigDir);
 
     // ── FIRE ORDERS for high-quality signals ──
-    if (sig.allPass && sig.quality !== 'NONE' && sig.quality !== 'WEAK' && alpacaSupported(pair)) {
+    if (sig.allPass && sig.quality !== 'NONE' && alpacaSupported(pair)) {
       const gateResult = runGates(sig, ind);
       if (gateResult && gateResult.allGatesPass) {
         omniCooldowns[pair] = now; // set cooldown BEFORE firing
@@ -5580,6 +5587,7 @@ async function placeAlpacaOrder(sig, ind) {
 
     if (resp.id) {
       toast(`✓ ${side.toUpperCase()} ${qty} ${sym}\n~${fillRef}  SL:${slPrice}  TP:${tpPrice}`, 'buy', 7000);
+      saveState(); // persist after successful order
       setTimeout(fetchAccount,   2000);
       setTimeout(fetchPositions, 3000);
       console.log(`[ORDER SUCCESS] id=${resp.id} status=${resp.status}`);
@@ -5680,6 +5688,97 @@ function disconnectAlpaca() {
   _syncPillUI();
 }
 
+
+// ════════════════════════════════════════════════════════════
+//  PERSISTENCE — save settings and trade history
+// ════════════════════════════════════════════════════════════
+const STORAGE_KEY = 'apex_ultra_v11';
+
+function saveState() {
+  try {
+    const save = {
+      pair:      ST.pair,
+      tf:        ST.tf,
+      strategy:  ST.strategy,
+      threshold: ST.sniper.threshold || ST.threshold,
+      overlays:  ST.overlays,
+      alpacaKey: ST.alpaca.key,        // save credentials so they pre-fill
+      alpacaSec: ST.alpaca.secret,
+      paper:     ST.alpaca.paper,
+      snOrders:  snOrders.slice(0, 50),
+      sigLog:    sigLog.slice(0, 50),
+      sniperStats: {
+        fired: ST.sniper.fired,
+        win:   ST.sniper.win,
+        loss:  ST.sniper.loss,
+        pnl:   ST.sniper.pnl,
+      },
+      savedAt: Date.now(),
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(save));
+  } catch(e) { console.warn('saveState failed:', e.message); }
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const save = JSON.parse(raw);
+    if (!save || !save.savedAt) return false;
+
+    // Restore settings
+    if (save.pair     && PAIR_CONFIG[save.pair])    ST.pair     = save.pair;
+    if (save.tf)                                     ST.tf       = save.tf;
+    if (save.strategy)                               ST.strategy = save.strategy;
+    if (save.threshold)                              ST.sniper.threshold = save.threshold;
+    if (save.overlays)  Object.assign(ST.overlays,  save.overlays);
+    if (save.paper !== undefined)                    ST.alpaca.paper = save.paper;
+
+    // Restore credentials so modal pre-fills
+    if (save.alpacaKey) {
+      ST.alpaca.key    = save.alpacaKey;
+      ST.alpaca.secret = save.alpacaSec || '';
+      const k = document.getElementById('apiKey');
+      const s = document.getElementById('apiSec');
+      const mk = document.getElementById('modalApiKey');
+      const ms = document.getElementById('modalApiSec');
+      if (k)  k.value  = save.alpacaKey;
+      if (s)  s.value  = save.alpacaSec || '';
+      if (mk) mk.value = save.alpacaKey;
+      if (ms) ms.value = save.alpacaSec || '';
+    }
+
+    // Restore trade history
+    if (Array.isArray(save.snOrders)) {
+      snOrders.length = 0;
+      snOrders.push(...save.snOrders);
+    }
+    if (Array.isArray(save.sigLog)) {
+      sigLog.length = 0;
+      sigLog.push(...save.sigLog);
+    }
+
+    // Restore sniper stats
+    if (save.sniperStats) {
+      ST.sniper.fired = save.sniperStats.fired || 0;
+      ST.sniper.win   = save.sniperStats.win   || 0;
+      ST.sniper.loss  = save.sniperStats.loss  || 0;
+      ST.sniper.pnl   = save.sniperStats.pnl   || 0;
+    }
+
+    console.log('[APEX] State restored from', new Date(save.savedAt).toLocaleString());
+    return true;
+  } catch(e) {
+    console.warn('loadState failed:', e.message);
+    return false;
+  }
+}
+
+// Auto-save every 30s + on page unload
+setInterval(saveState, 30000);
+window.addEventListener('beforeunload', saveState);
+window.addEventListener('pagehide',     saveState);
+
 // ─────────────────────────────────────────────
 //  BOOT SEQUENCE
 // ─────────────────────────────────────────────
@@ -5752,11 +5851,14 @@ window.addEventListener('load', () => {
       setTimeout(() => loader.style.display = 'none', 600);
     }
 
+    // Restore saved state (credentials, pair, settings, history)
+    loadState();
+
     // Load initial data
     loadData(ST.pair, ST.tf);
 
-    // Start omni scanner interval (every 30s)
-    omniScan(); setInterval(omniScan, 15000);
+    // Start omni scanner interval
+    omniScan(); setInterval(omniScan, 10000);
 
     // Start heatmap refresh
     setInterval(renderHeatmap, 5000);
@@ -5903,7 +6005,16 @@ function closeAlpacaModal() {
 function openAlpacaModal() {
   const m = document.getElementById('alpacaModal');
   if (m) { m.style.display = 'flex'; m.style.opacity = '0'; requestAnimationFrame(() => { m.style.transition = 'opacity .3s'; m.style.opacity = '1'; }); }
-  setTimeout(() => document.getElementById('modalApiKey')?.focus(), 350);
+  // Pre-fill from saved state
+  const mk = document.getElementById('modalApiKey');
+  const ms = document.getElementById('modalApiSec');
+  if (mk && !mk.value && ST.alpaca.key)    mk.value = ST.alpaca.key;
+  if (ms && !ms.value && ST.alpaca.secret) ms.value = ST.alpaca.secret;
+  modalSetMode(ST.alpaca.paper ? 'paper' : 'live');
+  setTimeout(() => {
+    const mk2 = document.getElementById('modalApiKey');
+    if (mk2) { mk2.focus(); mk2.select(); }
+  }, 350);
 }
 
 // Also wire the sidebar connect button to open modal instead

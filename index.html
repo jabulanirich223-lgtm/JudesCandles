@@ -1289,9 +1289,16 @@ input[type=range]::-webkit-slider-thumb {
         <div class="api-row">
           <button class="api-btn" onclick="connectAlpaca()">▶ CONNECT</button>
           <button class="api-btn" onclick="disconnectAlpaca()">■ DISC</button>
-          <button class="api-btn" onclick="togglePaper()" id="modePill" class="mode-pill paper">PAPER</button>
+          <button class="api-btn mode-pill paper" onclick="togglePaper()" id="paperModeBtn">📄 PAPER</button>
         </div>
         <div class="api-status" id="apiStatus">PAPER TRADING SAFE — NO REAL FUNDS</div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:6px;">
+          <label style="font-size:10px;color:var(--t2);display:flex;align-items:center;gap:4px;cursor:pointer;">
+            <input type="checkbox" id="chkLiveOrders" onchange="ST.alpaca.liveOrdersEnabled=this.checked"
+              style="accent-color:#ff1a50;">
+            <span>ENABLE LIVE ORDERS</span>
+          </label>
+        </div>
         <div class="api-acct" id="apiAcct" style="display:none">
           <div class="acct-row"><span class="acct-l">EQUITY</span><span class="acct-v g" id="acctEquity">--</span></div>
           <div class="acct-row"><span class="acct-l">CASH</span><span class="acct-v" id="acctCash">--</span></div>
@@ -1415,7 +1422,7 @@ const ST = {
   candles:[], ind:null, signal:null,
   overlays:{ema:true,bb:true,vwap:true,st:true,fibs:true,sr:true,ob:true,fvg:true,vp:true},
   osc:'macd', rtab:'orders', strategy:'trend',
-  alpaca:{key:'',secret:'',live:false,paper:true},
+  alpaca:{key:'',secret:'',live:false,paper:true,connected:false,liveOrdersEnabled:false,account:null,positions:[]},
   chart:{offset:0,zoom:1,drag:false,dragX:0,dragOff:0,xhair:null},
   sniper:{
     armed:true,
@@ -4885,9 +4892,7 @@ function connectAlpaca() {
 
       ST.alpaca.connected = true;
       const acctEl = document.getElementById('apiAcct'); if(acctEl) acctEl.style.display='block';
-      const pill = document.getElementById('modePill');
-      if (pill) { pill.textContent = paper ? 'PAPER' : 'LIVE'; pill.className = 'mode-pill ' + (paper ? 'paper' : 'live'); }
-
+      _syncPillUI();
       const eq = parseFloat(data.equity || data.buying_power || 0).toFixed(2);
       toast(`✓ Alpaca ${paper?'PAPER':'LIVE'} connected
 Equity: $${eq}`, 'buy', 5000);
@@ -5020,13 +5025,22 @@ ID: ${order.id.slice(0,8)}`, 'buy', 6000);
 
 function togglePaper() {
   if (ST.alpaca.connected) {
-    toast('Disconnect first to change mode', 'sell', 3000); return;
+    toast('Disconnect first to switch mode', 'sell', 3000); return;
   }
   ST.alpaca.paper = !ST.alpaca.paper;
-  const pill = document.getElementById('modePill');
-  if (pill) { pill.textContent = ST.alpaca.paper ? 'PAPER' : 'LIVE'; pill.className = 'mode-pill ' + (ST.alpaca.paper ? 'paper' : 'live'); }
-  setApiStatus(ST.alpaca.paper ? 'PAPER TRADING — NO REAL FUNDS' : '⚠ LIVE TRADING — REAL MONEY', ST.alpaca.paper ? 'info' : 'err');
-  toast(`Mode: ${ST.alpaca.paper ? 'PAPER TRADING' : '⚠ LIVE TRADING'}`, ST.alpaca.paper ? 'info' : 'sell', 3000);
+  _syncPillUI();
+}
+function _syncPillUI() {
+  const paper = ST.alpaca.paper;
+  const label = paper ? '📄 PAPER' : '⚡ LIVE';
+  const cls   = 'mode-pill ' + (paper ? 'paper' : 'live');
+  // Header pill
+  const hdr = document.getElementById('modePill');
+  if (hdr) { hdr.textContent = paper ? 'PAPER' : 'LIVE'; hdr.className = cls; }
+  // Panel button
+  const btn = document.getElementById('paperModeBtn');
+  if (btn) { btn.textContent = label; btn.className = 'api-btn ' + cls; }
+  setApiStatus(paper ? 'PAPER TRADING — NO REAL FUNDS' : '⚠ LIVE TRADING — REAL MONEY', paper ? 'info' : 'err');
 }
 
 function disconnectAlpaca() {
@@ -5036,8 +5050,8 @@ function disconnectAlpaca() {
   ST.alpaca.positions = [];
   setApiStatus('DISCONNECTED', 'err');
   toast('Alpaca disconnected', 'info', 2000);
-  const pill = document.getElementById('modePill');
-  if (pill) { pill.textContent = 'OFFLINE'; pill.className = 'mode-pill paper'; }
+  ST.alpaca.paper = true;
+  _syncPillUI();
 }
 
 // ─────────────────────────────────────────────

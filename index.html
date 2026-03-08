@@ -4986,7 +4986,10 @@ async function omniScanPair(pair, tf, now) {
         // Store current pair context temporarily
         const prevPair = ST.pair;
         ST.pair = pair; // temporarily set so placeAlpacaOrder uses right symbol
-        fireSignal(sig, ind, gateResult);
+        // Stagger Alpaca orders — only 1 active at a time to prevent BP race
+        const orderDelay = (window._apexOrderQueue = (window._apexOrderQueue || 0) + 1) * 2500;
+        setTimeout(() => { window._apexOrderQueue = Math.max(0, (window._apexOrderQueue||1)-1); }, orderDelay + 5000);
+        setTimeout(() => fireSignal(sig, ind, gateResult), orderDelay - 2500);
         ST.pair = prevPair;
         // Flash the watchlist item
         const wlEl = document.getElementById('wli-' + pair);
@@ -5188,12 +5191,16 @@ async function fetchAccount() {
     if (!data.id) { setApiStatus('⚠ Account fetch failed', 'err'); return; }
 
     ST.alpaca.account = {
-      equity:       parseFloat(data.equity        || 0),
-      cash:         parseFloat(data.cash          || 0),
-      buyingPower:  parseFloat(data.buying_power  || 0),
-      portfolioVal: parseFloat(data.portfolio_value || 0),
-      dayPnl:       parseFloat(data.unrealized_intraday_pl || 0),
-      status:       data.status,
+      equity:           parseFloat(data.equity               || 0),
+      cash:             parseFloat(data.cash                 || 0),
+      // buying_power is 4× leverage on margin, 1× on cash.
+      // non_marginable_buying_power is always the safe "real cash" BP.
+      buyingPower:      parseFloat(data.non_marginable_buying_power || data.buying_power || 0),
+      portfolioVal:     parseFloat(data.portfolio_value      || 0),
+      dayPnl:           parseFloat(data.unrealized_intraday_pl || 0),
+      status:           data.status,
+      shortingEnabled:  data.shorting_enabled === true,
+      patternDayTrader: data.pattern_day_trader === true,
     };
 
     // Update status display
@@ -5480,6 +5487,29 @@ function fallbackPrice(pair) {
   return PAIR_CONFIG[pair]?.base || 100;
 }
 
+
+// ── cancelOpenOrdersFor — cancel all pending orders for a symbol ──
+// This frees up reserved buying power before placing a new order.
+async function cancelOpenOrdersFor(sym) {
+  try {
+    const r = await alpacaFetch(
+      `${tradingURL()}/v2/orders?status=open&limit=50`,
+      { headers: alpacaHeaders() }
+    );
+    const orders = await r.json();
+    if (!Array.isArray(orders)) return;
+    const toCancel = orders.filter(o => o.symbol === sym);
+    for (const o of toCancel) {
+      await alpacaFetch(`${tradingURL()}/v2/orders/${o.id}`, {
+        method: 'DELETE', headers: alpacaHeaders()
+      });
+      console.log(`[CANCEL] Cancelled pending ${o.side} ${o.qty} ${sym} id=${o.id}`);
+    }
+    if (toCancel.length) await new Promise(r => setTimeout(r, 300)); // brief pause
+  } catch(e) {
+    console.warn('[cancelOpenOrdersFor] error:', e.message);
+  }
+}
 // ── placeAlpacaOrder ──────────────────────────────────────────────
 async function placeAlpacaOrder(sig, ind) {
   if (!ST.alpaca.connected) return;
@@ -5495,6 +5525,21 @@ async function placeAlpacaOrder(sig, ind) {
   const crypto = isCrypto(pair);
   const bull   = sig.dir === 'bull';
   const side   = bull ? 'buy' : 'sell';
+
+  // ── 0. Pre-flight: cancel stale pending orders + refresh BP ─────────
+  // Pending orders reserve BP. Cancel them first so we have accurate BP.
+  await cancelOpenOrdersFor(sym);
+  await fetchAccount();  // get fresh BP right now
+  await new Promise(r => setTimeout(r, 200)); // let account update settle
+
+  // Block short sells if account doesn't support them
+  if (side === 'sell' && !crypto) {
+    if (!ST.alpaca.account?.shortingEnabled && !ST.alpaca.paper) {
+      console.log(`[ORDER SKIP] Short selling not enabled for ${sym}`);
+      toast(`⚠ Short selling not enabled on this account`, 'sell', 3000);
+      return;
+    }
+  }
 
   // ── 1. Fetch current price ────────────────────────────────────────
   const price = await snapPrice(pair);
@@ -5558,13 +5603,18 @@ async function placeAlpacaOrder(sig, ind) {
 
   // ── 6. Position sizing ────────────────────────────────────────────
   // Re-fetch BP fresh from account object (mapped by fetchAccount as buyingPower)
-  const bp      = parseFloat(ST.alpaca.account?.buyingPower) || 10000;
-  const riskDol = Math.min(bp * 0.01, 500);       // 1% of BP, max $500
+  const bp      = parseFloat(ST.alpaca.account?.buyingPower) || 0;
+  if (bp <= 0) {
+    toast(`⚠ No buying power available`, 'sell', 3000);
+    console.warn('[ORDER SKIP] BP=0 or account not loaded');
+    return;
+  }
+  const riskDol = Math.min(bp * 0.01, 200);   // risk 1% of BP, hard cap $200
   const slDelta = Math.abs(price - slPrice);
 
-  // CRITICAL: cap total position cost at 15% of BP regardless of risk calc
-  // This prevents "insufficient buying power" when SL is very tight
-  const maxPositionCost = bp * 0.15;
+  // Hard cap: never spend more than 10% of available BP in one trade.
+  // This ensures we always have room even with other open positions.
+  const maxPositionCost = bp * 0.10;
 
   // ══════════════════════════════════════════════════════════════════
   // PATH A — CRYPTO: plain market order  (bracket NOT supported)
@@ -6039,7 +6089,8 @@ async function modalConnect() {
     ST.alpaca.account = {
       equity:      parseFloat(data.equity       || 0),
       cash:        parseFloat(data.cash         || 0),
-      buyingPower: parseFloat(data.buying_power || 0),
+      buyingPower:     parseFloat(data.non_marginable_buying_power || data.buying_power || 0),
+      shortingEnabled: data.shorting_enabled === true,
       dayPnl:      parseFloat(data.unrealized_pl|| 0),
     };
 

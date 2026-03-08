@@ -4643,60 +4643,60 @@ function playBeep(bull, quality) {
 // ─────────────────────────────────────────────
 const PAIR_CONFIG = {
   // ── Major Crypto ──
-  BTCUSD:  { base: 67000,  vol: 0.0018, atr: 0.015, cat: 'crypto', icon: '₿' },
-  ETHUSD:  { base: 3500,   vol: 0.0022, atr: 0.018, cat: 'crypto', icon: 'Ξ' },
-  SOLUSD:  { base: 175,    vol: 0.003,  atr: 0.022, cat: 'crypto', icon: '◎' },
-  XRPUSD:  { base: 0.58,   vol: 0.004,  atr: 0.025, cat: 'crypto', icon: '✕' },
-  BNBUSD:  { base: 590,    vol: 0.002,  atr: 0.016, cat: 'crypto', icon: 'B' },
-  ADAUSD:  { base: 0.45,   vol: 0.005,  atr: 0.028, cat: 'crypto', icon: '₳' },
-  AVAXUSD: { base: 38,     vol: 0.004,  atr: 0.026, cat: 'crypto', icon: 'A' },
-  DOTUSD:  { base: 7.8,    vol: 0.004,  atr: 0.027, cat: 'crypto', icon: '●' },
-  LINKUSD: { base: 14.5,   vol: 0.004,  atr: 0.024, cat: 'crypto', icon: '⬡' },
-  MATICUSD:{ base: 0.82,   vol: 0.005,  atr: 0.030, cat: 'crypto', icon: 'M' },
-  ATOMUSD: { base: 9.2,    vol: 0.004,  atr: 0.026, cat: 'crypto', icon: '⚛' },
-  NEARUSD: { base: 6.5,    vol: 0.005,  atr: 0.030, cat: 'crypto', icon: 'N' },
-  LTCUSD:  { base: 85,     vol: 0.003,  atr: 0.020, cat: 'crypto', icon: 'Ł' },
-  DOGEUSD: { base: 0.155,  vol: 0.006,  atr: 0.035, cat: 'crypto', icon: 'Ð' },
-  SHIBUSDT:{ base: 0.000025,vol:0.008,  atr: 0.040, cat: 'crypto', icon: 'S' },
-  UNIUSD:  { base: 10.5,   vol: 0.005,  atr: 0.028, cat: 'crypto', icon: 'U' },
-  AAVEUSD: { base: 95,     vol: 0.004,  atr: 0.025, cat: 'crypto', icon: 'A' },
-  SUIUSD:  { base: 2.1,    vol: 0.006,  atr: 0.032, cat: 'crypto', icon: 'S' },
-  APTUSD:  { base: 9.8,    vol: 0.005,  atr: 0.030, cat: 'crypto', icon: 'A' },
-  OPUSD:   { base: 2.4,    vol: 0.006,  atr: 0.032, cat: 'crypto', icon: 'O' },
-  ARBUSD:  { base: 1.05,   vol: 0.006,  atr: 0.033, cat: 'crypto', icon: 'Ⓐ' },
-  TONUSD:  { base: 5.8,    vol: 0.005,  atr: 0.028, cat: 'crypto', icon: 'T' },
-  INJUSD:  { base: 28,     vol: 0.005,  atr: 0.030, cat: 'crypto', icon: 'I' },
-  WIFUSD:  { base: 2.8,    vol: 0.008,  atr: 0.040, cat: 'crypto', icon: 'W' },
+  BTCUSD:  { base: 67000,  vol: 0.0018, atr: 0.015, cat: 'crypto', icon: '₿',  alpacaSym: 'BTC/USD'  },
+  ETHUSD:  { base: 3500,   vol: 0.0022, atr: 0.018, cat: 'crypto', icon: 'Ξ',  alpacaSym: 'ETH/USD'  },
+  SOLUSD:  { base: 175,    vol: 0.003,  atr: 0.022, cat: 'crypto', icon: '◎', alpacaSym: 'SOL/USD'  },
+  XRPUSD:  { base: 0.58,   vol: 0.004,  atr: 0.025, cat: 'crypto', icon: '✕', alpacaSym: 'XRP/USD'  },
+  BNBUSD:  { base: 590,    vol: 0.002,  atr: 0.016, cat: 'crypto', icon: 'B',  alpacaSym: null        },
+  ADAUSD:  { base: 0.45,   vol: 0.005,  atr: 0.028, cat: 'crypto', icon: '₳', alpacaSym: 'ADA/USD'  },
+  AVAXUSD: { base: 38,     vol: 0.004,  atr: 0.026, cat: 'crypto', icon: 'A',  alpacaSym: 'AVAX/USD' },
+  DOTUSD:  { base: 7.8,    vol: 0.004,  atr: 0.027, cat: 'crypto', icon: '●', alpacaSym: null        },
+  LINKUSD: { base: 14.5,   vol: 0.004,  atr: 0.024, cat: 'crypto', icon: '⬡', alpacaSym: 'LINK/USD' },
+  MATICUSD:{ base: 0.82,   vol: 0.005,  atr: 0.030, cat: 'crypto', icon: 'M',  alpacaSym: null        },
+  ATOMUSD: { base: 9.2,    vol: 0.004,  atr: 0.026, cat: 'crypto', icon: '⚛', alpacaSym: null        },
+  NEARUSD: { base: 6.5,    vol: 0.005,  atr: 0.030, cat: 'crypto', icon: 'N',  alpacaSym: null        },
+  LTCUSD:  { base: 85,     vol: 0.003,  atr: 0.020, cat: 'crypto', icon: 'Ł',  alpacaSym: 'LTC/USD'  },
+  DOGEUSD: { base: 0.155,  vol: 0.006,  atr: 0.035, cat: 'crypto', icon: 'Ð', alpacaSym: 'DOGE/USD' },
+  SHIBUSDT:{ base: 0.000025,vol:0.008,  atr: 0.040, cat: 'crypto', icon: 'S',  alpacaSym: 'SHIB/USD' },
+  UNIUSD:  { base: 10.5,   vol: 0.005,  atr: 0.028, cat: 'crypto', icon: 'U',  alpacaSym: 'UNI/USD'  },
+  AAVEUSD: { base: 95,     vol: 0.004,  atr: 0.025, cat: 'crypto', icon: 'A',  alpacaSym: null        },
+  SUIUSD:  { base: 2.1,    vol: 0.006,  atr: 0.032, cat: 'crypto', icon: 'S',  alpacaSym: null        },
+  APTUSD:  { base: 9.8,    vol: 0.005,  atr: 0.030, cat: 'crypto', icon: 'A',  alpacaSym: null        },
+  OPUSD:   { base: 2.4,    vol: 0.006,  atr: 0.032, cat: 'crypto', icon: 'O',  alpacaSym: null        },
+  ARBUSD:  { base: 1.05,   vol: 0.006,  atr: 0.033, cat: 'crypto', icon: 'Ⓐ', alpacaSym: null        },
+  TONUSD:  { base: 5.8,    vol: 0.005,  atr: 0.028, cat: 'crypto', icon: 'T',  alpacaSym: null        },
+  INJUSD:  { base: 28,     vol: 0.005,  atr: 0.030, cat: 'crypto', icon: 'I',  alpacaSym: null        },
+  WIFUSD:  { base: 2.8,    vol: 0.008,  atr: 0.040, cat: 'crypto', icon: 'W',  alpacaSym: null        },
   // ── Mega-Cap Stocks ──
-  AAPL:    { base: 195,    vol: 0.0012, atr: 0.010, cat: 'stock',  icon: '🍎' },
-  MSFT:    { base: 420,    vol: 0.0011, atr: 0.009, cat: 'stock',  icon: 'M' },
-  NVDA:    { base: 875,    vol: 0.0025, atr: 0.022, cat: 'stock',  icon: 'N' },
-  GOOGL:   { base: 175,    vol: 0.0013, atr: 0.011, cat: 'stock',  icon: 'G' },
-  AMZN:    { base: 195,    vol: 0.0014, atr: 0.012, cat: 'stock',  icon: 'A' },
-  META:    { base: 520,    vol: 0.0018, atr: 0.015, cat: 'stock',  icon: 'F' },
-  TSLA:    { base: 255,    vol: 0.003,  atr: 0.028, cat: 'stock',  icon: 'T' },
+  AAPL:    { base: 195,    vol: 0.0012, atr: 0.010, cat: 'stock',  icon: '🍎', alpacaSym: 'AAPL'  },
+  MSFT:    { base: 420,    vol: 0.0011, atr: 0.009, cat: 'stock',  icon: 'M',  alpacaSym: 'MSFT'  },
+  NVDA:    { base: 875,    vol: 0.0025, atr: 0.022, cat: 'stock',  icon: 'N',  alpacaSym: 'NVDA'  },
+  GOOGL:   { base: 175,    vol: 0.0013, atr: 0.011, cat: 'stock',  icon: 'G',  alpacaSym: 'GOOGL' },
+  AMZN:    { base: 195,    vol: 0.0014, atr: 0.012, cat: 'stock',  icon: 'A',  alpacaSym: 'AMZN'  },
+  META:    { base: 520,    vol: 0.0018, atr: 0.015, cat: 'stock',  icon: 'F',  alpacaSym: 'META'  },
+  TSLA:    { base: 255,    vol: 0.003,  atr: 0.028, cat: 'stock',  icon: 'T',  alpacaSym: 'TSLA'  },
   // ── Tech & Growth ──
-  AMD:     { base: 168,    vol: 0.0022, atr: 0.020, cat: 'stock',  icon: 'A' },
-  INTC:    { base: 32,     vol: 0.0018, atr: 0.016, cat: 'stock',  icon: 'I' },
-  ORCL:    { base: 128,    vol: 0.0013, atr: 0.011, cat: 'stock',  icon: 'O' },
-  CRM:     { base: 295,    vol: 0.0016, atr: 0.014, cat: 'stock',  icon: 'C' },
-  PLTR:    { base: 22,     vol: 0.003,  atr: 0.028, cat: 'stock',  icon: 'P' },
-  COIN:    { base: 215,    vol: 0.004,  atr: 0.035, cat: 'stock',  icon: 'C' },
-  MSTR:    { base: 1650,   vol: 0.005,  atr: 0.042, cat: 'stock',  icon: 'M' },
-  HOOD:    { base: 18,     vol: 0.004,  atr: 0.036, cat: 'stock',  icon: 'H' },
-  RKLB:    { base: 8.5,    vol: 0.005,  atr: 0.040, cat: 'stock',  icon: 'R' },
-  SMCI:    { base: 820,    vol: 0.006,  atr: 0.048, cat: 'stock',  icon: 'S' },
+  AMD:     { base: 168,    vol: 0.0022, atr: 0.020, cat: 'stock',  icon: 'A',  alpacaSym: 'AMD'   },
+  INTC:    { base: 32,     vol: 0.0018, atr: 0.016, cat: 'stock',  icon: 'I',  alpacaSym: 'INTC'  },
+  ORCL:    { base: 128,    vol: 0.0013, atr: 0.011, cat: 'stock',  icon: 'O',  alpacaSym: 'ORCL'  },
+  CRM:     { base: 295,    vol: 0.0016, atr: 0.014, cat: 'stock',  icon: 'C',  alpacaSym: 'CRM'   },
+  PLTR:    { base: 22,     vol: 0.003,  atr: 0.028, cat: 'stock',  icon: 'P',  alpacaSym: 'PLTR'  },
+  COIN:    { base: 215,    vol: 0.004,  atr: 0.035, cat: 'stock',  icon: 'C',  alpacaSym: 'COIN'  },
+  MSTR:    { base: 1650,   vol: 0.005,  atr: 0.042, cat: 'stock',  icon: 'M',  alpacaSym: 'MSTR'  },
+  HOOD:    { base: 18,     vol: 0.004,  atr: 0.036, cat: 'stock',  icon: 'H',  alpacaSym: 'HOOD'  },
+  RKLB:    { base: 8.5,    vol: 0.005,  atr: 0.040, cat: 'stock',  icon: 'R',  alpacaSym: 'RKLB'  },
+  SMCI:    { base: 820,    vol: 0.006,  atr: 0.048, cat: 'stock',  icon: 'S',  alpacaSym: 'SMCI'  },
   // ── Finance ──
-  JPM:     { base: 198,    vol: 0.0012, atr: 0.010, cat: 'stock',  icon: 'J' },
-  GS:      { base: 485,    vol: 0.0013, atr: 0.011, cat: 'stock',  icon: 'G' },
+  JPM:     { base: 198,    vol: 0.0012, atr: 0.010, cat: 'stock',  icon: 'J',  alpacaSym: 'JPM'   },
+  GS:      { base: 485,    vol: 0.0013, atr: 0.011, cat: 'stock',  icon: 'G',  alpacaSym: 'GS'    },
   // ── Commodities / Futures-style ──
-  GOLDUSD: { base: 2330,   vol: 0.0008, atr: 0.007, cat: 'macro',  icon: '🥇' },
-  SILVERUSD:{ base: 28.5,  vol: 0.0015, atr: 0.013, cat: 'macro',  icon: '🥈' },
-  CRUDEUSD:{ base: 79,     vol: 0.0018, atr: 0.016, cat: 'macro',  icon: '🛢' },
+  GOLDUSD: { base: 2330,   vol: 0.0008, atr: 0.007, cat: 'macro',  icon: '🥇', alpacaSym: 'GLD',  dataSym: 'GLD'  },
+  SILVERUSD:{ base: 28.5,  vol: 0.0015, atr: 0.013, cat: 'macro',  icon: '🥈', alpacaSym: 'SLV',  dataSym: 'SLV'  },
+  CRUDEUSD:{ base: 79,     vol: 0.0018, atr: 0.016, cat: 'macro',  icon: '🛢', alpacaSym: 'USO',  dataSym: 'USO'  },
   // ── Index Trackers ──
-  SPYUSD:  { base: 528,    vol: 0.0008, atr: 0.007, cat: 'index',  icon: 'S' },
-  QQQUSO:  { base: 455,    vol: 0.001,  atr: 0.009, cat: 'index',  icon: 'Q' },
-  IWMUSD:  { base: 205,    vol: 0.001,  atr: 0.009, cat: 'index',  icon: 'R' },
+  SPYUSD:  { base: 528,    vol: 0.0008, atr: 0.007, cat: 'index',  icon: 'S',  alpacaSym: 'SPY',  dataSym: 'SPY'  },
+  QQQUSO:  { base: 455,    vol: 0.001,  atr: 0.009, cat: 'index',  icon: 'Q',  alpacaSym: 'QQQ',  dataSym: 'QQQ'  },
+  IWMUSD:  { base: 205,    vol: 0.001,  atr: 0.009, cat: 'index',  icon: 'R',  alpacaSym: 'IWM',  dataSym: 'IWM'  },
 };
 
 const TF_SECONDS = {
@@ -4972,7 +4972,7 @@ async function omniScanPair(pair, tf, now) {
     if (psig) psig.className = 'pair-sig ' + (sig.quality === 'NONE' ? 'none' : sigDir);
 
     // ── FIRE ORDERS for high-quality signals ──
-    if (sig.allPass && sig.quality !== 'NONE' && sig.quality !== 'WEAK') {
+    if (sig.allPass && sig.quality !== 'NONE' && sig.quality !== 'WEAK' && alpacaSupported(pair)) {
       const gateResult = runGates(sig, ind);
       if (gateResult && gateResult.allGatesPass) {
         omniCooldowns[pair] = now; // set cooldown BEFORE firing
@@ -5097,18 +5097,27 @@ function setThresh(val) {
 
 // Determine if symbol is crypto vs stock
 function isCrypto(pair) {
-  const cfg = PAIR_CONFIG[pair];
-  return cfg ? cfg.cat === 'crypto' : pair.endsWith('USD') && !['GOLDUSD','SILVERUSD','CRUDEUSD','SPYUSD','QQQUSO','IWMUSD'].includes(pair);
+  return (PAIR_CONFIG[pair]?.cat === 'crypto');
 }
 
-// Build correct Alpaca symbol: crypto = "BTC/USD", stock = "AAPL"
+// Returns exact Alpaca symbol from config, or null if not supported
 function alpacaSymbol(pair) {
-  if (isCrypto(pair)) {
-    // Handle USDT pairs
-    if (pair.endsWith('USDT')) return pair.replace('USDT','/USDT');
-    return pair.slice(0,-3) + '/' + pair.slice(-3); // BTCUSD -> BTC/USD
-  }
-  return pair; // stocks: AAPL, NVDA etc
+  const cfg = PAIR_CONFIG[pair];
+  if (cfg?.alpacaSym !== undefined) return cfg.alpacaSym; // use explicit mapping (may be null)
+  // Fallback for unknown pairs
+  if (cfg?.cat === 'crypto') return pair.slice(0,-3) + '/' + pair.slice(-3);
+  return pair;
+}
+
+// Returns true if this pair can actually be traded on Alpaca
+function alpacaSupported(pair) {
+  return !!PAIR_CONFIG[pair]?.alpacaSym;
+}
+
+// Returns the best data symbol for market data API
+function alpacaDataSym(pair) {
+  const cfg = PAIR_CONFIG[pair];
+  return cfg?.dataSym || cfg?.alpacaSym || alpacaSymbol(pair);
 }
 
 // Alpaca base URLs
@@ -5342,8 +5351,9 @@ Equity: $${eq}`, 'buy', 5000);
 // ── fetchAlpacaData — load bars for current pair/TF ──
 function fetchAlpacaData(pair, tf) {
   if (!ST.alpaca.connected) { loadData(pair, tf); return; }
-  const sym    = alpacaSymbol(pair);
+  const sym    = alpacaDataSym(pair);
   const crypto = isCrypto(pair);
+  if (!sym) { loadData(pair, tf); return; }
   const tfMap  = { '1Min':'1Min','5Min':'5Min','15Min':'15Min','1Hour':'1Hour','4Hour':'4Hour','1Day':'1Day' };
   const tf2    = tfMap[tf] || '5Min';
 
@@ -5379,32 +5389,41 @@ function fetchAlpacaData(pair, tf) {
     });
 }
 
-// ── getLivePrice — fetch real-time quote from Alpaca ─────────────
+// ── getLivePrice — fetch real-time trade price from Alpaca ───────
 async function getLivePrice(pair) {
-  const sym    = alpacaSymbol(pair);
-  const crypto = isCrypto(pair);
-  try {
-    let url;
-    if (crypto) {
-      url = `https://data.alpaca.markets/v1beta3/crypto/us/latest/quotes?symbols=${encodeURIComponent(sym)}`;
-    } else {
-      url = `https://data.alpaca.markets/v2/stocks/${encodeURIComponent(sym)}/quotes/latest`;
-    }
-    const r = await alpacaFetch(url, { headers: alpacaHeaders() });
-    const data = await r.json();
-    if (crypto) {
-      const q = data.quotes?.[sym];
-      if (q) return (q.ap + q.bp) / 2; // mid of ask+bid
-    } else {
-      const q = data.quote;
-      if (q) return (q.ap + q.bp) / 2;
-    }
-  } catch(e) {
-    console.warn('getLivePrice failed, using candle close:', e.message);
+  if (!ST.alpaca.connected) {
+    const candles = ST.candles;
+    return candles?.[candles.length-1]?.c || PAIR_CONFIG[pair]?.base || 0;
   }
-  // Fallback to last candle close
+  const sym    = alpacaDataSym(pair);
+  const crypto = isCrypto(pair);
+  if (!sym) {
+    // Not on Alpaca — use candle close
+    const candles = ST.candles;
+    return candles?.[candles.length-1]?.c || PAIR_CONFIG[pair]?.base || 0;
+  }
+  try {
+    let price = 0;
+    if (crypto) {
+      // Crypto: latest trade
+      const url = `https://data.alpaca.markets/v1beta3/crypto/us/latest/trades?symbols=${encodeURIComponent(sym)}`;
+      const r = await alpacaFetch(url, { headers: alpacaHeaders() });
+      const data = await r.json();
+      price = data.trades?.[sym]?.p || 0;
+    } else {
+      // Stocks/ETFs: latest trade
+      const url = `https://data.alpaca.markets/v2/stocks/${encodeURIComponent(sym)}/trades/latest`;
+      const r = await alpacaFetch(url, { headers: alpacaHeaders() });
+      const data = await r.json();
+      price = data.trade?.p || 0;
+    }
+    if (price > 0) return price;
+  } catch(e) {
+    console.warn('getLivePrice failed:', pair, e.message);
+  }
+  // Fallback to candle close
   const candles = ST.candles;
-  return candles?.[candles.length - 1]?.c || 0;
+  return candles?.[candles.length-1]?.c || PAIR_CONFIG[pair]?.base || 0;
 }
 
 // ── placeAlpacaOrder ──────────────────────────────────────────────
@@ -5415,35 +5434,46 @@ async function placeAlpacaOrder(sig, ind) {
     return;
   }
 
-  const pair   = ST.pair;
-  const sym    = alpacaSymbol(pair);
-  const crypto = isCrypto(pair);
-  const bull   = sig.dir === 'bull';
-  const side   = bull ? 'buy' : 'sell';
+  const pair = ST.pair;
 
-  // ── 1. Get live market price — NOT stale candle close ────────────
-  // Alpaca rejects bracket legs that are on the wrong side of the LIVE price
-  const livePrice = await getLivePrice(pair);
-  if (!livePrice || livePrice <= 0) {
-    console.warn('Order skipped: could not get live price');
+  // ── Gate 1: Check if Alpaca supports this asset ───────────────────
+  if (!alpacaSupported(pair)) {
+    console.log(`[ORDER SKIPPED] ${pair} not supported on Alpaca`);
     return;
   }
 
-  // ── 2. Compute ATR for leg sizing ────────────────────────────────
-  const atr = ind?.atr || livePrice * 0.008;
+  const sym    = PAIR_CONFIG[pair].alpacaSym; // guaranteed non-null
+  const crypto = isCrypto(pair);
+  const cat    = PAIR_CONFIG[pair].cat;
+  const bull   = sig.dir === 'bull';
+  const side   = bull ? 'buy' : 'sell';
 
-  // Derive SL/TP from LIVE price using signal's risk ratios as guide
-  const sigSlDist = Math.abs((sig.entry || livePrice) - (sig.sl || 0));
-  const slDist    = (sigSlDist > 0 && sigSlDist < livePrice * 0.15)
-    ? sigSlDist             // use signal's SL distance if sane
-    : atr * 1.5;            // else ATR fallback
+  // ── Gate 2: Shorts need margin — only go long for safety ──────────
+  // (remove this gate if your account has margin enabled)
+  if (side === 'sell' && !crypto && !ST.alpaca.paper) {
+    console.log(`[ORDER SKIPPED] Short sell ${sym} blocked — no confirmed margin`);
+    return;
+  }
 
-  const sigRR  = Math.abs((sig.tp2 || sig.tp1 || 0) - (sig.entry || livePrice)) / (sigSlDist || 1);
-  const rrUsed = (sigRR > 0.5 && sigRR < 10) ? sigRR : 2.5; // clamp RR 0.5–10
+  // ── Get live price ────────────────────────────────────────────────
+  const livePrice = await getLivePrice(pair);
+  if (!livePrice || livePrice <= 0) {
+    console.warn(`[ORDER SKIPPED] Could not get live price for ${sym}`);
+    return;
+  }
 
-  const dec = crypto ? (livePrice > 1000 ? 2 : livePrice > 1 ? 4 : 6) : 2;
+  // ── Compute ATR-based SL/TP anchored to live price ────────────────
+  const atr = Math.max(ind?.atr || 0, livePrice * 0.005);
+  const sigSlDist = sig.sl ? Math.abs((sig.entry||livePrice) - sig.sl) : 0;
+  const slDist = (sigSlDist > 0 && sigSlDist < livePrice * 0.20)
+    ? sigSlDist : atr * 1.5;
+  const sigRR = (sig.tp2 && sig.entry && sig.sl)
+    ? Math.abs(sig.tp2 - sig.entry) / Math.abs(sig.entry - sig.sl) : 0;
+  const rrUsed = (sigRR >= 1 && sigRR <= 8) ? sigRR : 2.0;
 
-  // SL always behind live price, TP always ahead
+  // Decimal precision based on price magnitude
+  const dec = livePrice >= 1000 ? 2 : livePrice >= 10 ? 4 : livePrice >= 0.1 ? 6 : 8;
+
   let slPrice = bull
     ? +(livePrice - slDist).toFixed(dec)
     : +(livePrice + slDist).toFixed(dec);
@@ -5451,44 +5481,50 @@ async function placeAlpacaOrder(sig, ind) {
     ? +(livePrice + slDist * rrUsed).toFixed(dec)
     : +(livePrice - slDist * rrUsed).toFixed(dec);
 
-  // Final sanity: enforce strict ordering
+  // Hard enforce correct side — never let these be wrong
+  const minGap = livePrice * 0.003; // 0.3% minimum gap
   if (bull) {
-    if (slPrice >= livePrice) slPrice = +(livePrice * 0.992).toFixed(dec);
-    if (tpPrice <= livePrice) tpPrice = +(livePrice * 1.015).toFixed(dec);
+    slPrice = Math.min(slPrice, +(livePrice - minGap).toFixed(dec));
+    tpPrice = Math.max(tpPrice, +(livePrice + minGap * 2).toFixed(dec));
   } else {
-    if (slPrice <= livePrice) slPrice = +(livePrice * 1.008).toFixed(dec);
-    if (tpPrice >= livePrice) tpPrice = +(livePrice * 0.985).toFixed(dec);
+    slPrice = Math.max(slPrice, +(livePrice + minGap).toFixed(dec));
+    tpPrice = Math.min(tpPrice, +(livePrice - minGap * 2).toFixed(dec));
   }
 
-  // ── 3. Position sizing ───────────────────────────────────────────
+  // ── Position sizing ───────────────────────────────────────────────
   const bp      = ST.alpaca.account?.buyingPower || 10000;
-  const riskDol = Math.min(bp * 0.01, 500);
+  const riskDol = Math.min(bp * 0.01, 500); // 1% risk, max $500
   const actualSlDist = Math.abs(livePrice - slPrice);
 
   let qty;
   if (crypto) {
-    qty = +(riskDol / actualSlDist).toFixed(6);
-    qty = Math.max(0.0001, Math.min(qty, +(bp * 0.05 / livePrice).toFixed(6)));
+    // Crypto: fractional qty, calculated from risk
+    qty = +(riskDol / actualSlDist).toFixed(8);
+    qty = Math.max(0.0001, Math.min(qty, +(bp * 0.05 / livePrice).toFixed(8)));
+    qty = +qty.toPrecision(4); // clean up floating point
   } else {
+    // Stocks/ETFs: WHOLE shares only (Alpaca rejects fractional with bracket orders)
     qty = Math.max(1, Math.floor(riskDol / actualSlDist));
-    // Cap at 10% of BP
-    const maxShares = Math.floor((bp * 0.10) / livePrice);
-    qty = Math.min(qty, Math.max(1, maxShares));
+    const maxShares = Math.max(1, Math.floor((bp * 0.08) / livePrice));
+    qty = Math.min(qty, maxShares);
   }
 
-  // ── 4. Build and send bracket order ─────────────────────────────
+  // ── time_in_force: crypto=gtc, stocks=day ─────────────────────────
+  const tif = crypto ? 'gtc' : 'day';
+
+  // ── Build order body ──────────────────────────────────────────────
   const body = {
     symbol:        sym,
     side,
     type:          'market',
-    time_in_force: 'gtc',
+    time_in_force: tif,
     order_class:   'bracket',
     qty:           String(qty),
     take_profit:   { limit_price: String(tpPrice) },
     stop_loss:     { stop_price:  String(slPrice) },
   };
 
-  console.log(`[APEX ORDER] ${side.toUpperCase()} ${qty} ${sym} @ ~${livePrice}  SL:${slPrice}  TP:${tpPrice}`, body);
+  console.log(`[APEX ORDER] ${side.toUpperCase()} ${qty} ${sym} live@${livePrice} SL:${slPrice} TP:${tpPrice} tif:${tif}`, body);
 
   try {
     const r = await alpacaFetch(`${tradingURL()}/v2/orders`, {
@@ -5499,21 +5535,20 @@ async function placeAlpacaOrder(sig, ind) {
     const order = await r.json();
 
     if (order.id) {
-      const label = crypto ? `${qty} ${sym.split('/')[0]}` : `${qty} ${sym}`;
-      toast(`✓ ${side.toUpperCase()} ${label} @ ~${livePrice}\nSL: ${slPrice}  TP: ${tpPrice}`, 'buy', 6000);
+      const label = `${qty} ${sym}`;
+      toast(`✓ ${side.toUpperCase()} ${label}\n@ ~$${livePrice}  SL:${slPrice}  TP:${tpPrice}`, 'buy', 6000);
       setTimeout(fetchAccount,   2500);
-      setTimeout(fetchPositions, 3000);
+      setTimeout(fetchPositions, 3500);
     } else {
-      const errMsg = order.message || order.code || JSON.stringify(order).slice(0, 200);
-      toast(`✗ ${errMsg}`, 'sell', 8000);
-      console.error('[APEX ORDER REJECTED]', order, '\nBody:', body);
+      const errMsg = order.message || order.code || JSON.stringify(order).slice(0,200);
+      toast(`✗ ${sym}: ${errMsg}`, 'sell', 8000);
+      console.error('[ORDER REJECTED]', JSON.stringify(order), '\nBody:', JSON.stringify(body));
     }
   } catch(e) {
     toast('✗ Order error: ' + e.message, 'sell', 5000);
-    console.error('[APEX ORDER EXCEPTION]', e);
+    console.error('[ORDER EXCEPTION]', e, body);
   }
 }
-
 function togglePaper() { setPaperMode(!ST.alpaca.paper); }
 function _syncPillUI() {
   const paper = ST.alpaca.paper;

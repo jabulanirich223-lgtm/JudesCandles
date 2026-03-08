@@ -1376,6 +1376,7 @@ input[type=range]::-webkit-slider-thumb {
     <span class="mode-pill demo" id="modePill">DEMO</span>
     <span id="hdrEquity" style="font-size:9px;letter-spacing:.08em;color:rgba(0,248,124,0.8);padding:2px 8px;background:rgba(0,248,124,0.08);border:1px solid rgba(0,248,124,0.2);border-radius:3px;display:none">$--</span>
     <span id="hdrBP" style="font-size:9px;letter-spacing:.08em;color:rgba(0,212,255,0.7);padding:2px 8px;background:rgba(0,212,255,0.06);border:1px solid rgba(0,212,255,0.15);border-radius:3px;display:none">BP: $--</span>
+    <button id="hdrConnectBtn" onclick="openAlpacaModal()" style="font-size:8px;letter-spacing:.12em;padding:3px 10px;background:rgba(0,212,255,0.12);border:1px solid rgba(0,212,255,0.35);color:#00d4ff;cursor:pointer;border-radius:3px;font-family:inherit;">⚡ CONNECT</button>
     <button class="sniper-btn idle" id="sniperBtn" onclick="toggleSniper()">○ SNIPER IDLE</button>
   </div>
 </div>
@@ -5504,6 +5505,7 @@ function _setConnectedUI(connected) {
   if (acct)    { acct.className = 'alp-acct'+(connected?' visible':''); }
   if (row)     row.style.display = connected ? 'flex' : 'none';
   if (statusT && !connected) statusT.textContent = 'NOT CONNECTED';
+  const hdrCB = document.getElementById('hdrConnectBtn'); if (hdrCB) hdrCB.style.display = connected ? 'none' : '';
   _syncPillUI();
   // Refresh orders tab to show/hide portfolio block
   if (ST.rtab === 'orders') renderOrdersTab();
@@ -5611,12 +5613,291 @@ window.addEventListener('load', () => {
       updateDOM();
       updateFlow();
       switchRTab('orders', document.querySelector('.rtab-btn'));
-    }, 800);
+      // Show connection modal on first load
+      if (!ST.alpaca.connected) openAlpacaModal();
+    }, 900);
 
     toast('⚡ APEX ULTRA v11.0 ARMED — PRECISION SIGNAL ENGINE ONLINE', 'apex', 5000);
   });
 });
 
+
+
+// ════════════════════════════════════════
+//  ALPACA CONNECT MODAL
+// ════════════════════════════════════════
+let _modalMode = 'paper'; // 'paper' | 'live'
+
+function modalSetMode(mode) {
+  _modalMode = mode;
+  const paper = mode === 'paper';
+  const pBtn = document.getElementById('mod-paper');
+  const lBtn = document.getElementById('mod-live');
+  if (pBtn) {
+    pBtn.style.background   = paper ? 'rgba(0,212,255,0.15)' : 'transparent';
+    pBtn.style.borderColor  = paper ? 'rgba(0,212,255,0.5)'  : 'rgba(255,255,255,0.1)';
+    pBtn.style.color        = paper ? '#00d4ff' : 'rgba(255,255,255,0.3)';
+  }
+  if (lBtn) {
+    lBtn.style.background   = !paper ? 'rgba(255,26,80,0.15)' : 'transparent';
+    lBtn.style.borderColor  = !paper ? 'rgba(255,26,80,0.5)'  : 'rgba(255,255,255,0.1)';
+    lBtn.style.color        = !paper ? '#ff1a50' : 'rgba(255,255,255,0.3)';
+  }
+  setModalStatus(paper
+    ? '📄 Paper trading — safe to test, no real funds'
+    : '⚠ LIVE trading — real money will be used', paper ? '' : 'color:rgba(255,80,50,0.8)');
+}
+
+function setModalStatus(msg, style='') {
+  const el = document.getElementById('modalStatus');
+  if (el) { el.textContent = msg; el.style.cssText = `min-height:22px;font-size:9px;letter-spacing:.1em;text-align:center;margin-bottom:14px;${style}`; }
+}
+
+function toggleModalSecVis() {
+  const inp = document.getElementById('modalApiSec');
+  const btn = document.getElementById('secVisBtn');
+  if (!inp) return;
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+  if (btn) btn.textContent = inp.type === 'password' ? '👁' : '🙈';
+}
+
+async function modalConnect() {
+  const key    = (document.getElementById('modalApiKey')?.value || '').trim();
+  const secret = (document.getElementById('modalApiSec')?.value || '').trim();
+
+  if (!key || !secret) {
+    setModalStatus('⚠ Enter both API Key and Secret Key', 'color:#ffd60a');
+    document.getElementById(key ? 'modalApiSec' : 'modalApiKey')?.focus();
+    return;
+  }
+
+  const btn = document.getElementById('modalConnectBtn');
+  if (btn) { btn.textContent = '⟳ CONNECTING...'; btn.style.opacity = '0.7'; btn.disabled = true; }
+  setModalStatus('Connecting to Alpaca...', 'color:rgba(0,212,255,0.7)');
+
+  // Copy into main state + sidebar inputs
+  ST.alpaca.key    = key;
+  ST.alpaca.secret = secret;
+  ST.alpaca.paper  = (_modalMode === 'paper');
+  const el1 = document.getElementById('apiKey'); if (el1) el1.value = key;
+  const el2 = document.getElementById('apiSec'); if (el2) el2.value = secret;
+
+  const baseURL = ST.alpaca.paper ? 'https://paper-api.alpaca.markets' : 'https://api.alpaca.markets';
+
+  try {
+    const r = await alpacaFetch(`${baseURL}/v2/account`, {
+      headers: { 'APCA-API-KEY-ID': key, 'APCA-API-SECRET-KEY': secret }
+    });
+    if (!r.ok) {
+      const txt = await r.text();
+      let errMsg = `HTTP ${r.status}`;
+      try { const j = JSON.parse(txt); errMsg = j.message || j.error || errMsg; } catch(e){}
+      throw new Error(errMsg);
+    }
+    const data = await r.json();
+    if (!data.id) throw new Error(data.message || 'Auth failed — check keys');
+
+    // ── Success ──
+    const eq  = parseFloat(data.equity        || 0).toFixed(2);
+    const bp  = parseFloat(data.buying_power  || 0).toFixed(2);
+    const cash= parseFloat(data.cash          || 0).toFixed(2);
+
+    setModalStatus(`✓ Connected! Equity: $${eq}  ·  Buying Power: $${bp}`, 'color:#00f87c');
+    if (btn) { btn.textContent = '✓ CONNECTED — ENTERING DASHBOARD'; btn.style.background = 'rgba(0,248,124,0.15)'; btn.style.borderColor = 'rgba(0,248,124,0.5)'; btn.style.color = '#00f87c'; }
+
+    // Sync into ST.alpaca
+    ST.alpaca.connected = true;
+    ST.alpaca.account = {
+      equity:      parseFloat(data.equity       || 0),
+      cash:        parseFloat(data.cash         || 0),
+      buyingPower: parseFloat(data.buying_power || 0),
+      dayPnl:      parseFloat(data.unrealized_pl|| 0),
+    };
+
+    // Update all UI
+    _setConnectedUI(true);
+    fetchAccount();
+    fetchPositions();
+    if (ST.alpaca._pollTimer) clearInterval(ST.alpaca._pollTimer);
+    ST.alpaca._pollTimer = setInterval(fetchAccount, 30000);
+    fetchAlpacaData(ST.pair, ST.tf);
+    omniScan();
+
+    // Close modal after short delay
+    setTimeout(() => closeAlpacaModal(), 1200);
+
+  } catch(e) {
+    let msg = e.message || 'Connection failed';
+    if (msg.includes('fetch') || msg === 'Failed to fetch' || msg === 'Load failed') {
+      msg = 'Network error — retrying via proxy...';
+      setModalStatus(msg, 'color:#ffd60a');
+      ST.alpaca._useProxy = true;
+      if (btn) { btn.disabled = false; btn.style.opacity = '1'; btn.textContent = '▶ CONNECT TO ALPACA'; }
+      return;
+    }
+    setModalStatus('✗ ' + msg, 'color:#ff1a50');
+    if (btn) { btn.disabled = false; btn.style.opacity = '1'; btn.textContent = '▶ CONNECT TO ALPACA'; }
+    console.error('Alpaca modal connect error:', e);
+  }
+}
+
+function closeAlpacaModal() {
+  const m = document.getElementById('alpacaModal');
+  if (m) { m.style.opacity = '0'; m.style.transition = 'opacity .3s'; setTimeout(() => m.style.display = 'none', 300); }
+}
+
+function openAlpacaModal() {
+  const m = document.getElementById('alpacaModal');
+  if (m) { m.style.display = 'flex'; m.style.opacity = '0'; requestAnimationFrame(() => { m.style.transition = 'opacity .3s'; m.style.opacity = '1'; }); }
+  setTimeout(() => document.getElementById('modalApiKey')?.focus(), 350);
+}
+
+// Also wire the sidebar connect button to open modal instead
+function handleConnectClick() {
+  if (ST.alpaca.connected) { disconnectAlpaca(); return; }
+  openAlpacaModal();
+}
+
 </script>
+
+<!-- ═══════════════════════════════════════════════
+     ALPACA CONNECT MODAL
+═══════════════════════════════════════════════ -->
+<div id="alpacaModal" style="
+  position:fixed;inset:0;z-index:9999;
+  background:rgba(0,0,0,0.92);
+  display:flex;align-items:center;justify-content:center;
+  backdrop-filter:blur(8px);
+">
+  <div style="
+    width:420px;max-width:95vw;
+    background:linear-gradient(160deg,#0a0f1a 0%,#060b14 100%);
+    border:1px solid rgba(0,212,255,0.3);
+    border-radius:12px;overflow:hidden;
+    box-shadow:0 0 60px rgba(0,212,255,0.12),0 0 120px rgba(0,0,0,0.8);
+  ">
+    <!-- Header -->
+    <div style="
+      padding:24px 28px 20px;
+      background:linear-gradient(135deg,rgba(0,212,255,0.1),rgba(0,248,124,0.05));
+      border-bottom:1px solid rgba(0,212,255,0.15);
+      position:relative;
+    ">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;">
+        <div style="width:36px;height:36px;border-radius:8px;background:rgba(0,212,255,0.15);border:1px solid rgba(0,212,255,0.3);display:flex;align-items:center;justify-content:center;font-size:18px;">⚡</div>
+        <div>
+          <div style="font-size:16px;font-weight:700;letter-spacing:.15em;color:#00d4ff;">APEX ULTRA</div>
+          <div style="font-size:9px;letter-spacing:.2em;color:rgba(255,255,255,0.35);">CONNECT TO ALPACA MARKETS</div>
+        </div>
+        <button onclick="closeAlpacaModal()" style="
+          margin-left:auto;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);
+          color:rgba(255,255,255,0.4);width:28px;height:28px;border-radius:6px;cursor:pointer;font-size:14px;
+        ">✕</button>
+      </div>
+    </div>
+
+    <!-- Body -->
+    <div style="padding:24px 28px;">
+
+      <!-- Mode toggle -->
+      <div style="display:flex;gap:8px;margin-bottom:20px;">
+        <button id="mod-paper" onclick="modalSetMode('paper')" style="
+          flex:1;padding:10px;border-radius:6px;cursor:pointer;
+          font-family:inherit;font-size:10px;letter-spacing:.15em;font-weight:700;
+          background:rgba(0,212,255,0.15);border:1px solid rgba(0,212,255,0.5);color:#00d4ff;
+          transition:all .15s;
+        ">📄 PAPER TRADING</button>
+        <button id="mod-live" onclick="modalSetMode('live')" style="
+          flex:1;padding:10px;border-radius:6px;cursor:pointer;
+          font-family:inherit;font-size:10px;letter-spacing:.15em;font-weight:700;
+          background:transparent;border:1px solid rgba(255,255,255,0.1);color:rgba(255,255,255,0.3);
+          transition:all .15s;
+        ">⚡ LIVE TRADING</button>
+      </div>
+
+      <!-- API Key -->
+      <div style="margin-bottom:14px;">
+        <div style="font-size:9px;letter-spacing:.15em;color:rgba(255,255,255,0.4);margin-bottom:6px;">
+          🔑 API KEY
+          <a href="https://app.alpaca.markets/paper/dashboard/overview" target="_blank" 
+             style="float:right;color:rgba(0,212,255,0.6);text-decoration:none;font-size:8px;">GET KEYS ↗</a>
+        </div>
+        <input id="modalApiKey" type="text" placeholder="pk_live_xxxxxxxxxxxxxxxx  or  pk_paper_xxxxx"
+          autocomplete="off" spellcheck="false"
+          style="
+            width:100%;background:rgba(0,0,0,0.4);border:1px solid rgba(0,212,255,0.2);
+            border-radius:6px;color:#e0e0e0;padding:11px 14px;
+            font-family:'JetBrains Mono',monospace;font-size:11px;outline:none;
+            transition:border-color .15s;box-sizing:border-box;
+          "
+          onfocus="this.style.borderColor='rgba(0,212,255,0.6)'"
+          onblur="this.style.borderColor='rgba(0,212,255,0.2)'"
+          onkeydown="if(event.key==='Enter')document.getElementById('modalApiSec').focus()"
+        >
+      </div>
+
+      <!-- Secret Key -->
+      <div style="margin-bottom:20px;position:relative;">
+        <div style="font-size:9px;letter-spacing:.15em;color:rgba(255,255,255,0.4);margin-bottom:6px;">🔒 SECRET KEY</div>
+        <input id="modalApiSec" type="password" placeholder="••••••••••••••••••••••••••••••••••••••••"
+          autocomplete="off"
+          style="
+            width:100%;background:rgba(0,0,0,0.4);border:1px solid rgba(0,212,255,0.2);
+            border-radius:6px;color:#e0e0e0;padding:11px 14px;padding-right:44px;
+            font-family:'JetBrains Mono',monospace;font-size:11px;outline:none;
+            transition:border-color .15s;box-sizing:border-box;
+          "
+          onfocus="this.style.borderColor='rgba(0,212,255,0.6)'"
+          onblur="this.style.borderColor='rgba(0,212,255,0.2)'"
+          onkeydown="if(event.key==='Enter')modalConnect()"
+        >
+        <button onclick="toggleModalSecVis()" title="Show/hide" style="
+          position:absolute;right:10px;bottom:10px;
+          background:none;border:none;color:rgba(255,255,255,0.3);cursor:pointer;font-size:15px;
+        " id="secVisBtn">👁</button>
+      </div>
+
+      <!-- Status message -->
+      <div id="modalStatus" style="
+        min-height:22px;font-size:9px;letter-spacing:.1em;text-align:center;
+        color:rgba(255,255,255,0.35);margin-bottom:14px;
+      "></div>
+
+      <!-- Connect button -->
+      <button id="modalConnectBtn" onclick="modalConnect()" style="
+        width:100%;padding:14px;border-radius:7px;cursor:pointer;
+        font-family:inherit;font-size:11px;letter-spacing:.25em;font-weight:700;
+        background:linear-gradient(90deg,rgba(0,212,255,0.25),rgba(0,248,124,0.15));
+        border:1px solid rgba(0,212,255,0.5);color:#00d4ff;
+        transition:all .2s;position:relative;overflow:hidden;
+      "
+        onmouseover="this.style.boxShadow='0 0 20px rgba(0,212,255,0.3)'"
+        onmouseout="this.style.boxShadow=''"
+      >▶ CONNECT TO ALPACA</button>
+
+      <!-- Skip / Demo -->
+      <div style="text-align:center;margin-top:14px;">
+        <button onclick="closeAlpacaModal()" style="
+          background:none;border:none;color:rgba(255,255,255,0.2);
+          font-size:9px;letter-spacing:.1em;cursor:pointer;
+          font-family:inherit;
+        ">SKIP — CONTINUE IN DEMO MODE</button>
+      </div>
+
+    </div>
+
+    <!-- Footer -->
+    <div style="
+      padding:12px 28px;
+      background:rgba(0,0,0,0.3);
+      border-top:1px solid rgba(255,255,255,0.05);
+      display:flex;align-items:center;gap:8px;
+    ">
+      <div style="width:6px;height:6px;border-radius:50%;background:rgba(0,248,124,0.5);flex-shrink:0;"></div>
+      <div style="font-size:8px;color:rgba(255,255,255,0.2);letter-spacing:.05em;">Keys stored in memory only · Never transmitted except to Alpaca · No server involved</div>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>

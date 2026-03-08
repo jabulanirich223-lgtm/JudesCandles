@@ -5005,7 +5005,8 @@ async function omniScanPair(pair, tf, now) {
 
 // ── fetchAlpacaCandles: get real OHLCV from Alpaca for any asset ──
 async function fetchAlpacaCandles(pair, tf) {
-  const sym    = alpacaSymbol(pair);
+  const sym    = alpacaDataSym(pair);   // uses dataSym or alpacaSym — correct per asset
+  if (!sym) return null;                // unsupported pair — caller falls back to sim
   const crypto = isCrypto(pair);
   const tfMap  = { '1Min':'1Min','5Min':'5Min','15Min':'15Min','1Hour':'1Hour','4Hour':'4Hour','1Day':'1Day' };
   const tf2    = tfMap[tf] || '5Min';
@@ -5016,9 +5017,10 @@ async function fetchAlpacaCandles(pair, tf) {
 
   try {
     const r = await alpacaFetch(endpoint, { headers: alpacaHeaders() });
+    if (!r.ok) return null;
     const data = await r.json();
     const bars = crypto
-      ? (data.bars?.[sym] || data.bars?.[pair] || [])
+      ? (data.bars?.[sym] || [])
       : (Array.isArray(data.bars) ? data.bars : []);
     if (bars.length < 10) return null;
     return normCandles(bars.map(b => ({
@@ -5448,11 +5450,10 @@ async function placeAlpacaOrder(sig, ind) {
   const bull   = sig.dir === 'bull';
   const side   = bull ? 'buy' : 'sell';
 
-  // ── Gate 2: Shorts need margin — only go long for safety ──────────
-  // (remove this gate if your account has margin enabled)
-  if (side === 'sell' && !crypto && !ST.alpaca.paper) {
-    console.log(`[ORDER SKIPPED] Short sell ${sym} blocked — no confirmed margin`);
-    return;
+  // ── Gate 2: Short sells — Alpaca paper supports them; live depends on account
+  // We'll attempt it and let Alpaca reject if no margin — don't pre-block
+  if (side === 'sell' && !crypto) {
+    console.log(`[ORDER] Short sell ${sym} — paper=${ST.alpaca.paper} (Alpaca will reject if no margin)`);
   }
 
   // ── Get live price ────────────────────────────────────────────────
@@ -5463,7 +5464,7 @@ async function placeAlpacaOrder(sig, ind) {
   }
 
   // ── Compute ATR-based SL/TP anchored to live price ────────────────
-  const atr = Math.max(ind?.atr || 0, livePrice * 0.005);
+  const atr = Math.max(ind?.atrv || 0, livePrice * 0.005);
   const sigSlDist = sig.sl ? Math.abs((sig.entry||livePrice) - sig.sl) : 0;
   const slDist = (sigSlDist > 0 && sigSlDist < livePrice * 0.20)
     ? sigSlDist : atr * 1.5;
@@ -5498,19 +5499,24 @@ async function placeAlpacaOrder(sig, ind) {
 
   let qty;
   if (crypto) {
-    // Crypto: fractional qty, calculated from risk
-    qty = +(riskDol / actualSlDist).toFixed(8);
-    qty = Math.max(0.0001, Math.min(qty, +(bp * 0.05 / livePrice).toFixed(8)));
-    qty = +qty.toPrecision(4); // clean up floating point
+    // Crypto: fractional qty from risk/SL-distance
+    let rawQty = riskDol / actualSlDist;
+    const capQty = (bp * 0.05) / livePrice;   // never more than 5% BP in one trade
+    rawQty = Math.max(0.0001, Math.min(rawQty, capQty));
+    // Format without scientific notation: use enough decimals for the magnitude
+    const qtyDecimals = Math.max(2, Math.min(8, Math.ceil(-Math.log10(rawQty)) + 3));
+    qty = rawQty.toFixed(isFinite(qtyDecimals) ? qtyDecimals : 8);
+    // Verify it parsed back correctly
+    if (!parseFloat(qty) || parseFloat(qty) <= 0) qty = '0.001';
   } else {
-    // Stocks/ETFs: WHOLE shares only (Alpaca rejects fractional with bracket orders)
-    qty = Math.max(1, Math.floor(riskDol / actualSlDist));
+    // Stocks/ETFs: WHOLE shares only — Alpaca rejects fractional with bracket orders
+    const shareQty = Math.max(1, Math.floor(riskDol / actualSlDist));
     const maxShares = Math.max(1, Math.floor((bp * 0.08) / livePrice));
-    qty = Math.min(qty, maxShares);
+    qty = String(Math.min(shareQty, maxShares));
   }
 
-  // ── time_in_force: crypto=gtc, stocks=day ─────────────────────────
-  const tif = crypto ? 'gtc' : 'day';
+  // ── time_in_force: gtc for all — works for crypto and stocks ────────
+  const tif = 'gtc';
 
   // ── Build order body ──────────────────────────────────────────────
   const body = {
@@ -5519,7 +5525,7 @@ async function placeAlpacaOrder(sig, ind) {
     type:          'market',
     time_in_force: tif,
     order_class:   'bracket',
-    qty:           String(qty),
+    qty:           qty,                           // already a string from toFixed above
     take_profit:   { limit_price: String(tpPrice) },
     stop_loss:     { stop_price:  String(slPrice) },
   };

@@ -2980,6 +2980,18 @@ function runGates(signal,ind){
 // ═══════════════════════════════════════════════════════════════
 //   FIRE SIGNAL — Execute sniper signal
 // ═══════════════════════════════════════════════════════════════
+// fireSignalForPair — called by omniScan with explicit pair
+// Sets ST.pair for the duration of the order only, then restores it
+async function fireSignalForPair(pair, sig, ind, gateResult) {
+  const prev = ST.pair;
+  ST.pair = pair;
+  try {
+    await fireSignal(sig, ind, gateResult);
+  } finally {
+    ST.pair = prev;
+  }
+}
+
 function fireSignal(sig,ind,gateResult){
   const sn=ST.sniper;
   sn.fired++;
@@ -4983,14 +4995,10 @@ async function omniScanPair(pair, tf, now) {
       const gateResult = runGates(sig, ind);
       if (gateResult && gateResult.allGatesPass) {
         omniCooldowns[pair] = now; // set cooldown BEFORE firing
-        // Store current pair context temporarily
-        const prevPair = ST.pair;
-        ST.pair = pair; // temporarily set so placeAlpacaOrder uses right symbol
-        // Stagger Alpaca orders — only 1 active at a time to prevent BP race
-        const orderDelay = (window._apexOrderQueue = (window._apexOrderQueue || 0) + 1) * 2500;
-        setTimeout(() => { window._apexOrderQueue = Math.max(0, (window._apexOrderQueue||1)-1); }, orderDelay + 5000);
-        setTimeout(() => fireSignal(sig, ind, gateResult), orderDelay - 2500);
-        ST.pair = prevPair;
+        // Pass pair explicitly — do NOT rely on ST.pair which may change
+        // before the setTimeout fires (it fires 0-2500ms later)
+        const _sig = sig, _ind = ind, _gr = gateResult, _pair = pair;
+        setTimeout(() => fireSignalForPair(_pair, _sig, _ind, _gr), 0);
         // Flash the watchlist item
         const wlEl = document.getElementById('wli-' + pair);
         if (wlEl) {
@@ -5753,12 +5761,19 @@ async function _cryptoOrder(sym, side, isBuy, price, slPrice, tpPrice, acct) {
       qty: exitQty, limit_price: String(tpPrice),
     }, sym, tpPrice);
 
-    // SL: stop order
+    // SL: stop_limit order (crypto doesn't support plain stop)
+    // limit_price is set slightly worse than stop_price to ensure the order fills
     await _sleep(500);
+    const isCryptoBuy = (side === 'buy');  // if we bought, SL sells below
+    const slLimitPrice = isCryptoBuy
+      ? +(slPrice * 0.995).toFixed(slPrice >= 1000 ? 2 : slPrice >= 1 ? 4 : 6)  // 0.5% below stop
+      : +(slPrice * 1.005).toFixed(slPrice >= 1000 ? 2 : slPrice >= 1 ? 4 : 6); // 0.5% above stop
     await _post({
       symbol: sym, side: exitSide,
-      type: 'stop', time_in_force: 'gtc',
-      qty: exitQty, stop_price: String(slPrice),
+      type: 'stop_limit', time_in_force: 'gtc',
+      qty: exitQty,
+      stop_price:  String(slPrice),
+      limit_price: String(slLimitPrice),
     }, sym, slPrice);
   }
 }

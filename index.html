@@ -5465,14 +5465,46 @@ function _candlePrice(pair) {
 // Returns { cash, equity, buyingPower, shortingEnabled } directly from Alpaca.
 async function liveAccount() {
   const d = await _alpacaGet(`${tradingURL()}/v2/account`);
-  if (!d?.id) throw new Error('Account fetch failed');
-  const cash        = parseFloat(d.cash           || 0);
-  const equity      = parseFloat(d.equity         || 0);
-  const buyingPower = parseFloat(d.buying_power   || 0);
-  // Update UI cache while we're here
+  if (!d?.id) throw new Error(`Account fetch failed — got: ${JSON.stringify(d).slice(0,100)}`);
+
+  // Log raw Alpaca fields so we can see exactly what the API returns
+  console.log('[ACCOUNT RAW]', {
+    cash:             d.cash,
+    equity:           d.equity,
+    buying_power:     d.buying_power,
+    non_marginable_buying_power: d.non_marginable_buying_power,
+    regt_buying_power: d.regt_buying_power,
+    shorting_enabled: d.shorting_enabled,
+    status:           d.status,
+  });
+
+  // Use the most conservative BP field available:
+  // non_marginable_buying_power = actual cash, no margin leverage
+  // regt_buying_power = Reg-T margin power (2x for day, 4x for margin accounts)
+  // buying_power = varies by account type
+  // We take the MIN of all non-zero values to never overspend.
+  const rawValues = [
+    parseFloat(d.non_marginable_buying_power || 0),
+    parseFloat(d.regt_buying_power           || 0),
+    parseFloat(d.buying_power                || 0),
+  ].filter(v => v > 0);
+
+  const safeBP      = rawValues.length > 0 ? Math.min(...rawValues) : 0;
+  const cash        = parseFloat(d.cash   || 0);
+  const equity      = parseFloat(d.equity || 0);
+
+  // spendable = whatever is smallest: safe BP, cash, or equity
+  // This can never exceed what we actually have regardless of account type
+  const allValues   = [safeBP, cash, equity].filter(v => v > 0);
+  const spendable   = allValues.length > 0 ? Math.min(...allValues) : 0;
+
+  console.log(`[ACCOUNT] safeBP=$${safeBP.toFixed(2)} cash=$${cash.toFixed(2)} equity=$${equity.toFixed(2)} → spendable=$${spendable.toFixed(2)}`);
+
   ST.alpaca.account = {
     ...ST.alpaca.account,
-    cash, equity, buyingPower,
+    cash, equity,
+    buyingPower:    safeBP,
+    spendable,                          // ← use this for sizing
     shortingEnabled:  d.shorting_enabled === true,
     patternDayTrader: d.pattern_day_trader === true,
   };
@@ -5484,9 +5516,13 @@ async function liveAccount() {
 async function heldQty(sym) {
   try {
     const d = await _alpacaGet(`${tradingURL()}/v2/positions/${encodeURIComponent(sym)}`);
-    return parseFloat(d?.qty_available ?? d?.qty ?? 0);
-  } catch(_) {
-    // 404 = no position = 0
+    if (!d) return 0; // 404 = no position
+    // qty_available = not locked in pending orders; qty = total held
+    const qty = parseFloat(d.qty_available ?? d.qty ?? 0);
+    console.log(`[HELD] ${sym}: qty_available=${d.qty_available} qty=${d.qty} → using ${qty}`);
+    return qty;
+  } catch(e) {
+    console.warn(`[heldQty] ${sym}:`, e.message);
     return 0;
   }
 }
@@ -5538,7 +5574,13 @@ function _sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 // ─── 6. HTTP HELPERS ─────────────────────────────────────────────────────────
 async function _alpacaGet(url) {
   const r = await alpacaFetch(url, { headers: alpacaHeaders() });
-  return r.json();
+  const txt = await r.text();
+  if (!r.ok) {
+    // 404 is a valid "not found" (e.g. no position) — callers handle it
+    if (r.status === 404) return null;
+    throw new Error(`HTTP ${r.status}: ${txt.slice(0,120)}`);
+  }
+  try { return JSON.parse(txt); } catch(e) { throw new Error(`Bad JSON: ${txt.slice(0,80)}`); }
 }
 async function _alpacaPost(url, body) {
   const r = await alpacaFetch(url, {
@@ -5546,7 +5588,8 @@ async function _alpacaPost(url, body) {
     headers: alpacaHeaders(true),
     body: JSON.stringify(body),
   });
-  return r.json();
+  const txt = await r.text();
+  try { return JSON.parse(txt); } catch(e) { throw new Error(`Bad JSON: ${txt.slice(0,80)}`); }
 }
 
 // ─── 7. SL / TP PRICE BUILDER ────────────────────────────────────────────────
@@ -5667,15 +5710,15 @@ async function _cryptoOrder(sym, side, isBuy, price, slPrice, tpPrice, acct) {
 
   if (isBuy) {
     // Use cash minus session spend (Alpaca cash field may not be updated yet)
-    const rawCash  = acct.cash > 0 ? acct.cash : acct.buyingPower;
-    const availCash = _getAvailableBP(rawCash);  // reuse same tracker
-    const budget   = availCash * 0.20;
-    if (availCash <= 0 || budget <= 0) {
-      toast(`⚠ ${sym}: no cash left (used $${_sessionSpent.toFixed(0)} this session)`, 'sell', 3000);
+    const spendable = _getAvailableBP(acct.spendable || acct.cash || acct.buyingPower || 0);
+    const budget    = spendable * 0.20;
+    if (spendable <= 0 || budget <= 0) {
+      toast(`⚠ ${sym}: spendable balance $${spendable.toFixed(2)} — not enough`, 'sell', 3000);
+      console.warn(`[CRYPTO BUY SKIP] spendable=$${spendable.toFixed(2)}`);
       return;
     }
     qty = budget / price;
-    console.log(`[CRYPTO BUY] rawCash=$${rawCash.toFixed(2)} availCash=$${availCash.toFixed(2)} budget=$${budget.toFixed(2)} qty=${fmtQty(qty)} ${sym}`);
+    console.log(`[CRYPTO BUY] spendable=$${spendable.toFixed(2)} budget=$${budget.toFixed(2)} qty=${fmtQty(qty)} ${sym}`);
   } else {
     // Sell only what we actually hold
     qty = await heldQty(sym);
@@ -5728,19 +5771,23 @@ async function _stockOrder(sym, side, isBuy, price, slPrice, tpPrice, acct) {
     // availBP = Alpaca's buying_power MINUS what we've already committed this
     // session but Alpaca hasn't settled yet. This is the only reliable way to
     // prevent "insufficient balance" when multiple orders fire rapidly.
-    const rawBP    = Math.min(acct.buyingPower, acct.equity > 0 ? acct.equity * 2 : acct.buyingPower);
-    const availBP  = _getAvailableBP(rawBP);
-    const budget   = availBP * 0.20;   // 20% of what's actually still available
-    if (availBP <= 0 || budget <= 0) {
-      toast(`⚠ ${sym}: no buying power left (used $${_sessionSpent.toFixed(0)} this session)`, 'sell', 3000);
+    // spendable = min(non_marginable_bp, regt_bp, cash, equity) — safest possible number
+    const spendable = _getAvailableBP(acct.spendable || acct.buyingPower || 0);
+    const budget    = spendable * 0.20;
+    if (spendable <= 0 || budget < price) {
+      toast(`⚠ ${sym}: spendable balance $${spendable.toFixed(2)} — not enough`, 'sell', 3000);
+      console.warn(`[STOCK BUY SKIP] spendable=$${spendable.toFixed(2)} price=$${price}`);
       return;
     }
     shares = Math.floor(budget / price);
-    if (shares < 1) { toast(`⚠ ${sym} @ $${price.toFixed(2)}: budget $${budget.toFixed(0)} too small for 1 share`, 'sell', 3000); return; }
-    // Hard ceiling: total cost must be < availBP (not raw BP)
-    while (shares > 1 && shares * price > availBP * 0.95) shares--;
+    if (shares < 1) shares = 1;
+    // Absolute ceiling: cost must be < spendable (hard limit, no exceptions)
+    while (shares > 0 && shares * price > spendable * 0.99) shares--;
+    if (shares < 1) {
+      toast(`⚠ ${sym} @ $${price.toFixed(2)} — not enough balance`, 'sell', 3000); return;
+    }
     const cost = shares * price;
-    console.log(`[STOCK BUY] rawBP=$${rawBP.toFixed(2)} availBP=$${availBP.toFixed(2)} budget=$${budget.toFixed(2)} shares=${shares} cost=$${cost.toFixed(2)}`);
+    console.log(`[STOCK BUY] spendable=$${spendable.toFixed(2)} budget=$${budget.toFixed(2)} shares=${shares} cost=$${cost.toFixed(2)}`);
   } else {
     // Short-sell check
     if (!acct.shortingEnabled && !ST.alpaca.paper) {

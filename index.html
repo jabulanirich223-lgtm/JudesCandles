@@ -5505,9 +5505,28 @@ async function cancelOrdersFor(sym) {
   } catch(e) { console.warn('[cancelOrdersFor]', e.message); }
 }
 
-// ─── 5. GLOBAL ORDER LOCK ────────────────────────────────────────────────────
+// ─── 5. GLOBAL ORDER LOCK + SPEND TRACKER ───────────────────────────────────
 // One order at a time. Prevents simultaneous orders each spending 100% of BP.
-let _orderLock = false;
+// _sessionSpent tracks dollars committed this session — Alpaca takes several
+// seconds to reflect an order in buying_power, so we track it ourselves.
+let _orderLock   = false;
+let _sessionSpent = 0;          // cumulative dollars sent to Alpaca this session
+let _sessionSpentReset = 0;     // timestamp — reset every 60s (orders settled by then)
+
+function _getAvailableBP(rawBP) {
+  // Reset tracker every 60 seconds so settled orders don't compound forever
+  if (Date.now() - _sessionSpentReset > 60000) {
+    _sessionSpent = 0;
+    _sessionSpentReset = Date.now();
+  }
+  return Math.max(0, rawBP - _sessionSpent);
+}
+
+function _recordSpend(dollars) {
+  _sessionSpent += dollars;
+  console.log(`[SPEND TRACKER] +$${dollars.toFixed(2)} → session total $${_sessionSpent.toFixed(2)}`);
+}
+
 async function _acquireLock() {
   const t = Date.now() + 30000;
   while (_orderLock && Date.now() < t) await _sleep(300);
@@ -5647,11 +5666,16 @@ async function _cryptoOrder(sym, side, isBuy, price, slPrice, tpPrice, acct) {
   let qty;
 
   if (isBuy) {
-    // Size from available cash: 20% of cash per trade
-    const budget = acct.cash * 0.20;
-    if (budget <= 0) { toast(`⚠ No cash to buy ${sym}`, 'sell', 3000); return; }
+    // Use cash minus session spend (Alpaca cash field may not be updated yet)
+    const rawCash  = acct.cash > 0 ? acct.cash : acct.buyingPower;
+    const availCash = _getAvailableBP(rawCash);  // reuse same tracker
+    const budget   = availCash * 0.20;
+    if (availCash <= 0 || budget <= 0) {
+      toast(`⚠ ${sym}: no cash left (used $${_sessionSpent.toFixed(0)} this session)`, 'sell', 3000);
+      return;
+    }
     qty = budget / price;
-    console.log(`[CRYPTO BUY] budget=$${budget.toFixed(2)} qty=${fmtQty(qty)} ${sym}`);
+    console.log(`[CRYPTO BUY] rawCash=$${rawCash.toFixed(2)} availCash=$${availCash.toFixed(2)} budget=$${budget.toFixed(2)} qty=${fmtQty(qty)} ${sym}`);
   } else {
     // Sell only what we actually hold
     qty = await heldQty(sym);
@@ -5701,15 +5725,22 @@ async function _stockOrder(sym, side, isBuy, price, slPrice, tpPrice, acct) {
   let shares;
 
   if (isBuy) {
-    // Use buying_power (what Alpaca actually lets us spend on stocks)
-    // but cap at 20% per trade so we never blow up the account
-    const budget = Math.min(acct.buyingPower, acct.equity) * 0.20;
-    if (budget <= 0) { toast(`⚠ No buying power for ${sym}`, 'sell', 3000); return; }
+    // availBP = Alpaca's buying_power MINUS what we've already committed this
+    // session but Alpaca hasn't settled yet. This is the only reliable way to
+    // prevent "insufficient balance" when multiple orders fire rapidly.
+    const rawBP    = Math.min(acct.buyingPower, acct.equity > 0 ? acct.equity * 2 : acct.buyingPower);
+    const availBP  = _getAvailableBP(rawBP);
+    const budget   = availBP * 0.20;   // 20% of what's actually still available
+    if (availBP <= 0 || budget <= 0) {
+      toast(`⚠ ${sym}: no buying power left (used $${_sessionSpent.toFixed(0)} this session)`, 'sell', 3000);
+      return;
+    }
     shares = Math.floor(budget / price);
-    if (shares < 1) { toast(`⚠ ${sym} @ $${price} exceeds 20% budget`, 'sell', 3000); return; }
-    // Belt-and-suspenders: make absolutely sure cost < 95% of actual buying_power
-    while (shares > 1 && shares * price > acct.buyingPower * 0.95) shares--;
-    console.log(`[STOCK BUY] budget=$${budget.toFixed(2)} shares=${shares} cost=$${(shares*price).toFixed(2)} bp=$${acct.buyingPower.toFixed(2)}`);
+    if (shares < 1) { toast(`⚠ ${sym} @ $${price.toFixed(2)}: budget $${budget.toFixed(0)} too small for 1 share`, 'sell', 3000); return; }
+    // Hard ceiling: total cost must be < availBP (not raw BP)
+    while (shares > 1 && shares * price > availBP * 0.95) shares--;
+    const cost = shares * price;
+    console.log(`[STOCK BUY] rawBP=$${rawBP.toFixed(2)} availBP=$${availBP.toFixed(2)} budget=$${budget.toFixed(2)} shares=${shares} cost=$${cost.toFixed(2)}`);
   } else {
     // Short-sell check
     if (!acct.shortingEnabled && !ST.alpaca.paper) {
@@ -5745,6 +5776,11 @@ async function _post(body, sym, refPrice) {
     if (resp?.id) {
       console.log(`[ORDER OK] id=${resp.id} status=${resp.status} symbol=${resp.symbol}`);
       toast(`✓ ${body.side.toUpperCase()} ${body.qty} ${sym} ~$${typeof refPrice==='number'?refPrice.toFixed(2):refPrice}`, 'buy', 6000);
+      // Record the spend so rapid follow-up orders don't overspend
+      if (body.side === 'buy' && refPrice > 0) {
+        const notional = parseFloat(body.qty) * (typeof refPrice === 'number' ? refPrice : parseFloat(refPrice));
+        if (notional > 0) _recordSpend(notional);
+      }
       saveState();
       setTimeout(fetchAccount,   2000);
       setTimeout(fetchPositions, 3500);

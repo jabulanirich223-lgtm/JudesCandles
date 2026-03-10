@@ -478,7 +478,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:8px;height
         </div>
         <div class="alp-creds">
           <div><div class="alp-fl">API KEY</div>
-            <input class="alp-inp" type="text" id="apiKey" placeholder="pk_paper_... or pk_live_..." autocomplete="off" spellcheck="false">
+            <input class="alp-inp" type="text" id="apiKey" placeholder="Your Alpaca API Key ID" autocomplete="off" spellcheck="false">
           </div>
           <div><div class="alp-fl">SECRET KEY</div>
             <input class="alp-inp" type="password" id="apiSec" placeholder="secret key..." autocomplete="new-password">
@@ -642,8 +642,8 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:8px;height
         <button id="mod-live" class="modal-mb">⚡ LIVE TRADING</button>
       </div>
       <div class="modal-fl">API KEY</div>
-      <input id="modalKey" class="modal-inp" type="text" placeholder="pk_paper_xxxxx or pk_live_xxxxx" autocomplete="off">
-      <div class="modal-hint">Paper keys start with pk_paper_ · Live keys start with pk_live_</div>
+      <input id="modalKey" class="modal-inp" type="text" placeholder="Alpaca API Key ID" autocomplete="off">
+      <div class="modal-hint">Find your keys at alpaca.markets → Paper Trading or Live Trading</div>
       <div class="modal-fl">SECRET KEY</div>
       <input id="modalSec" class="modal-inp" type="password" placeholder="your secret key" autocomplete="new-password">
       <div class="modal-status" id="modalStatus"></div>
@@ -990,10 +990,12 @@ const ALP={
   async _fetch(path,method='GET',body=null){
     const alp=ST.alpaca;
     if(!alp.base||!alp.key||!alp.secret)throw new Error('Not configured');
-    const opts={method,headers:{'APCA-API-KEY-ID':alp.key,'APCA-API-SECRET-KEY':alp.secret,'Content-Type':'application/json'}};
+    const headers={'APCA-API-KEY-ID':alp.key,'APCA-API-SECRET-KEY':alp.secret};
+    if(body)headers['Content-Type']='application/json';
+    const opts={method,headers};
     if(body)opts.body=JSON.stringify(body);
     const r=await fetch(alp.base+path,opts);
-    if(!r.ok){const err=await r.json().catch(()=>({message:r.statusText}));throw new Error(err.message||'HTTP '+r.status);}
+    if(!r.ok){const err=await r.json().catch(()=>null);const msg=err&&err.message?err.message:('HTTP '+r.status+(r.status===403?' — check API key permissions':r.status===401?' — invalid key or secret':''));throw new Error(msg);}
     return r.json();
   },
   async getAccount(){const d=await ALP._fetch('/v2/account');if(d)ST.alpaca.account=d;return d;},
@@ -1027,16 +1029,22 @@ async function syncAccount(){
 async function testKeys(){
   const key=($('apiKey')||{}).value?.trim(),secret=($('apiSec')||{}).value?.trim();
   const mode=ST.alpaca.mode==='live'?'live':'paper';
-  if(!key||!secret){toast('Enter API key and secret first','error');return;}
+  if(!key||!secret){toast('Enter API Key ID and Secret Key first','error');return;}
   const dot=$('alpDot'),st=$('alpStTxt');
-  if(dot)dot.className='alp-dot blink';if(st)st.textContent='Testing keys...';
+  if(dot)dot.className='alp-dot blink';if(st)st.textContent='Testing...';
   try{
     const base=mode==='paper'?'https://paper-api.alpaca.markets':'https://api.alpaca.markets';
     const r=await fetch(base+'/v2/account',{headers:{'APCA-API-KEY-ID':key,'APCA-API-SECRET-KEY':secret}});
-    if(r.ok){toast('Keys valid! ✓ Account accessible','success',4000);if(dot)dot.className='alp-dot on';}
-    else{const e=await r.json().catch(()=>({}));toast('Invalid keys: '+(e.message||r.status),'error');if(dot)dot.className='alp-dot';}
-  }catch(e){toast('Connection failed: '+e.message,'error');if(dot)dot.className='alp-dot';}
-  if(st)st.textContent=ST.alpaca.connected?'CONNECTED':'NOT CONNECTED';
+    if(r.ok){
+      const acc=await r.json().catch(()=>({}));
+      toast('✓ Keys valid! Equity: $'+parseFloat(acc.equity||0).toLocaleString(),'success',5000);
+      if(dot)dot.className='alp-dot on';if(st)st.textContent='KEYS VALID';
+    }else{
+      const e=await r.json().catch(()=>({}));
+      const msg=r.status===403?'403 — wrong mode? Try switching paper/live':r.status===401?'401 — invalid key or secret key':(e.message||'HTTP '+r.status);
+      toast('Key test failed: '+msg,'error',6000);if(dot)dot.className='alp-dot';if(st)st.textContent='KEY ERROR';
+    }
+  }catch(e){toast('Network error — '+e.message,'error');if(dot)dot.className='alp-dot';}
 }
 
 // ─── CHART RENDER ─────────────────────────────────────────────────────────────
@@ -1544,7 +1552,7 @@ function modalSetMode(mode){
   ST.alpaca.mode=mode;
   $('mod-paper').className='modal-mb '+(mode==='paper'?'active-paper':'');
   $('mod-live').className='modal-mb '+(mode==='live'?'active-live':'');
-  const hint=$('.modal-hint');if(hint)hint.textContent=mode==='paper'?'Paper keys start with pk_paper_':'Live keys start with pk_live_';
+  const hint=$('.modal-hint');if(hint)hint.textContent=mode==='paper'?'Use your Paper Trading API key from alpaca.markets':'Use your Live Trading API key from alpaca.markets';
 }
 
 // ─── MATRIX BG ───────────────────────────────────────────────────────────────
@@ -1652,8 +1660,7 @@ document.addEventListener('DOMContentLoaded',()=>{
   $('modalConnBtn').addEventListener('click',async()=>{
     const key=($('modalKey').value||'').trim(),sec=($('modalSec').value||'').trim();
     const ms=$('modalStatus'),btn=$('modalConnBtn');
-    if(!key||!sec){ms.style.color='#ff2d55';ms.textContent='⚠ Enter both API key and secret key';return;}
-    if(!key.startsWith('pk_')){ms.style.color='#ff2d55';ms.textContent='⚠ API key should start with pk_paper_ or pk_live_';return;}
+    if(!key||!sec){ms.style.color='#ff2d55';ms.textContent='⚠ Enter both API key ID and secret key';return;}
     ms.style.color='#ffcc00';ms.textContent='⏳ Connecting to Alpaca...';btn.disabled=true;
     try{
       const result=await connectAlpaca(key,sec,ST.alpaca.mode);
@@ -1662,8 +1669,8 @@ document.addEventListener('DOMContentLoaded',()=>{
         ($('apiKey')).value=key;($('apiSec')).value='••••••••';
         updateAlpacaPanel();toast('Alpaca '+ST.alpaca.mode.toUpperCase()+' connected!','success',5000);
         setTimeout(closeAlpacaModal,1800);
-      }else{ms.style.color='#ff2d55';ms.textContent='✗ Connection failed. Check your keys and mode (paper/live).';$('modalKey').classList.add('error');$('modalSec').classList.add('error');setTimeout(()=>{$('modalKey').classList.remove('error');$('modalSec').classList.remove('error');},600);}
-    }catch(e){ms.style.color='#ff2d55';ms.textContent='✗ Error: '+e.message;}
+      }else{ms.style.color='#ff2d55';ms.textContent='✗ Connection failed — verify keys on alpaca.markets and ensure correct mode (paper/live)';$('modalKey').classList.add('error');$('modalSec').classList.add('error');setTimeout(()=>{$('modalKey').classList.remove('error');$('modalSec').classList.remove('error');},800);}
+    }catch(e){ms.style.color='#ff2d55';ms.textContent='✗ '+( e.message.includes('fetch')||e.message.includes('Failed')?'Network error — check CORS or try a different browser':e.message );}
     btn.disabled=false;
   });
 

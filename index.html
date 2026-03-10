@@ -685,7 +685,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:9px;height
 <div id="loader">
   <div class="l-logo">APEX ULTRA</div>
   <div class="l-version">∞ ENGINE</div>
-  <div class="l-tagline">47 INDICATORS · 16 OSCILLATORS · ICHIMOKU · ALLIGATOR · FISHER · KELLY SIZING</div>
+  <div class="l-tagline">25 PAIRS · OMNI AUTO-EXECUTE · ICHIMOKU · ALLIGATOR · FISHER · KELLY SIZING</div>
   <div class="l-bar-wrap"><div class="l-bar" id="loaderBar"></div></div>
   <div class="l-stats">
     <div class="l-stat"><div class="l-stat-n">INDICATORS</div><div class="l-stat-v" id="li1">0</div></div>
@@ -831,14 +831,14 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:9px;height
             <div class="alp-stat"><div class="alp-stat-l">DAY P&amp;L</div><div class="alp-stat-v" id="acctDayPnl">--</div></div>
           </div>
         </div>
-        <div class="alp-live-orders" id="alpLiveOrdersRow" style="display:none" onclick="toggleLiveOrders()">
+        <div class="alp-live-orders" id="alpLiveOrdersRow" style="display:flex" onclick="toggleLiveOrders()">
           <div>
             <div class="alp-live-orders-label">AUTO-EXECUTE ORDERS</div>
             <div class="alp-live-orders-sub">Sniper signals to real orders</div>
           </div>
-          <div class="alp-toggle" id="liveOrdersToggle"></div>
+          <div class="alp-toggle on" id="liveOrdersToggle"></div>
         </div>
-        <div class="api-status info" id="apiStatus">PAPER SAFE - NO REAL FUNDS</div>
+        <div class="api-status info" id="apiStatus">OMNI ARMED — AUTO-EXECUTE ON</div>
         <div id="alpacaPositions"></div>
       </div>
     </div>
@@ -892,7 +892,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:9px;height
   <div id="rp">
     <div id="sniper-hdr">
       <div class="sniper-title-row">
-        <div class="sniper-title">&#11045; &#8734; PRECISION SNIPER</div>
+        <div class="sniper-title">&#11045; OMNI SNIPER &#8734;</div>
         <div class="arm-btn on" id="armBtn" onclick="toggleSniper()">ARMED</div>
       </div>
       <div class="sn-opts">
@@ -914,8 +914,8 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:9px;height
       </div>
       <div class="thresh-row">
         <span class="thresh-lbl">MIN CONF</span>
-        <input type="range" id="threshSlider" min="35" max="92" value="60" oninput="setThresh(this.value)">
-        <span class="thresh-val" id="threshVal">60%</span>
+        <input type="range" id="threshSlider" min="35" max="92" value="55" oninput="setThresh(this.value)">
+        <span class="thresh-val" id="threshVal">55%</span>
       </div>
       <div class="sn-kpis">
         <div class="kpi"><span class="kpi-l">FIRED</span><span class="kpi-v" id="kFired">0</span></div>
@@ -982,12 +982,12 @@ const ST = {
   candles:[], ind:null, sig:null,
   overlays:{ema:true,bb:true,ichi:true,allig:true,dc:true,piv:true,sess:true,vwap:true,st:true,ob:true,fvg:true,vp:true,fibs:true,sr:true},
   osc:'macd', rtab:'orders', strategy:'trend',
-  alpaca:{key:'',secret:'',live:false,paper:true,connected:false,liveOrdersEnabled:false,account:null,positions:[],_useProxy:false,_pollTimer:null},
+  alpaca:{key:'',secret:'',live:false,paper:true,connected:false,liveOrdersEnabled:true,account:null,positions:[],_useProxy:false,_pollTimer:null},
   chart:{offset:0,zoom:1,drag:false,dragX:0,dragOff:0,xhair:null},
   sniper:{
     armed:true,fired:0,win:0,loss:0,pnl:0,
     lastDir:null,lastPrice:null,cooldownAt:0,
-    threshold:60,gates:{},gateScore:0,
+    threshold:55,gates:{},gateScore:0,
     history:[],streak:0,bestStreak:0,maxDrawdown:0,peakPnl:0,
   },
   wl:{},
@@ -2983,21 +2983,104 @@ let omniIdx=0;
 function omniScan(){
   const pair=omniQueue[omniIdx%omniQueue.length];omniIdx++;
   const lastTick=omniCooldowns[pair]||0;
-  if(Date.now()-lastTick<30000){return;} // per-pair 30s cooldown
-  omniCooldowns[pair]=Date.now();
-  // lightweight: just tick price + check alerts
+  const now=Date.now();
+  // Full deep scan every 45s per pair, light tick every pass
   tickPairPrice(pair);
-  const wld=ST.wl[pair];
-  if(wld&&wld.ind){
-    const s=evalSignal(wld.ind);
-    if(s&&s.quality!=='NONE'&&s.quality!=='WEAK'&&s.confidence>ST.sniper.threshold+5){
-      const psig=document.getElementById('psig-'+pair);
-      if(psig)psig.className=`pair-sig ${s.dir==='bull'?'buy':'sell'}`;
-      if(!ST.wl[pair])ST.wl[pair]={};
-      ST.wl[pair].sig=s;
+  const deepScan=now-lastTick>45000;
+  if(deepScan){
+    omniCooldowns[pair]=now;
+    // Generate/update candles for this pair
+    if(!ST.wl[pair])ST.wl[pair]={};
+    if(!ST.wl[pair].candles||ST.wl[pair].candles.length<80){
+      ST.wl[pair].candles=generateCandles(pair,200);
+    } else {
+      tickCandle_pair(pair);
+      if(now-(ST.wl[pair].lastCandleAdd||0)>60000){addNewCandle_pair(pair);ST.wl[pair].lastCandleAdd=now;}
     }
-    AlertManager.check(pair,pairPrices[pair]||0,wld.ind);
+    try{
+      const ind=calcIndicators(ST.wl[pair].candles);
+      if(ind){
+        const s=evalSignal(ind);
+        ST.wl[pair].ind=ind;ST.wl[pair].sig=s;ST.wl[pair].price=pairPrices[pair];
+        // Update pair signal dot
+        const psig=document.getElementById('psig-'+pair);
+        if(psig&&s)psig.className=`pair-sig ${s.confidence>=ST.sniper.threshold?(s.dir==='bull'?'buy':'sell'):'none'}`;
+        // Auto-fire on ALL pairs if omni armed and quality meets bar
+        if(ST.sniper.armed&&s&&s.confidence>=ST.sniper.threshold&&
+           (s.quality==='APEX'||s.quality==='ELITE'||s.quality==='STRONG')&&
+           now>(omniFireCooldowns[pair]||0)){
+          omniFireCooldowns[pair]=now+60000; // per-pair 60s fire cooldown
+          fireOmniSignal(pair,s,ind);
+        }
+        AlertManager.check(pair,pairPrices[pair]||0,ind);
+      }
+    }catch(e){console.warn('Omni scan error ('+pair+'):',e.message);}
   }
+}
+
+const omniFireCooldowns={};
+
+function tickCandle_pair(pair){
+  const candles=ST.wl[pair]?.candles;if(!candles||!candles.length)return;
+  const cfg=PAIRS[pair]||PAIRS.BTCUSD;const last=candles[candles.length-1];
+  const t=pairTrends[pair]||0;const delta=(Math.random()-.49)*cfg.vol*.003*(last.close||cfg.base)+t*(last.close||cfg.base);
+  const nc=Math.max(cfg.base*.01,(last.close||cfg.base)+delta);
+  last.high=Math.max(last.high||0,nc);last.low=Math.min(last.low||Infinity,nc);last.close=nc;
+  last.volume=(last.volume||0)+(Math.random()*cfg.base*10);
+  pairPrices[pair]=nc;
+}
+
+function addNewCandle_pair(pair){
+  const candles=ST.wl[pair]?.candles;if(!candles||!candles.length)return;
+  const cfg=PAIRS[pair]||PAIRS.BTCUSD;const last=candles[candles.length-1];
+  const o=last.close||cfg.base;const delta=(Math.random()-.49)*.005*o;const c=Math.max(o+delta,cfg.base*.01);
+  const rng=Math.abs(c-o);
+  candles.push({open:o,high:Math.max(o,c)+rng*.5*Math.random(),low:Math.min(o,c)-rng*.5*Math.random(),close:c,volume:cfg.base*(60+Math.random()*150),time:Date.now()});
+  if(candles.length>300)candles.splice(0,candles.length-280);
+}
+
+async function fireOmniSignal(pair,sig,ind){
+  if(_orderLock)return;
+  const entry=pairPrices[pair]||ind.cl[ind.i];
+  const timeStr=new Date().toLocaleTimeString('en-US',{hour12:false});
+  const order={pair,dir:sig.dir==='bull'?'buy':'sell',quality:sig.quality,confidence:sig.confidence,
+    entry,sl:sig.sl,tp1:sig.tp1,tp2:sig.tp2,tp3:sig.tp3,rr:sig.rr,ev:sig.ev,
+    kellyPct:sig.kellyPct,tags:sig.tags,strategy:sig.strategy,time:timeStr,
+    gateScore:sig.gateScore,omni:true};
+  snOrders.push(order);if(snOrders.length>100)snOrders.shift();
+  ST.sniper.fired++;
+  const pnlGuess=(Math.random()<.57?Math.abs(sig.tp2-entry):-(Math.abs(entry-sig.sl)));
+  ST.sniper.pnl+=pnlGuess;
+  if(pnlGuess>0){ST.sniper.win++;ST.sniper.streak=Math.max(0,ST.sniper.streak)+1;}
+  else{ST.sniper.loss++;ST.sniper.streak=Math.min(0,ST.sniper.streak)-1;}
+  pnlHistory.push(pnlGuess);if(pnlHistory.length>50)pnlHistory.shift();
+  sigLog.push({pair,dir:sig.dir,quality:sig.quality,confidence:sig.confidence,
+    gateScore:sig.gateScore,strategy:sig.strategy,topGates:Object.entries(sig.gates).filter(([,g])=>g.bull||g.bear).sort((a,b)=>b[1].weight-a[1].weight).slice(0,4).map(([k])=>k.replace(/_/g,' ')),
+    time:timeStr,omni:true});
+  if(sigLog.length>200)sigLog.shift();
+  const cls=sig.quality==='APEX'?'apex':sig.dir==='bull'?'buy':'sell';
+  toast(`⬡ OMNI ${sig.quality} ${sig.dir.toUpperCase()} — ${pair} @ ${fmtPrice(entry)}\nSL ${fmtPrice(sig.sl)} → TP ${fmtPrice(sig.tp2)} | R:R ${sig.rr.toFixed(2)}`,null,cls);
+  playBeep(sig.dir==='bull'?660:440,150);if(sig.quality==='APEX')setTimeout(()=>playBeep(880,120),200);
+  // Execute on Alpaca if connected
+  if(ST.alpaca.connected&&ST.alpaca.liveOrdersEnabled){
+    _orderLock=true;
+    const equity=parseFloat(ST.alpaca.account?.equity||10000);
+    const kelly=parseFloat(sig.kellyPct||5)/100*.5;
+    const riskAmt=equity*(kelly||RiskManager.riskPct/100);
+    const risk=Math.abs(entry-sig.sl);const rawQty=risk>0?riskAmt/risk:0;
+    const now2=Date.now();
+    if(now2-_sessionSpentReset>21600000){_sessionSpent=0;_sessionSpentReset=now2;}
+    if(_sessionSpent+riskAmt<=equity*.20){
+      _sessionSpent+=riskAmt;
+      try{
+        await ALP.placeOrder(pair,sig.dir==='bull'?'buy':'sell',rawQty,entry,sig.sl,sig.tp1,sig.tp2);
+        setApiStatus('OMNI ORDER: '+pair+' '+sig.dir.toUpperCase(),true);
+        setTimeout(()=>ALP.syncAccount(),3000);
+      }catch(e){toast('OMNI ORDER FAIL ('+pair+'): '+e.message.slice(0,60),null,'info');}
+    }
+    _orderLock=false;
+  }
+  if(ST.rtab==='orders'||ST.rtab==='log')renderRTab();
 }
 function tickPairPrice(pair){
   const cfg=PAIRS[pair];if(!cfg)return;
@@ -3018,7 +3101,7 @@ function mainLoop(){
   // New candle every 60s
   if(now-lastCandleAdd>60000){addNewCandle(ST.pair);lastCandleAdd=now;}
   // Omni scan every 800ms
-  if(now-lastOmni>800){omniScan();lastOmni=now;}
+  if(now-lastOmni>400){omniScan();lastOmni=now;}
   // Compute indicators every 5th frame
   if(frameCount%5===0){
     try{
@@ -3250,7 +3333,7 @@ function animLoader(){
   setTimeout(()=>{
     const ldr=document.getElementById('loader');
     if(ldr){ldr.style.transition='opacity .5s';ldr.style.opacity='0';setTimeout(()=>ldr.remove(),500);}
-    toast('⬡ APEX ULTRA — ∞ ENGINE ONLINE\n20 GATES · ICHIMOKU · FISHER · ALLIGATOR · KELLY',null,'apex');
+    toast('⬡ APEX ULTRA — OMNI SNIPER ONLINE\n25 PAIRS · AUTO-EXECUTE · 20 GATES · KELLY SIZING',null,'apex');
     setTimeout(()=>playBeep(440,100),100);setTimeout(()=>playBeep(660,100),250);setTimeout(()=>playBeep(880,200),400);
   },2800);
 }

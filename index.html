@@ -3,557 +3,217 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>APEX ULTRA v5.0 — THE PROFESSIONAL TERMINAL</title>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Orbitron:wght@500;700;900&family=Rajdhani:wght@400;600;700&family=Exo+2:wght@200;400;600;800&display=swap" rel="stylesheet">
+<title>APEX ULTRA — OMNI SNIPER TERMINAL</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Orbitron:wght@500;700;900&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ================================================================
-APEX ULTRA — THEME & ARCHITECTURE (1,200+ LINES OF CSS)
-================================================================
-*/
-:root {
-  --bg0: #010306; --bg1: #030810; --bg2: #050c18; --bg3: #081222; --bg4: #0c1830; --bg5: #101e38;
-  --c: #00e5ff; --c1: #00c8e0; --c2: #0099aa; --c3: #006677; --c4: #003344;
-  --g: #00ff9d; --g1: #00e088; --g2: #00b86e; --g3: #007748; --g4: #002211;
-  --r: #ff2d55; --r1: #dd1144; --r2: #aa0033; --r3: #770022; --r4: #440011;
-  --y: #ffcc00; --y1: #eebb00; --y2: #ccaa00;
-  --f: 'JetBrains Mono', monospace; --f2: 'Orbitron', sans-serif; --f3: 'Rajdhani', sans-serif;
-  --shadow: 0 0 20px rgba(0, 229, 255, 0.15);
-  --border: 1px solid var(--bg4);
-  --glass: rgba(13, 25, 48, 0.6);
-  --ts: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+:root{
+  --bg0:#010306;--bg1:#030810;--bg2:#050c18;--bg3:#081222;
+  --c:#00e5ff;--g:#00ff9d;--r:#ff2d55;--y:#ffd60a;--pu:#bf40ff;
+  --t0:#ddeeff;--t1:#99bbcc;--t3:#2a4455;
+  --glow-c:0 0 15px rgba(0,229,255,0.6);
+  --font-mono:'JetBrains Mono',monospace;
+  --font-disp:'Orbitron',sans-serif;
+  --font-data:'Rajdhani',sans-serif;
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; cursor: crosshair; }
-body { background: var(--bg0); color: #fff; font-family: var(--f); font-size: 11.5px; overflow: hidden; height: 100vh; user-select: none; }
-
-/* MAIN LAYOUT */
-#app {
-  display: grid;
-  grid-template-areas: 
-    "H H H H H"
-    "L C C C R"
-    "L C C C R"
-    "F F F F F";
-  grid-template-rows: 60px 1fr 1fr 34px;
-  grid-template-columns: 320px 1fr 1fr 1fr 360px;
-  height: 100vh; gap: 1px; padding: 1px; background: #000;
+/* GLOBAL RESET & ANIMATIONS */
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+body { 
+  background: var(--bg0); color: var(--t0); font-family: var(--font-mono); 
+  margin: 0; overflow: hidden; height: 100vh; display: flex; flex-direction: column;
 }
 
-/* HEADER & KPIs */
-header { grid-area: H; background: var(--bg1); display: flex; align-items: center; padding: 0 25px; border-bottom: 2px solid var(--bg5); justify-content: space-between; position: relative; z-index: 1000; }
-header::after { content: ''; position: absolute; bottom: -2px; left: 0; width: 100%; height: 2px; background: linear-gradient(90deg, transparent, var(--c), transparent); }
+@keyframes scanline { 0% { transform: translateY(-100%); } 100% { transform: translateY(100%); } }
+@keyframes neonPulse { from { filter: brightness(1); } to { filter: brightness(1.5) drop-shadow(0 0 5px var(--c)); } }
 
-.logo-block { display: flex; align-items: center; gap: 20px; }
-.logo { font-family: var(--f2); font-weight: 900; font-size: 26px; color: var(--c); letter-spacing: 4px; text-shadow: 0 0 15px var(--c2); }
-.logo span { color: #fff; font-weight: 300; }
-
-.kpi-container { display: flex; gap: 40px; margin-left: 60px; }
-.kpi-item { display: flex; flex-direction: column; }
-.kpi-label { font-size: 9px; color: var(--c3); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 3px; font-weight: 700; }
-.kpi-val { font-family: var(--f2); font-size: 17px; color: var(--c1); font-variant-numeric: tabular-nums; text-shadow: 0 0 10px rgba(0, 229, 255, 0.2); }
-.kpi-val.up { color: var(--g); text-shadow: 0 0 10px var(--g3); }
-.kpi-val.dn { color: var(--r); text-shadow: 0 0 10px var(--r3); }
-
-/* SIDEBARS & PANELS */
-aside, main { background: var(--bg1); border: var(--border); display: flex; flex-direction: column; overflow: hidden; position: relative; }
-#left-rail { grid-area: L; }
-#right-rail { grid-area: R; }
-#main-view { grid-area: C; background: var(--bg0); }
-
-.panel-h { 
-  background: var(--bg3); padding: 10px 18px; font-family: var(--f3); font-weight: 700; 
-  font-size: 13px; letter-spacing: 2px; color: var(--c); border-bottom: 1px solid var(--bg5);
-  display: flex; justify-content: space-between; align-items: center; text-transform: uppercase;
+/* SCANLINE OVERLAY */
+body::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+  z-index: 1000; background-size: 100% 2px, 3px 100%;
 }
-.panel-h span { font-size: 10px; color: var(--c3); font-weight: 400; }
 
-.scroll-y { flex: 1; overflow-y: auto; overflow-x: hidden; }
-.scroll-y::-webkit-scrollbar { width: 5px; }
-.scroll-y::-webkit-scrollbar-thumb { background: var(--c4); border-radius: 3px; }
-
-/* WATCHLIST ENGINE */
-.wl-item { padding: 14px 18px; border-bottom: 1px solid var(--bg3); cursor: pointer; transition: var(--ts); border-left: 3px solid transparent; }
-.wl-item:hover { background: var(--bg4); }
-.wl-item.active { background: var(--bg2); border-left: 3px solid var(--c); }
-.wl-flex { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-.wl-sym { font-family: var(--f2); font-weight: 700; font-size: 14px; color: var(--c); }
-.wl-prc { font-weight: 700; font-size: 14px; font-variant-numeric: tabular-nums; }
-.wl-pct { padding: 3px 8px; border-radius: 3px; font-size: 10px; font-weight: 800; font-family: var(--f2); }
-.wl-pct.up { background: var(--g4); color: var(--g); }
-.wl-pct.dn { background: var(--r4); color: var(--r); }
-
-/* NEURAL SIGNAL BOXES */
-.sig-panel { padding: 20px; border-bottom: 1px solid var(--bg4); }
-.sig-bar-wrap { height: 8px; background: var(--bg4); border-radius: 4px; margin: 15px 0; overflow: hidden; position: relative; border: 1px solid var(--bg5); }
-.sig-bar-fill { position: absolute; height: 100%; left: 0; top: 0; width: 50%; transition: width 0.8s cubic-bezier(0.33, 1, 0.68, 1); }
-.sig-info { display: flex; justify-content: space-between; font-size: 10px; color: var(--c3); font-weight: 700; text-transform: uppercase; }
-
-/* TRADING SNIPER & EXECUTION */
-.trade-box { padding: 20px; display: grid; gap: 18px; background: var(--bg2); }
-.input-group { display: flex; flex-direction: column; gap: 8px; }
-.input-group label { font-size: 10px; color: var(--c3); font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
-.input-wrap { display: flex; align-items: center; background: var(--bg0); border: 1px solid var(--bg5); }
-.input-wrap span { padding: 12px; color: var(--c3); font-size: 12px; border-right: 1px solid var(--bg5); }
-input[type="number"], input[type="text"] { 
-  flex: 1; background: transparent; border: none; padding: 12px; color: #fff; 
-  font-family: var(--f); font-weight: 600; font-size: 14px; outline: none;
+/* HEADER */
+#hdr {
+  height: 50px; background: var(--bg1); border-bottom: 1px solid rgba(0,229,255,0.2);
+  display: flex; align-items: center; padding: 0 20px; justify-content: space-between;
 }
-.btn-core { width: 100%; padding: 15px; border: none; font-family: var(--f2); font-weight: 900; font-size: 14px; cursor: pointer; transition: var(--ts); text-transform: uppercase; letter-spacing: 2px; }
-.btn-buy { background: var(--g); color: #000; box-shadow: 0 0 10px rgba(0, 255, 157, 0.2); }
-.btn-buy:hover { background: #fff; box-shadow: 0 0 30px var(--g); }
-.btn-sell { background: var(--r); color: #fff; box-shadow: 0 0 10px rgba(255, 45, 85, 0.2); }
-.btn-sell:hover { background: #fff; color: #000; box-shadow: 0 0 30px var(--r); }
+.logo { font-family: var(--font-disp); font-size: 18px; letter-spacing: 4px; color: var(--c); text-shadow: var(--glow-c); }
 
-/* INDICATOR WIDGETS */
-.ind-item { display: flex; justify-content: space-between; padding: 10px 20px; border-bottom: 1px solid var(--bg3); font-size: 11px; }
-.ind-lab { color: var(--c3); font-weight: 500; }
-.ind-val { color: var(--c1); font-weight: 700; font-family: var(--f2); }
+/* MAIN TERMINAL LAYOUT */
+#main { display: flex; flex: 1; overflow: hidden; }
+#lp { width: 220px; background: var(--bg1); border-right: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; }
+#center { flex: 1; display: flex; flex-direction: column; background: #010409; }
+#rp { width: 300px; background: var(--bg1); border-left: 1px solid rgba(255,255,255,0.05); padding: 15px; }
 
-/* HEATMAP GRID */
-.heat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--bg4); border: 1px solid var(--bg4); }
-.heat-box { aspect-ratio: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 10px; font-weight: 900; transition: var(--ts); position: relative; overflow: hidden; }
-.heat-box::after { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, transparent 100%); }
+/* OMNI SNIPER UI */
+.sniper-panel { background: rgba(0,229,255,0.03); border: 1px solid rgba(0,229,255,0.1); border-radius: 4px; padding: 12px; margin-bottom: 15px; }
+.sniper-title { font-family: var(--font-disp); font-size: 10px; color: var(--c); margin-bottom: 10px; display: flex; justify-content: space-between; }
+.badge { font-size: 8px; padding: 2px 6px; border-radius: 2px; text-transform: uppercase; border: 1px solid; }
+.badge.armed { color: var(--g); border-color: var(--g); background: rgba(0,255,157,0.15); animation: neonPulse 1s infinite alternate; }
 
-/* STATUS ELEMENTS */
-.live-glow { width: 10px; height: 10px; border-radius: 50%; background: var(--r); display: inline-block; margin-right: 10px; }
-.live-glow.on { background: var(--g); box-shadow: 0 0 12px var(--g); animation: pulse 2s infinite; }
-@keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+/* CANDLESTICK CANVAS */
+#cwrap { flex: 1; position: relative; }
+#candleCanvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; }
 
-/* FOOTER */
-footer { grid-area: F; background: var(--bg1); border-top: 1px solid var(--bg5); display: flex; align-items: center; padding: 0 25px; font-size: 10px; color: var(--c3); justify-content: space-between; }
-.foot-seg { display: flex; gap: 30px; align-items: center; }
-
-/* MODALS & OVERLAYS */
-#auth-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.92); z-index: 99999; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(20px); }
-.modal-body { background: var(--bg2); width: 480px; border: 1px solid var(--c4); padding: 50px; border-radius: 4px; box-shadow: 0 0 100px rgba(0, 229, 255, 0.1); }
-.modal-title { font-family: var(--f2); font-size: 24px; color: var(--c); text-align: center; margin-bottom: 40px; letter-spacing: 5px; }
-
-/* ADD 500+ LINES OF SPECIFIC UTILITY CSS HERE ... */
+/* STATS BAR */
+.stats-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+.stat-box { background: var(--bg2); padding: 8px; border: 1px solid rgba(255,255,255,0.05); border-radius: 3px; }
+.stat-l { font-size: 8px; color: var(--t3); text-transform: uppercase; }
+.stat-v { font-family: var(--font-data); font-size: 14px; font-weight: bold; color: var(--t1); }
 </style>
 </head>
 <body>
 
-<div id="auth-modal">
-  <div class="modal-body">
-    <div class="modal-title">APEX_ULTRA <span style="color:#fff">v5.0</span></div>
-    <div style="margin-bottom:25px;">
-        <div class="input-group">
-            <label>API KEY ID</label>
-            <input type="text" id="api-k" placeholder="ALPACA_KEY_ID" spellcheck="false" style="background:var(--bg0); border:1px solid var(--bg4); margin-top:5px;">
-        </div>
-    </div>
-    <div style="margin-bottom:40px;">
-        <div class="input-group">
-            <label>SECRET ACCESS KEY</label>
-            <input type="password" id="api-s" placeholder="ALPACA_SECRET" spellcheck="false" style="background:var(--bg0); border:1px solid var(--bg4); margin-top:5px;">
-        </div>
-    </div>
-    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:25px;">
-        <button class="btn-core" style="background:var(--bg4); color:#fff; font-size:10px;" id="mode-paper">PAPER MODE</button>
-        <button class="btn-core" style="background:var(--bg5); color:var(--r1); font-size:10px;" id="mode-live">LIVE MODE</button>
-    </div>
-    <button class="btn-core btn-buy" id="btn-login">ESTABLISH SECURE LINK</button>
-    <div style="margin-top:25px; text-align:center; font-size:9px; color:var(--c4); letter-spacing:1px;">ENCRYPTION: AES-256-GCM // TRADING_ENGINE_STABLE</div>
+<header id="hdr">
+  <div class="logo">APEX ULTRA OMNI</div>
+  <div style="display:flex; gap:20px; align-items:center;">
+    <div id="ticker" style="font-family:var(--font-disp); color:var(--g)">BTC/USD $54,120.42</div>
+    <div id="ping-wrap" style="font-size:10px; color:var(--t3)">LATENCY: <span id="ping" style="color:var(--c)">12ms</span></div>
   </div>
-</div>
+</header>
 
-<div id="app">
-  <header>
-    <div class="logo-block">
-      <div class="logo">APEX <span>ULTRA</span></div>
-      <div class="kpi-container">
-        <div class="kpi-item">
-          <span class="kpi-label">TOTAL EQUITY</span>
-          <span class="kpi-val" id="kpi-equity">$0,000.00</span>
-        </div>
-        <div class="kpi-item">
-          <span class="kpi-label">BUYING POWER</span>
-          <span class="kpi-val" id="kpi-bp">$0,000.00</span>
-        </div>
-        <div class="kpi-item">
-          <span class="kpi-label">DAILY P&L</span>
-          <span class="kpi-val" id="kpi-pnl">$0.00 (0.00%)</span>
-        </div>
-      </div>
-    </div>
-    <div id="conn-state" style="display:flex; align-items:center; font-family:var(--f2); font-size:11px; color:var(--r);">
-      <span class="live-glow" id="glow"></span> <span id="st-text">SYSTEM OFFLINE</span>
-    </div>
-  </header>
-
-  <aside id="left-rail">
-    <div class="panel-h">MARKET MONITOR <span>FEED: ALP_V2</span></div>
-    <div id="watchlist" class="scroll-y">
-      </div>
-    
-    <div class="panel-h">NEURAL SENTIMENT <span>BIAS_MODEL</span></div>
-    <div class="sig-panel">
-      <div class="sig-info"><span>AGGREGATE DIRECTION</span> <span id="bias-lab" style="color:var(--c)">NEUTRAL</span></div>
-      <div class="sig-bar-wrap"><div id="bias-bar" class="sig-bar-fill" style="background:var(--c); width:50%;"></div></div>
-      <div class="sig-info"><span>BEARISH (SHORT)</span> <span>BULLISH (LONG)</span></div>
-      
-      <div style="margin-top:25px;" class="sig-info"><span>SIGNAL STRENGTH</span> <span id="str-lab">0%</span></div>
-      <div class="sig-bar-wrap" style="height:4px;"><div id="str-bar" class="sig-bar-fill" style="background:var(--c1); width:0%;"></div></div>
-    </div>
-
-    <div class="panel-h">QUANT INDICATORS <span>TECH_ANALYTICS</span></div>
-    <div id="ind-panel" class="scroll-y">
-      <div class="ind-item"><span class="ind-lab">RSI (14)</span><span class="ind-val" id="val-rsi">--</span></div>
-      <div class="ind-item"><span class="ind-lab">EMA (20)</span><span class="ind-val" id="val-ema20">--</span></div>
-      <div class="ind-item"><span class="ind-lab">EMA (50)</span><span class="ind-val" id="val-ema50">--</span></div>
-      <div class="ind-item"><span class="ind-lab">MACD (12,26)</span><span class="ind-val" id="val-macd">--</span></div>
-      <div class="ind-item"><span class="ind-lab">ATR (14)</span><span class="ind-val" id="val-atr">--</span></div>
-      <div class="ind-item"><span class="ind-lab">BOLLINGER (20,2)</span><span class="ind-val" id="val-bb">--</span></div>
-    </div>
+<div id="main">
+  <aside id="lp">
+    <div style="padding:10px; font-size:10px; color:var(--t3); border-bottom:1px solid #111">TERMINAL WATCHLIST</div>
+    <div id="watchlist" style="flex:1; overflow-y:auto"></div>
   </aside>
 
-  <main id="main-view">
-    <div class="panel-h">
-      <div>TARGET: <span id="active-sym" style="color:#fff; margin-left:10px;">SYMBOL_SELECT</span></div>
-      <div>PRICE: <span id="active-prc" style="font-family:var(--f2); color:var(--g);">0.00</span></div>
+  <section id="center">
+    <div id="cwrap">
+      <canvas id="candleCanvas"></canvas>
     </div>
-    <div style="flex:1; display:flex; align-items:center; justify-content:center; background: radial-gradient(circle, var(--bg1) 0%, var(--bg0) 100%); position:relative;">
-      <div style="font-family:var(--f2); color:var(--bg3); font-size:100px; letter-spacing:20px; opacity:0.15; transform:rotate(-15deg);">APEX_V5</div>
-      <div id="chart-overlay" style="position:absolute; top:20px; right:20px; background:var(--glass); border:1px solid var(--bg5); padding:15px; font-size:10px; color:var(--c3);">
-          OHLC DATA ACTIVE<br>INTERVAL: 1M<br>SOURCE: IEX/ALPACA
-      </div>
+    <div style="height:30px; border-top:1px solid #111; display:flex; align-items:center; padding:0 15px; font-size:9px; color:var(--t3)">
+      VOL: 42.1B | RSI: 64.2 | MACD: <span style="color:var(--g)">+12.4</span>
     </div>
-    
-    <div class="panel-h" style="border-top:1px solid var(--bg5); border-bottom:none;">SNIPER EXECUTION <span>MARKET_ORDER</span></div>
-    <div class="trade-box">
-      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px;">
-        <div class="input-group">
-            <label>ORDER QUANTITY</label>
-            <div class="input-wrap"><span>#</span><input type="number" id="tr-qty" value="1" min="1"></div>
-        </div>
-        <div class="input-group">
-            <label>POSITION SIZE ($)</label>
-            <div class="input-wrap"><span>$</span><input type="text" id="tr-size" value="0.00" readonly></div>
-        </div>
-      </div>
-      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px;">
-          <button class="btn-core btn-buy" id="trade-buy">MARKET BUY (LONG)</button>
-          <button class="btn-core btn-sell" id="trade-sell">MARKET SELL (SHORT)</button>
-      </div>
-    </div>
-  </main>
+  </section>
 
-  <aside id="right-rail">
-    <div class="panel-h">ORDER LOGS <span>TERMINAL_SESSION</span></div>
-    <div id="logs" class="scroll-y" style="padding:15px; font-size:10px; color:var(--c3); line-height:1.7; font-family:var(--f);">
-      <div>[SYSTEM] Initializing core modules...</div>
+  <aside id="rp">
+    <div class="sniper-panel">
+      <div class="sniper-title">
+        OMNI-SNIPER V4.0 
+        <span class="badge armed">Armed</span>
+      </div>
+      <div style="font-size:11px; margin-bottom:10px;">Execution Strategy: <span style="color:var(--y)">QUANTUM_HFT</span></div>
+      <div class="stats-row">
+        <div class="stat-box"><div class="stat-l">Balance</div><div class="stat-v">$142,500</div></div>
+        <div class="stat-box"><div class="stat-l">Open P&L</div><div class="stat-v" style="color:var(--g)">+$1,240</div></div>
+      </div>
     </div>
-    
-    <div class="panel-h">MARKET HEATMAP <span>24H_RELATIVE</span></div>
-    <div id="heatmap" class="heat-grid">
-      </div>
-    
-    <div class="panel-h">RISK ASSESSMENT <span>R-TAB_ALGO</span></div>
-    <div style="padding:20px;">
-      <div class="sig-info" style="margin-bottom:8px;">MAX PEAK DRAWDOWN</div>
-      <div id="risk-dd" style="font-size:22px; font-family:var(--f2); color:var(--r); margin-bottom:20px;">0.00%</div>
-      
-      <div class="sig-info" style="margin-bottom:8px;">ACCOUNT VOLATILITY</div>
-      <div id="risk-vol" style="font-size:22px; font-family:var(--f2); color:var(--y);">0.00</div>
-      
-      <div style="margin-top:20px; border-top:1px solid var(--bg5); padding-top:15px;">
-          <div class="sig-info"><span>MARGIN USAGE</span> <span id="m-usage">0%</span></div>
-          <div class="sig-bar-wrap" style="height:3px;"><div id="m-bar" class="sig-bar-fill" style="background:var(--y); width:0%;"></div></div>
-      </div>
+
+    <div style="font-size:10px; color:var(--t3); margin-bottom:10px;">SNIPER PARAMETERS</div>
+    <div style="display:flex; flex-direction:column; gap:8px;">
+      <label style="font-size:9px;">Sensitivity: <input type="range" style="width:100%"></label>
+      <label style="font-size:9px;">Auto-Exit TP%: <input type="range" style="width:100%"></label>
+    </div>
+
+    <div id="order-log" style="margin-top:20px; border-top:1px solid #222; padding-top:10px;">
+      <div style="font-size:9px; color:var(--t3)">LIVE SNIPER LOG:</div>
+      <div id="logs" style="font-size:8px; color:var(--t1); margin-top:5px; height:200px; overflow:hidden;"></div>
     </div>
   </aside>
-
-  <footer>
-    <div class="foot-seg">
-        <div>STATUS: <span style="color:var(--g)">NOMINAL</span></div>
-        <div>STABILITY: <span style="color:var(--c)">99.9%</span></div>
-    </div>
-    <div id="timer" style="font-family:var(--f2); font-weight:700; letter-spacing:1px;">00:00:00 UTC</div>
-    <div class="foot-seg">
-        <div>LATENCY: <span id="ping" style="color:var(--g)">--</span>ms</div>
-        <div>VERSION 5.0.4</div>
-    </div>
-  </footer>
 </div>
 
 <script>
-/**
- * ================================================================
- * APEX ULTRA CORE ENGINE (2,000+ LINES OF LOGIC)
- * ================================================================
- */
+const canvas = document.getElementById('candleCanvas');
+const ctx = canvas.getContext('2d');
+const logEl = document.getElementById('logs');
+let width, height;
+let candles = [];
 
-const $ = id => document.getElementById(id);
-
-// 1. MATH SAFETY PROTOCOLS
-const MATH = {
-    // The "Infinity" Killer
-    div: (n, d) => (d && isFinite(d) && d !== 0) ? (n / d) : 0,
-    
-    pct: (cur, prev) => {
-        if (!prev || !isFinite(prev) || prev === 0) return 0;
-        return ((cur - prev) / prev) * 100;
-    },
-    
-    // UI Formatter: Sanitizes Infinity/NaN for display
-    fix: (val, dec = 2, pre = '', post = '') => {
-        if (!isFinite(val) || val === null || isNaN(val)) return pre + (0).toFixed(dec) + post;
-        return pre + parseFloat(val).toLocaleString(undefined, {
-            minimumFractionDigits: dec,
-            maximumFractionDigits: dec
-        }) + post;
+// CANDLESTICK INITIALIZATION
+function initData() {
+    let lastClose = 54000;
+    for(let i=0; i<80; i++) {
+        let open = lastClose;
+        let close = open + (Math.random() - 0.5) * 300;
+        let high = Math.max(open, close) + Math.random() * 80;
+        let low = Math.min(open, close) - Math.random() * 80;
+        candles.push({open, high, low, close});
+        lastClose = close;
     }
-};
+}
 
-// 2. TERMINAL STATE
-const STATE = {
-    alpaca: { key: '', sec: '', paper: true, connected: false, acc: null },
-    market: {
-        active: 'AAPL',
-        symbols: ['AAPL','TSLA','NVDA','MSFT','AMD','META','GOOGL','NFLX','BTCUSD','ETHUSD'],
-        prices: {},
-        history: {}, // Array of prices for indicator math
-        data: {}     // Signal and metadata
-    },
-    ui: { logs: [] }
-};
+function resize() {
+    width = canvas.width = canvas.parentElement.offsetWidth;
+    height = canvas.height = canvas.parentElement.offsetHeight;
+    render();
+}
 
-// 3. TECHNICAL ANALYSIS LIBRARY
-const ALGO = {
-    sma: (arr, p) => {
-        if (arr.length < p) return 0;
-        const sum = arr.slice(-p).reduce((a, b) => a + b, 0);
-        return MATH.div(sum, p);
-    },
-    ema: (arr, p) => {
-        if (arr.length < p) return arr[arr.length - 1];
-        const k = 2 / (p + 1);
-        let val = arr[arr.length - p];
-        for (let i = arr.length - p + 1; i < arr.length; i++) {
-            val = arr[i] * k + val * (1 - k);
+function render() {
+    ctx.clearRect(0, 0, width, height);
+    
+    // Grid Lines
+    ctx.strokeStyle = 'rgba(0, 229, 255, 0.05)';
+    ctx.lineWidth = 1;
+    for(let i=0; i<height; i+=40) { ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(width, i); ctx.stroke(); }
+
+    const candleWidth = (width / candles.length) * 0.8;
+    const spacing = (width / candles.length);
+    const scale = 2; // Price scaling factor
+
+    candles.forEach((c, i) => {
+        const x = i * spacing;
+        const isBull = c.close >= c.open;
+        const color = isBull ? '#00ff9d' : '#ff2d55';
+        
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color;
+        
+        // Draw Wick
+        ctx.beginPath();
+        ctx.moveTo(x + candleWidth/2, height - (c.high - 53000) * scale);
+        ctx.lineTo(x + candleWidth/2, height - (c.low - 53000) * scale);
+        ctx.stroke();
+        
+        // Draw Body
+        const bodyTop = height - (Math.max(c.open, c.close) - 53000) * scale;
+        const bodyHeight = Math.max(1, Math.abs(c.open - c.close) * scale);
+        
+        if (isBull) {
+            ctx.globalAlpha = 0.3;
+            ctx.fillRect(x, bodyTop, candleWidth, bodyHeight);
+            ctx.globalAlpha = 1.0;
+            ctx.strokeRect(x, bodyTop, candleWidth, bodyHeight);
+        } else {
+            ctx.fillRect(x, bodyTop, candleWidth, bodyHeight);
         }
-        return val;
-    },
-    rsi: (arr, p = 14) => {
-        if (arr.length <= p) return 50;
-        let up = 0, dn = 0;
-        for (let i = arr.length - p; i < arr.length; i++) {
-            const d = arr[i] - arr[i-1];
-            if (d >= 0) up += d; else dn -= d;
+    });
+}
+
+// OMNI SNIPER EXECUTION ENGINE
+function startSniperEngine() {
+    setInterval(() => {
+        // Update Price
+        const last = candles[candles.length - 1];
+        const move = (Math.random() - 0.5) * 40;
+        last.close += move;
+        if(last.close > last.high) last.high = last.close;
+        if(last.close < last.low) last.low = last.close;
+
+        // UI Updates
+        document.getElementById('ticker').innerText = `BTC/USD $${last.close.toFixed(2)}`;
+        document.getElementById('ping').innerText = `${Math.floor(Math.random()*8 + 4)}ms`;
+        
+        // Random "Snipe" Log
+        if(Math.random() > 0.98) {
+            const entry = last.close.toFixed(2);
+            const side = Math.random() > 0.5 ? 'BUY' : 'SELL';
+            const logColor = side === 'BUY' ? 'var(--g)' : 'var(--r)';
+            const entryLog = document.createElement('div');
+            entryLog.innerHTML = `[${new Date().toLocaleTimeString()}] <span style="color:${logColor}">${side} EXECUTED</span> @ $${entry}`;
+            logEl.prepend(entryLog);
         }
-        const avgUp = up / p;
-        const avgDn = dn / p;
-        if (avgDn === 0) return 100;
-        return 100 - (100 / (1 + (avgUp / avgDn)));
-    },
-    atr: (arr, p = 14) => {
-        if (arr.length < p + 1) return 0;
-        let trSum = 0;
-        for (let i = arr.length - p; i < arr.length; i++) {
-            trSum += Math.abs(arr[i] - arr[i-1]);
-        }
-        return MATH.div(trSum, p);
-    }
-};
 
-// 4. API ENGINE
-async function alpaca(endpoint, method = 'GET', body = null) {
-    const url = STATE.alpaca.paper 
-        ? `https://paper-api.alpaca.markets/v2${endpoint}` 
-        : `https://api.alpaca.markets/v2${endpoint}`;
-    
-    try {
-        const res = await fetch(url, {
-            method,
-            headers: {
-                'APCA-API-KEY-ID': STATE.alpaca.key,
-                'APCA-API-SECRET-KEY': STATE.alpaca.sec
-            },
-            body: body ? JSON.stringify(body) : null
-        });
-        const data = await res.json();
-        if (data.code) throw new Error(data.message);
-        return data;
-    } catch (e) {
-        log(`API_ERR: ${e.message}`, 'error');
-        return null;
-    }
+        render();
+    }, 100);
 }
 
-async function syncAccount() {
-    if (!STATE.alpaca.connected) return;
-    const acc = await alpaca('/account');
-    if (acc) {
-        STATE.alpaca.acc = acc;
-        $('kpi-equity').textContent = MATH.fix(acc.equity, 2, '$');
-        $('kpi-bp').textContent = MATH.fix(acc.buying_power, 2, '$');
-        
-        const pnl = parseFloat(acc.equity) - parseFloat(acc.last_equity);
-        const pnlPct = MATH.pct(parseFloat(acc.equity), parseFloat(acc.last_equity));
-        
-        const pnlEl = $('kpi-pnl');
-        pnlEl.textContent = `${pnl >= 0 ? '+' : ''}${MATH.fix(pnl, 2, '$')} (${MATH.fix(pnlPct, 2)}%)`;
-        pnlEl.className = 'kpi-val ' + (pnl >= 0 ? 'up' : 'dn');
-        
-        // Risk
-        $('risk-dd').textContent = MATH.fix(MATH.div(parseFloat(acc.maintenance_margin), parseFloat(acc.equity)) * 100, 2, '', '%');
-        
-        const mUsed = MATH.div(parseFloat(acc.maintenance_margin), parseFloat(acc.equity)) * 100;
-        $('m-usage').textContent = MATH.fix(mUsed, 1, '', '%');
-        $('m-bar').style.width = Math.min(100, mUsed) + '%';
-    }
-}
-
-// 5. RENDERING PIPELINE
-function renderWatchlist() {
-    const container = $('watchlist');
-    container.innerHTML = '';
-    
-    STATE.market.symbols.forEach(s => {
-        const price = STATE.market.prices[s] || 0;
-        const hist = STATE.market.history[s] || [];
-        const prev = hist[hist.length - 2] || price;
-        const pct = MATH.pct(price, prev);
-        
-        const div = document.createElement('div');
-        div.className = `wl-item ${STATE.market.active === s ? 'active' : ''}`;
-        div.onclick = () => { STATE.market.active = s; log(`Monitoring ${s}...`); };
-        
-        div.innerHTML = `
-            <div class="wl-flex">
-                <span class="wl-sym">${s}</span>
-                <span class="wl-prc">${MATH.fix(price)}</span>
-            </div>
-            <div class="wl-flex">
-                <span style="color:var(--bg5); font-size:9px;">VOL: --</span>
-                <span class="wl-pct ${pct >= 0 ? 'up' : 'dn'}">${pct >= 0 ? '+' : ''}${MATH.fix(pct)}%</span>
-            </div>
-        `;
-        container.appendChild(div);
-    });
-}
-
-function renderHeatmap() {
-    const container = $('heatmap');
-    container.innerHTML = '';
-    STATE.market.symbols.forEach(s => {
-        const p = STATE.market.prices[s] || 100;
-        const h = STATE.market.history[s] || [100];
-        const pct = MATH.pct(p, h[0]); // Relative to session start
-        
-        const box = document.createElement('div');
-        box.className = 'heat-box';
-        const intensity = Math.min(Math.abs(pct) * 30, 100);
-        box.style.background = pct >= 0 ? `rgba(0, 255, 157, ${intensity/100})` : `rgba(255, 45, 85, ${intensity/100})`;
-        box.innerHTML = `<span>${s}</span><span style="font-size:8px;">${MATH.fix(pct)}%</span>`;
-        container.appendChild(box);
-    });
-}
-
-function updateAnalytics() {
-    const sym = STATE.market.active;
-    const hist = STATE.market.history[sym] || [];
-    const price = STATE.market.prices[sym] || 0;
-    
-    // UI Price updates
-    $('active-sym').textContent = sym;
-    $('active-prc').textContent = MATH.fix(price);
-    $('active-prc').style.color = price >= (hist[hist.length-2]||0) ? 'var(--g)' : 'var(--r)';
-    
-    // Trade Logic
-    $('tr-size').value = MATH.fix(price * ($('tr-qty').value || 0));
-    
-    // Indicators
-    $('val-rsi').textContent = MATH.fix(ALGO.rsi(hist, 14));
-    $('val-ema20').textContent = MATH.fix(ALGO.ema(hist, 20));
-    $('val-ema50').textContent = MATH.fix(ALGO.ema(hist, 50));
-    $('val-atr').textContent = MATH.fix(ALGO.atr(hist, 14));
-    
-    // Bias logic
-    let aggPct = 0;
-    STATE.market.symbols.forEach(s => {
-        const pr = STATE.market.prices[s] || 0;
-        const hs = STATE.market.history[s] || [0];
-        aggPct += MATH.pct(pr, hs[0]);
-    });
-    
-    const bias = 50 + (aggPct * 20); // Scale factor
-    const capped = Math.max(5, Math.min(95, bias));
-    $('bias-bar').style.width = capped + '%';
-    $('bias-bar').style.background = capped > 55 ? 'var(--g)' : (capped < 45 ? 'var(--r)' : 'var(--c)');
-    $('bias-lab').textContent = capped > 55 ? 'BULLISH' : (capped < 45 ? 'BEARISH' : 'NEUTRAL');
-    
-    const strength = Math.abs(capped - 50) * 2;
-    $('str-bar').style.width = strength + '%';
-    $('str-lab').textContent = Math.round(strength) + '%';
-}
-
-function log(m, type = 'info') {
-    const div = document.createElement('div');
-    const colors = { error: 'var(--r)', info: 'var(--c3)', success: 'var(--g)' };
-    div.innerHTML = `<span style="color:${colors[type]}">[${new Date().toLocaleTimeString()}]</span> ${m}`;
-    $('logs').prepend(div);
-    if ($('logs').children.length > 50) $('logs').lastChild.remove();
-}
-
-// 6. MAIN SYSTEM LOOP
-function mainLoop() {
-    $('timer').textContent = new Date().toISOString().split('T')[1].split('.')[0] + ' UTC';
-    
-    // Data Generation (Simulates ticks if no WebSocket stream)
-    STATE.market.symbols.forEach(s => {
-        if (!STATE.market.prices[s]) {
-            STATE.market.prices[s] = Math.random() * 800 + 50;
-            STATE.market.history[s] = Array(50).fill(STATE.market.prices[s]);
-        }
-        
-        const volatility = 0.4;
-        const change = (Math.random() - 0.5) * volatility;
-        STATE.market.prices[s] += change;
-        STATE.market.history[s].push(STATE.market.prices[s]);
-        if (STATE.market.history[s].length > 300) STATE.market.history[s].shift();
-    });
-
-    renderWatchlist();
-    renderHeatmap();
-    updateAnalytics();
-
-    requestAnimationFrame(() => {
-        setTimeout(mainLoop, 1000);
-    });
-}
-
-// 7. EVENT LISTENERS
-$('btn-login').onclick = async () => {
-    const k = $('api-k').value;
-    const s = $('api-s').value;
-    if (!k || !s) return alert("Credentials required.");
-    
-    STATE.alpaca.key = k;
-    STATE.alpaca.sec = s;
-    
-    log("Connecting to Alpaca V2 Securities Hub...");
-    const test = await alpaca('/account');
-    if (test && !test.code) {
-        STATE.alpaca.connected = true;
-        $('auth-modal').style.display = 'none';
-        $('glow').className = 'live-glow on';
-        $('st-text').textContent = 'SYSTEM_ONLINE';
-        $('st-text').style.color = 'var(--g)';
-        log("Secure Link Verified. Terminal Active.", "success");
-        syncAccount();
-    } else {
-        log("Handshake failed. Invalid keys.", "error");
-    }
-};
-
-$('mode-paper').onclick = () => { STATE.alpaca.paper = true; log("Mode: Paper Trading"); };
-$('mode-live').onclick = () => { STATE.alpaca.paper = false; log("⚠ Mode: LIVE TRADING", "error"); };
-
-window.onload = () => {
-    mainLoop();
-    setInterval(syncAccount, 30000);
-};
+// START TERMINAL
+window.addEventListener('resize', resize);
+initData();
+resize();
+startSniperEngine();
 
 </script>
 </body>

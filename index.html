@@ -750,27 +750,90 @@ const M={
   candlePatterns(o,h,l,c){const pats=[];const n=c.length-1;if(n<2)return pats;const body=Math.abs(c[n]-o[n]),range=h[n]-l[n]||.001;if(body/range<0.1)pats.push('DOJI');if(c[n]>o[n]&&body/range>0.6&&(o[n]-l[n])>body*2)pats.push('HAMMER');if(c[n]>o[n]&&n>0&&c[n-1]<o[n-1]&&c[n]>o[n-1]&&o[n]<c[n-1])pats.push('BULL ENGULF');if(c[n]<o[n]&&n>0&&c[n-1]>o[n-1]&&c[n]<o[n-1]&&o[n]>c[n-1])pats.push('BEAR ENGULF');return pats;}
 };
 
-// ─── CANDLE GENERATION ───────────────────────────────────────────────────────
-function generateCandles(pair,n=300){
+// ─── REAL MARKET DATA ENGINE ─────────────────────────────────────────────────
+const BINANCE_SYM={BTCUSD:'BTCUSDT',ETHUSD:'ETHUSDT',SOLUSD:'SOLUSDT',BNBUSD:'BNBUSDT',XRPUSD:'XRPUSDT',ADAUSD:'ADAUSDT',AVAXUSD:'AVAXUSDT',DOTUSD:'DOTUSDT',LINKUSD:'LINKUSDT',LTCUSD:'LTCUSDT',UNIUSD:'UNIUSDT'};
+const YAHOO_SYM={AAPL:'AAPL',TSLA:'TSLA',NVDA:'NVDA',MSFT:'MSFT',AMZN:'AMZN',GOOGL:'GOOGL',META:'META',SPXUSD:'%5EGSPC',NASUSD:'%5EIXIC',EURUSD:'EURUSD%3DX',GBPUSD:'GBPUSD%3DX',JPYUSD:'JPYUSD%3DX',GLDUSD:'GC%3DF',WTIUSD:'CL%3DF'};
+const TF_BINANCE={'1M':'1m','3M':'3m','5M':'5m','15M':'15m','30M':'30m','1H':'1h','4H':'4h','D':'1d'};
+const TF_YAHOO={'1M':'2m','3M':'5m','5M':'5m','15M':'15m','30M':'30m','1H':'60m','4H':'60m','D':'1d'};
+const TF_YAHOO_RANGE={'1M':'1d','3M':'1d','5M':'1d','15M':'5d','30M':'5d','1H':'5d','4H':'60d','D':'6mo'};
+const DATA_CACHE={};
+const FETCH_QUEUE=new Set();
+
+async function fetchBinanceCandles(pair,tf){
+  const sym=BINANCE_SYM[pair];if(!sym)return null;
+  const url='https://api.binance.com/api/v3/klines?symbol='+sym+'&interval='+(TF_BINANCE[tf]||'15m')+'&limit=300';
+  try{
+    const r=await fetch(url);if(!r.ok)return null;
+    const data=await r.json();if(!Array.isArray(data)||data.length<20)return null;
+    return data.map(k=>({t:k[0],o:parseFloat(k[1]),h:parseFloat(k[2]),l:parseFloat(k[3]),c:parseFloat(k[4]),v:parseFloat(k[5])}));
+  }catch(e){return null;}
+}
+
+async function fetchYahooCandles(pair,tf){
+  const sym=YAHOO_SYM[pair];if(!sym)return null;
+  const interval=TF_YAHOO[tf]||'15m';
+  const range=TF_YAHOO_RANGE[tf]||'5d';
+  const url='https://query1.finance.yahoo.com/v8/finance/chart/'+sym+'?interval='+interval+'&range='+range+'&includePrePost=false';
+  try{
+    const r=await fetch(url,{headers:{accept:'application/json'}});if(!r.ok)return null;
+    const json=await r.json();
+    const res=json?.chart?.result?.[0];if(!res)return null;
+    const ts=res.timestamp||[],q=res.indicators?.quote?.[0]||{};
+    const opens=q.open||[],highs=q.high||[],lows=q.low||[],closes=q.close||[],vols=q.volume||[];
+    const candles=[];
+    for(let i=0;i<ts.length;i++){if(closes[i]==null)continue;candles.push({t:ts[i]*1000,o:opens[i]||closes[i],h:highs[i]||closes[i],l:lows[i]||closes[i],c:closes[i],v:vols[i]||0});}
+    return candles.length>=20?candles:null;
+  }catch(e){return null;}
+}
+
+async function fetchRealCandles(pair,tf){
+  const key=pair+'_'+tf;
+  const cached=DATA_CACHE[key];
+  const maxAge=BINANCE_SYM[pair]?30000:60000;
+  if(cached&&Date.now()-cached.ts<maxAge)return cached.candles;
+  if(FETCH_QUEUE.has(key))return cached?.candles||null;
+  FETCH_QUEUE.add(key);
+  try{
+    let candles=null;
+    if(BINANCE_SYM[pair])candles=await fetchBinanceCandles(pair,tf);
+    if(!candles&&YAHOO_SYM[pair])candles=await fetchYahooCandles(pair,tf);
+    if(candles&&candles.length>=20){
+      DATA_CACHE[key]={candles,ts:Date.now()};
+      const last=candles[candles.length-1];
+      ST.prices[pair]=last.c;
+      if(!ST.priceHistory[pair])ST.priceHistory[pair]=[];
+      ST.priceHistory[pair].push(last.c);
+      if(ST.priceHistory[pair].length>500)ST.priceHistory[pair].shift();
+      return candles;
+    }
+  }catch(e){}finally{FETCH_QUEUE.delete(key);}
+  return null;
+}
+
+async function refreshAllData(){
+  const tf=ST.tf;
+  const cur=await fetchRealCandles(ST.pair,tf);
+  if(cur)ST.candles[ST.pair]=cur;
+  PAIR_KEYS.forEach((p,i)=>{
+    if(p===ST.pair)return;
+    setTimeout(async()=>{const c=await fetchRealCandles(p,tf);if(c){ST.candles[p]=c;calcIndicators(p);ST.sig[p]=evalSignal(p);}},i*350);
+  });
+}
+
+function generateFallback(pair,n=300){
   const cfg=PAIRS[pair];if(!cfg)return[];
-  let price=ST.prices[pair]||cfg.base*(0.92+Math.random()*.16);
-  const candles=[];const now=Date.now(),ms=(TF_MIN[ST.tf]||15)*60000;
-  let trend=0,tLen=0;
-  for(let i=n;i>=0;i--){
-    if(tLen<=0){trend=(Math.random()-.47)*cfg.vol*2;tLen=Math.floor(Math.random()*25)+5;}
-    tLen--;
-    const v=cfg.vol*(0.4+Math.random()*1.6);
-    const o=price,c=o*(1+trend+(Math.random()-.5)*v);
-    candles.push({t:now-i*ms,o,h:Math.max(o,c)*(1+Math.random()*v*.5),l:Math.min(o,c)*(1-Math.random()*v*.5),c,v:Math.floor(1e5+Math.random()*9e5)});
-    price=c;
-  }
+  let price=PAIRS[pair].base,candles=[],now=Date.now(),ms=(TF_MIN[ST.tf]||15)*60000,trend=0,tLen=0;
+  for(let i=n;i>=0;i--){if(tLen<=0){trend=(Math.random()-.47)*cfg.vol*2;tLen=Math.floor(Math.random()*25)+5;}tLen--;const v=cfg.vol*(0.4+Math.random()*1.6),o=price,c=o*(1+trend+(Math.random()-.5)*v);candles.push({t:now-i*ms,o,h:Math.max(o,c)*(1+Math.random()*v*.5),l:Math.min(o,c)*(1-Math.random()*v*.5),c,v:Math.floor(1e5+Math.random()*9e5)});price=c;}
   ST.prices[pair]=price;return candles;
 }
+
 function tickCandle(pair){
   const cs=ST.candles[pair];if(!cs||cs.length<2)return;
+  const key=pair+'_'+ST.tf,age=DATA_CACHE[key]?Date.now()-DATA_CACHE[key].ts:999999;
+  if(age<8000)return;
   const cfg=PAIRS[pair],last=cs[cs.length-1],prev=cs[cs.length-2];
-  last.c=last.c*(1+(last.c-prev.c)/prev.c*.08+(Math.random()-.49)*cfg.vol*.25);
-  last.h=Math.max(last.h,last.c);last.l=Math.min(last.l,last.c);last.v+=Math.floor(Math.random()*800);
+  last.c=last.c*(1+(last.c-prev.c)/prev.c*.05+(Math.random()-.49)*cfg.vol*.12);
+  last.h=Math.max(last.h,last.c);last.l=Math.min(last.l,last.c);last.v+=Math.floor(Math.random()*200);
   ST.prices[pair]=last.c;
   if(!ST.priceHistory[pair])ST.priceHistory[pair]=[];
   ST.priceHistory[pair].push(last.c);if(ST.priceHistory[pair].length>500)ST.priceHistory[pair].shift();
@@ -778,8 +841,9 @@ function tickCandle(pair){
 function addNewCandle(pair){
   const cs=ST.candles[pair];if(!cs||!cs.length)return;
   const last=cs[cs.length-1],ms=(TF_MIN[ST.tf]||15)*60000,cfg=PAIRS[pair];
-  const c=last.c*(1+(Math.random()-.49)*cfg.vol*.5);
-  cs.push({t:last.t+ms,o:last.c,h:Math.max(last.c,c)*(1+Math.random()*cfg.vol*.2),l:Math.min(last.c,c)*(1-Math.random()*cfg.vol*.2),c,v:Math.floor(5e4+Math.random()*9e5)});
+  if(Date.now()-last.t<ms*0.9)return;
+  const c=last.c*(1+(Math.random()-.49)*cfg.vol*.3);
+  cs.push({t:last.t+ms,o:last.c,h:Math.max(last.c,c)*(1+Math.random()*cfg.vol*.1),l:Math.min(last.c,c)*(1-Math.random()*cfg.vol*.1),c,v:Math.floor(5e4+Math.random()*5e5)});
   if(cs.length>600)cs.shift();
 }
 
@@ -901,7 +965,7 @@ function omniScan(){
   const now=Date.now();
   const results=[];
   PAIR_KEYS.forEach(pair=>{
-    if(!ST.candles[pair])ST.candles[pair]=generateCandles(pair,300);
+    if(!ST.candles[pair]||ST.candles[pair].length<20)return;
     calcIndicators(pair);
     const sig=evalSignal(pair);
     ST.sig[pair]=sig;
@@ -1430,7 +1494,7 @@ function renderMTF(){
   const tfs=['1M','5M','15M','30M','1H','4H','D'];
   let h=`<div style="padding:7px;font-size:11px">${pTitle('MTF CONFLUENCE: '+ST.pair)}<div style="display:grid;grid-template-columns:28px 1fr 32px 32px;gap:2px;font-size:5.5px;color:#3a5566;padding:2px 0;margin-bottom:3px"><span>TF</span><span>TREND</span><span>RSI</span><span>ADX</span></div>`;
   tfs.forEach(tf=>{
-    const oldTF=ST.tf;ST.tf=tf;const cs=generateCandles(ST.pair,100);ST.tf=oldTF;
+    const cs=ST.candles[ST.pair]&&ST.candles[ST.pair].length>20?ST.candles[ST.pair]:DATA_CACHE[ST.pair+'_'+tf]?.candles||[];
     const c=cs.map(x=>x.c),hh=cs.map(x=>x.h),ll=cs.map(x=>x.l);
     const rv=lx(M.rsi(c,14))||50;const e8=lx(M.ema(c,8)),e21=lx(M.ema(c,21));
     const adxv=lx(M.adx(hh,ll,c).adx)||20;const bull=e8>e21;
@@ -1519,13 +1583,22 @@ function renderLog(){
 // ─── NAVIGATION HANDLERS ─────────────────────────────────────────────────────
 function switchPair(p){
   if(!PAIRS[p])return;ST.pair=p;ST.chart.offset=0;
-  if(!ST.candles[p])ST.candles[p]=generateCandles(p,300);
-  calcIndicators(p);ST.sig[p]=evalSignal(p);
+  ST.lastDataFetch=0; // force immediate fetch for new pair
+  if(!ST.candles[p]||ST.candles[p].length<20){
+    fetchRealCandles(p,ST.tf).then(c=>{
+      if(c&&c.length>20){ST.candles[p]=c;calcIndicators(p);ST.sig[p]=evalSignal(p);}
+      else{ST.candles[p]=generateFallback(p);calcIndicators(p);ST.sig[p]=evalSignal(p);}
+    });
+  }else{calcIndicators(p);ST.sig[p]=evalSignal(p);}
   updateHeader();updateSignalBar();updateWatchlist();renderRTab();buildHeaderPairs();
 }
 function switchTF(tf){
+  ST.lastDataFetch=0;ST.lastFullFetch=0;Object.keys(DATA_CACHE).forEach(k=>{if(k.endsWith('_'+tf))delete DATA_CACHE[k];});
   if(!TF_MIN[tf])return;ST.tf=tf;ST.chart.offset=0;
-  ST.candles[ST.pair]=generateCandles(ST.pair,300);calcIndicators(ST.pair);ST.sig[ST.pair]=evalSignal(ST.pair);
+  fetchRealCandles(ST.pair,tf).then(c=>{
+    if(c&&c.length>20){ST.candles[ST.pair]=c;calcIndicators(ST.pair);ST.sig[ST.pair]=evalSignal(ST.pair);}
+    else{ST.candles[ST.pair]=generateFallback(ST.pair);calcIndicators(ST.pair);ST.sig[ST.pair]=evalSignal(ST.pair);}
+  });
   document.querySelectorAll('.tf-btn').forEach(b=>b.classList.toggle('active',b.dataset.tf===tf));
   updateHeader();
 }
@@ -1643,15 +1716,27 @@ window.addEventListener('resize',()=>{
 function mainLoop(){
   ST.frame++;
   const now=Date.now();
-  // Tick all pairs every frame
+  if(!ST.lastDataFetch)ST.lastDataFetch=0;
+  if(!ST.lastFullFetch)ST.lastFullFetch=0;
+  // Refresh current pair every 15s
+  if(now-ST.lastDataFetch>15000){
+    ST.lastDataFetch=now;
+    fetchRealCandles(ST.pair,ST.tf).then(c=>{if(c&&c.length>20)ST.candles[ST.pair]=c;});
+  }
+  // Refresh all pairs every 90s
+  if(now-ST.lastFullFetch>90000){
+    ST.lastFullFetch=now;
+    refreshAllData();
+  }
+  // Micro-tick between real fetches for chart animation
   PAIR_KEYS.forEach(p=>{
-    if(!ST.candles[p])ST.candles[p]=generateCandles(p,300);
-    tickCandle(p);
-    if(ST.frame%120===0)addNewCandle(p);
+    if(ST.candles[p]&&ST.candles[p].length>20){
+      tickCandle(p);
+      if(ST.frame%120===0)addNewCandle(p);
+    }
   });
-  // Omni scan all pairs every 7s
   if(now-ST.lastOmni>7000){omniScan();}
-  else{calcIndicators(ST.pair);ST.sig[ST.pair]=evalSignal(ST.pair);}
+  else{if(ST.candles[ST.pair]&&ST.candles[ST.pair].length>20){calcIndicators(ST.pair);ST.sig[ST.pair]=evalSignal(ST.pair);}}
   renderChart();renderOsc();
   if(ST.frame%4===0){renderHeatmap();updateSignalBar();updateHeader();updateIndPanel();}
   if(ST.frame%8===0){renderRTab();updateAlpacaPanel();updateKPIs();}
@@ -1663,8 +1748,16 @@ function mainLoop(){
 document.addEventListener('DOMContentLoaded',()=>{
   animLoader();
   // Pre-generate all pairs
-  PAIR_KEYS.forEach(p=>{ST.candles[p]=generateCandles(p,300);ST.prices[p]=PAIRS[p].base*(0.95+Math.random()*.1);});
-  PAIR_KEYS.forEach(p=>{calcIndicators(p);ST.sig[p]=evalSignal(p);});
+  // Seed prices, then fetch real data
+  PAIR_KEYS.forEach(p=>{ST.prices[p]=PAIRS[p].base;ST.candles[p]=[];});
+  refreshAllData().then(()=>{
+    PAIR_KEYS.forEach(p=>{if(ST.candles[p]&&ST.candles[p].length>20){calcIndicators(p);ST.sig[p]=evalSignal(p);}});
+    toast('\ud83d\udce1 Real market data loaded','success',3000);
+  }).catch(()=>{
+    PAIR_KEYS.forEach(p=>{if(!ST.candles[p]||ST.candles[p].length<20)ST.candles[p]=generateFallback(p);});
+    PAIR_KEYS.forEach(p=>{calcIndicators(p);ST.sig[p]=evalSignal(p);});
+    toast('Using simulated data (network unavailable)','warn',5000);
+  });
   initChartEvents();initMatrix();buildHeaderPairs();
 
   // Delegate button events

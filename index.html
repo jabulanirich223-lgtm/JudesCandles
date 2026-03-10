@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>APEX ULTRA ∞ — NEXUS ENGINE v3</title>
+<title>APEX ULTRA — Trading Terminal</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Orbitron:wght@500;700;900&family=Rajdhani:wght@400;600;700&family=Exo+2:wght@200;400;600;800&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -70,7 +70,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9998;
   background:linear-gradient(135deg,#00ffff 0%,#00ccee 40%,#6644ff 75%,#ff44bb 100%);
   -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
   filter:drop-shadow(0 0 16px rgba(0,229,255,.8));animation:ldPulse 5s ease-in-out infinite alternate}
-.logo-inf{font-family:var(--font-disp);font-size:12px;color:var(--or);margin-left:2px;animation:spinInf 12s linear infinite;display:inline-block}
+.logo-inf{display:none}
 @keyframes spinInf{0%{transform:rotateY(0)}50%{transform:rotateY(180deg)}100%{transform:rotateY(360deg)}}
 .logo-sub{font-size:5.5px;letter-spacing:3px;color:var(--c3);margin-top:2px}
 .hdr-pairs{display:flex;height:100%;border-right:1px solid var(--b1);overflow-x:auto;flex:1;min-width:0}
@@ -362,12 +362,12 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:8px;height
 
 <!-- LOADER -->
 <div id="demoBanner" style="display:flex;position:fixed;top:0;left:0;right:0;z-index:9999;background:#1a0a00;border-bottom:1px solid #ff6600;padding:5px 14px;align-items:center;justify-content:space-between;font-family:monospace;font-size:10px;color:#ff9900;">
-  <span>⚠ DEMO MODE — Simulated data only. Connect Alpaca keys to load real market data and enable live signals.</span>
-  <button onclick="openAlpacaModal()" style="background:#ff6600;border:none;color:#000;padding:2px 10px;cursor:pointer;font-family:monospace;font-size:10px;font-weight:700;border-radius:2px;">CONNECT NOW</button>
+  <span>⚠ SIMULATED DATA — Connect Alpaca keys for real bars. Real data: BTC ETH SOL BNB XRP ADA AVAX DOT LINK LTC UNI + AAPL TSLA NVDA MSFT AMZN GOOGL META. Indices/forex/commodities always simulated (not on Alpaca data API).</span>
+  <button onclick="openAlpacaModal()" style="background:#ff6600;border:none;color:#000;padding:2px 10px;cursor:pointer;font-family:monospace;font-size:10px;font-weight:700;border-radius:2px;">CONNECT</button>
 </div>
 <div id="loader">
   <div class="ld-logo">APEX ULTRA</div>
-  <div class="ld-sub">∞ NEXUS ENGINE v3.0 — OMNI SNIPER</div>
+  <div class="ld-sub">OMNI SNIPER — REAL DATA</div>
   <div class="ld-tag">50+ INDICATORS · 25 GATES · SMART MONEY · HARMONICS · OMNI SCAN ALL PAIRS<br>ML REGIME · ORDER FLOW · ALPACA LIVE TRADING · REAL-TIME P&L · RISK ENGINE</div>
   <div class="ld-bar-w"><div class="ld-bar-fill" id="ldBar"></div></div>
   <div class="ld-pct" id="ldPct">0%</div>
@@ -388,9 +388,9 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:8px;height
   <div class="logo-zone">
     <div>
       <div style="display:flex;align-items:center;gap:3px">
-        <span class="logo-txt">APEX</span><span class="logo-inf">∞</span>
+        <span class="logo-txt">APEX ULTRA</span>
       </div>
-      <div class="logo-sub">NEXUS ENGINE v3</div>
+      <div class="logo-sub">TRADING TERMINAL</div>
     </div>
   </div>
   <div class="hdr-pairs" id="hdrPairs"></div>
@@ -450,7 +450,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:8px;height
   <div class="sb-seg"><span class="sb-l">TP</span><span class="sb-v bull" id="sbTP">--</span></div>
   <div class="sb-seg"><span class="sb-l">R:R</span><span class="sb-v" id="sbRR">--</span></div>
   <div class="sb-seg"><span class="sb-l">KELLY%</span><span class="sb-v warn" id="sbKelly">--</span></div>
-  <div class="sb-seg" style="margin-left:auto;border-right:none"><span class="sb-l">∞ SCORE</span><span class="sb-score" id="sbScore">--</span></div>
+  <div class="sb-seg" style="margin-left:auto;border-right:none"><span class="sb-l">SCORE</span><span class="sb-score" id="sbScore">--</span></div>
 </div>
 
 <!-- MAIN -->
@@ -568,7 +568,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:8px;height
     <div id="sn-hdr">
       <div class="sn-title-row">
         <div>
-          <div class="sn-title">⬡ OMNI NEXUS SNIPER ∞</div>
+          <div class="sn-title">OMNI SNIPER</div>
           <div class="sn-sub">ALL 25 PAIRS · 25 GATES · REAL-TIME ML · AUTO-EXECUTE</div>
         </div>
         <div class="arm-btn on" id="armBtn">■ ARMED</div>
@@ -632,7 +632,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:8px;height
   <div class="modal-box">
     <div class="modal-hdr">
       <div style="display:flex;align-items:center;justify-content:space-between">
-        <div><div class="modal-title">⚡ APEX ULTRA ∞</div><div class="modal-sub">CONNECT TO ALPACA MARKETS</div></div>
+        <div><div class="modal-title">⚡ APEX ULTRA</div><div class="modal-sub">CONNECT TO ALPACA MARKETS</div></div>
         <button class="modal-close" id="modalClose">✕</button>
       </div>
     </div>
@@ -652,7 +652,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:8px;height
       <input id="modalSec" class="modal-inp" type="password" placeholder="your secret key" autocomplete="new-password">
       <div class="modal-status" id="modalStatus"></div>
       <button class="modal-conn" id="modalConnBtn">▶ CONNECT TO ALPACA</button>
-      <button class="modal-skip" id="modalSkip">SKIP — CONTINUE IN DEMO MODE</button>
+      <button class="modal-skip" id="modalSkip">SKIP — USE SIMULATED DATA</button>
     </div>
   </div>
 </div>
@@ -755,149 +755,172 @@ const M={
 };
 
 // ─── REAL MARKET DATA ENGINE ─────────────────────────────────────────────────
-// ─── REAL MARKET DATA ENGINE ─────────────────────────────────────────────────
-// Source: Alpaca Data API (requires connected keys) — the only reliable
-// browser-accessible source for full OHLCV bars for both crypto and stocks.
-// Fallback: simulated data clearly labeled as DEMO so you always know what you're looking at.
+// All data comes from Alpaca's Data API using your connected API keys.
+// Crypto:  https://data.alpaca.markets/v1beta3/crypto/us/bars
+// Stocks:  https://data.alpaca.markets/v2/stocks/{symbol}/bars
+// No keys connected = simulated fallback, clearly labeled.
 
-const DATA_CACHE={};
-const FETCH_QUEUE=new Set();
+const DATA_CACHE = {};
+const FETCH_QUEUE = new Set();
 
-// Alpaca timeframe map
-const TF_ALPACA={'1M':'1Min','3M':'3Min','5M':'5Min','15M':'15Min','30M':'30Min','1H':'1Hour','4H':'4Hour','D':'1Day'};
+// Alpaca timeframe strings
+const TF_ALPACA = {
+  '1M':'1Min','3M':'3Min','5M':'5Min','15M':'15Min',
+  '30M':'30Min','1H':'1Hour','4H':'4Hour','D':'1Day'
+};
 
-// Which Alpaca data endpoint to use per asset type
-function alpacaDataBase(pair){
-  const cat=PAIRS[pair]?.cat;
-  // crypto uses broker data endpoint, stocks use market data endpoint
-  if(cat==='crypto') return 'https://data.alpaca.markets';
-  return 'https://data.alpaca.markets';
-}
-function alpacaDataPath(pair,tf){
-  const cat=PAIRS[pair]?.cat;
-  const tfStr=TF_ALPACA[tf]||'15Min';
-  const limit=300;
-  if(cat==='crypto'){
-    // Alpaca crypto symbol format: BTC/USD
-    const sym=pair.replace('USD','/USD');
-    return '/v1beta3/crypto/us/bars?symbols='+encodeURIComponent(sym)+'&timeframe='+tfStr+'&limit='+limit+'&sort=asc';
-  }
-  // Stocks/ETFs
-  return '/v2/stocks/'+pair+'/bars?timeframe='+tfStr+'&limit='+limit+'&adjustment=raw&feed=iex&sort=asc';
-}
+// Crypto symbols that Alpaca supports as SYMBOL/USD
+const CRYPTO_PAIRS = new Set(['BTCUSD','ETHUSD','SOLUSD','BNBUSD','XRPUSD','ADAUSD','AVAXUSD','DOTUSD','LINKUSD','LTCUSD','UNIUSD']);
 
-async function fetchAlpacaBars(pair,tf){
-  const alp=ST.alpaca;
-  if(!alp.connected||!alp.key||!alp.secret) return null;
-  const base=alpacaDataBase(pair);
-  const path=alpacaDataPath(pair,tf);
-  try{
-    const r=await fetch(base+path,{headers:{'APCA-API-KEY-ID':alp.key,'APCA-API-SECRET-KEY':alp.secret,'accept':'application/json'}});
-    if(!r.ok) return null;
-    const json=await r.json();
-    const cat=PAIRS[pair]?.cat;
-    let bars=[];
-    if(cat==='crypto'){
-      const sym=pair.replace('USD','/USD');
-      bars=(json.bars&&json.bars[sym])||[];
-    } else {
-      bars=json.bars||[];
-    }
-    if(!bars.length) return null;
-    return bars.map(b=>({
-      t: new Date(b.t).getTime(),
-      o: b.o, h: b.h, l: b.l, c: b.c, v: b.v||0
-    }));
-  }catch(e){ return null; }
+// Pairs Alpaca stocks endpoint covers (IEX feed, free tier)
+const STOCK_PAIRS = new Set(['AAPL','TSLA','NVDA','MSFT','AMZN','GOOGL','META']);
+
+// These don't trade on Alpaca's data feeds — we simulate them
+const UNSUPPORTED = new Set(['SPXUSD','NASUSD','EURUSD','GBPUSD','JPYUSD','GLDUSD','WTIUSD']);
+
+async function fetchAlpacaCryptoBars(pair, tf) {
+  const alp = ST.alpaca;
+  const sym = pair.slice(0,-3) + '/' + pair.slice(-3); // BTCUSD -> BTC/USD
+  const timeframe = TF_ALPACA[tf] || '15Min';
+  const url = 'https://data.alpaca.markets/v1beta3/crypto/us/bars?symbols=' +
+    encodeURIComponent(sym) + '&timeframe=' + timeframe + '&limit=300&sort=asc';
+  const r = await fetch(url, {
+    headers: {'APCA-API-KEY-ID': alp.key, 'APCA-API-SECRET-KEY': alp.secret, 'accept': 'application/json'}
+  });
+  if (!r.ok) { const e = await r.json().catch(()=>null); throw new Error((e&&e.message)||'HTTP '+r.status); }
+  const json = await r.json();
+  const bars = (json.bars && json.bars[sym]) || [];
+  if (!bars.length) throw new Error('No bars returned for ' + sym);
+  return bars.map(b => ({t: new Date(b.t).getTime(), o: b.o, h: b.h, l: b.l, c: b.c, v: b.v || 0}));
 }
 
-// Simulate realistic candles from a starting price — used in DEMO mode
-// Clearly labeled so users know this is not real data
-function generateFallback(pair,n=300){
-  const cfg=PAIRS[pair];if(!cfg)return[];
-  let price=PAIRS[pair].base,candles=[],now=Date.now(),ms=(TF_MIN[ST.tf]||15)*60000,trend=0,tLen=0;
-  for(let i=n;i>=0;i--){
-    if(tLen<=0){trend=(Math.random()-.47)*cfg.vol*2;tLen=Math.floor(Math.random()*25)+5;}
-    tLen--;
-    const v=cfg.vol*(0.4+Math.random()*1.6),o=price,c=o*(1+trend+(Math.random()-.5)*v);
-    candles.push({t:now-i*ms,o,h:Math.max(o,c)*(1+Math.random()*v*.5),l:Math.min(o,c)*(1-Math.random()*v*.5),c,v:Math.floor(1e5+Math.random()*9e5),demo:true});
-    price=c;
-  }
-  ST.prices[pair]=price; return candles;
+async function fetchAlpacaStockBars(pair, tf) {
+  const alp = ST.alpaca;
+  const timeframe = TF_ALPACA[tf] || '15Min';
+  const url = 'https://data.alpaca.markets/v2/stocks/' + pair +
+    '/bars?timeframe=' + timeframe + '&limit=300&adjustment=raw&feed=iex&sort=asc';
+  const r = await fetch(url, {
+    headers: {'APCA-API-KEY-ID': alp.key, 'APCA-API-SECRET-KEY': alp.secret, 'accept': 'application/json'}
+  });
+  if (!r.ok) { const e = await r.json().catch(()=>null); throw new Error((e&&e.message)||'HTTP '+r.status); }
+  const json = await r.json();
+  const bars = json.bars || [];
+  if (!bars.length) throw new Error('No bars returned for ' + pair);
+  return bars.map(b => ({t: new Date(b.t).getTime(), o: b.o, h: b.h, l: b.l, c: b.c, v: b.v || 0}));
 }
 
-async function fetchRealCandles(pair,tf){
-  const key=pair+'_'+tf;
-  const cached=DATA_CACHE[key];
-  const maxAge=60000; // 1 min cache
-  if(cached&&Date.now()-cached.ts<maxAge) return cached.candles;
-  if(FETCH_QUEUE.has(key)) return cached?.candles||null;
+async function fetchRealCandles(pair, tf) {
+  const key = pair + '_' + tf;
+  const cached = DATA_CACHE[key];
+  const maxAge = CRYPTO_PAIRS.has(pair) ? 30000 : 60000;
+  if (cached && Date.now() - cached.ts < maxAge) return cached.candles;
+  if (FETCH_QUEUE.has(key)) return cached ? cached.candles : null;
+  if (!ST.alpaca.connected) return null;
+  if (UNSUPPORTED.has(pair)) return null; // not on Alpaca data API
+
   FETCH_QUEUE.add(key);
-  try{
-    const candles=await fetchAlpacaBars(pair,tf);
-    if(candles&&candles.length>=20){
-      DATA_CACHE[key]={candles,ts:Date.now()};
-      const last=candles[candles.length-1];
-      ST.prices[pair]=last.c;
-      if(!ST.priceHistory[pair])ST.priceHistory[pair]=[];
+  try {
+    let bars = null;
+    if (CRYPTO_PAIRS.has(pair)) bars = await fetchAlpacaCryptoBars(pair, tf);
+    else if (STOCK_PAIRS.has(pair)) bars = await fetchAlpacaStockBars(pair, tf);
+    if (bars && bars.length >= 20) {
+      DATA_CACHE[key] = {candles: bars, ts: Date.now()};
+      const last = bars[bars.length - 1];
+      ST.prices[pair] = last.c;
+      if (!ST.priceHistory[pair]) ST.priceHistory[pair] = [];
       ST.priceHistory[pair].push(last.c);
-      if(ST.priceHistory[pair].length>500)ST.priceHistory[pair].shift();
-      // Mark data as real
-      ST.dataMode=ST.dataMode||{};ST.dataMode[pair]='live';
-      return candles;
+      if (ST.priceHistory[pair].length > 500) ST.priceHistory[pair].shift();
+      if (!ST.dataMode) ST.dataMode = {};
+      ST.dataMode[pair] = 'live';
+      return bars;
     }
-  }catch(e){}finally{FETCH_QUEUE.delete(key);}
+  } catch(e) {
+    console.warn('fetchRealCandles ' + pair + ':', e.message);
+  } finally {
+    FETCH_QUEUE.delete(key);
+  }
   return null;
 }
 
-async function refreshAllData(){
-  if(!ST.alpaca.connected){
-    // Not connected — use fallback for all and show DEMO banner
-    PAIR_KEYS.forEach(p=>{if(!ST.candles[p]||ST.candles[p].length<20){ST.candles[p]=generateFallback(p);ST.dataMode=ST.dataMode||{};ST.dataMode[p]='demo';}});
+// Generate simulated candles — only used when not connected or for unsupported pairs
+function generateFallback(pair, n=300) {
+  const cfg = PAIRS[pair]; if (!cfg) return [];
+  let price = PAIRS[pair].base, candles = [], now = Date.now(),
+      ms = (TF_MIN[ST.tf]||15)*60000, trend = 0, tLen = 0;
+  for (let i = n; i >= 0; i--) {
+    if (tLen <= 0) { trend = (Math.random()-.47)*cfg.vol*2; tLen = Math.floor(Math.random()*25)+5; }
+    tLen--;
+    const v = cfg.vol*(0.4+Math.random()*1.6), o = price, c = o*(1+trend+(Math.random()-.5)*v);
+    candles.push({t:now-i*ms, o, h:Math.max(o,c)*(1+Math.random()*v*.5), l:Math.min(o,c)*(1-Math.random()*v*.5), c, v:Math.floor(1e5+Math.random()*9e5), sim:true});
+    price = c;
+  }
+  ST.prices[pair] = price;
+  return candles;
+}
+
+async function refreshAllData() {
+  if (!ST.alpaca.connected) {
+    PAIR_KEYS.forEach(p => {
+      if (!ST.candles[p] || ST.candles[p].length < 20) ST.candles[p] = generateFallback(p);
+      if (!ST.dataMode) ST.dataMode = {};
+      ST.dataMode[p] = 'sim';
+    });
     setDemoMode(true);
     return;
   }
   setDemoMode(false);
-  const tf=ST.tf;
-  // Fetch current pair first for instant chart update
-  const cur=await fetchRealCandles(ST.pair,tf);
-  if(cur) ST.candles[ST.pair]=cur;
-  else if(!ST.candles[ST.pair]||ST.candles[ST.pair].length<20){ST.candles[ST.pair]=generateFallback(ST.pair);ST.dataMode[ST.pair]='demo';}
-  // Stagger all other pairs to avoid rate limits
-  PAIR_KEYS.forEach((p,i)=>{
-    if(p===ST.pair)return;
-    setTimeout(async()=>{
-      const c=await fetchRealCandles(p,tf);
-      if(c){ST.candles[p]=c;calcIndicators(p);ST.sig[p]=evalSignal(p);}
-      else if(!ST.candles[p]||ST.candles[p].length<20){ST.candles[p]=generateFallback(p);if(!ST.dataMode)ST.dataMode={};ST.dataMode[p]='demo';}
-    },i*500);
+  const tf = ST.tf;
+  // Fetch current pair first for immediate chart update
+  const cur = await fetchRealCandles(ST.pair, tf);
+  if (cur && cur.length > 20) ST.candles[ST.pair] = cur;
+  else if (!ST.candles[ST.pair] || ST.candles[ST.pair].length < 20) {
+    ST.candles[ST.pair] = generateFallback(ST.pair);
+    if (!ST.dataMode) ST.dataMode = {};
+    ST.dataMode[ST.pair] = 'sim';
+  }
+  // Stagger remaining pairs — 400ms apart to stay within Alpaca rate limits
+  PAIR_KEYS.forEach((p, i) => {
+    if (p === ST.pair) return;
+    setTimeout(async () => {
+      const c = await fetchRealCandles(p, tf);
+      if (c && c.length > 20) { ST.candles[p] = c; calcIndicators(p); ST.sig[p] = evalSignal(p); }
+      else if (!ST.candles[p] || ST.candles[p].length < 20) {
+        ST.candles[p] = generateFallback(p);
+        if (!ST.dataMode) ST.dataMode = {};
+        ST.dataMode[p] = 'sim';
+      }
+    }, i * 400);
   });
 }
 
-function setDemoMode(on){
-  const el=document.getElementById('demoBanner');
-  if(el)el.style.display=on?'flex':'none';
+function setDemoMode(on) {
+  const el = document.getElementById('demoBanner');
+  if (el) el.style.display = on ? 'flex' : 'none';
 }
 
-function tickCandle(pair){
-  const cs=ST.candles[pair];if(!cs||cs.length<2)return;
-  // Only simulate ticks if data is stale (>20s) or in demo mode
-  const key=pair+'_'+ST.tf,age=DATA_CACHE[key]?Date.now()-DATA_CACHE[key].ts:999999;
-  if(age<20000&&ST.alpaca.connected)return;
-  const cfg=PAIRS[pair],last=cs[cs.length-1],prev=cs[cs.length-2];
-  last.c=last.c*(1+(last.c-prev.c)/prev.c*.04+(Math.random()-.49)*cfg.vol*.10);
-  last.h=Math.max(last.h,last.c);last.l=Math.min(last.l,last.c);last.v+=Math.floor(Math.random()*200);
-  ST.prices[pair]=last.c;
-  if(!ST.priceHistory[pair])ST.priceHistory[pair]=[];
-  ST.priceHistory[pair].push(last.c);if(ST.priceHistory[pair].length>500)ST.priceHistory[pair].shift();
+// Simulate micro price movement between real fetches to keep chart animated
+function tickCandle(pair) {
+  const cs = ST.candles[pair]; if (!cs || cs.length < 2) return;
+  const key = pair + '_' + ST.tf;
+  const age = DATA_CACHE[key] ? Date.now() - DATA_CACHE[key].ts : 999999;
+  // Don't tick if real data is fresh
+  if (age < 20000 && ST.alpaca.connected && !UNSUPPORTED.has(pair)) return;
+  const cfg = PAIRS[pair], last = cs[cs.length-1], prev = cs[cs.length-2];
+  last.c = last.c * (1 + (last.c-prev.c)/prev.c*0.04 + (Math.random()-.49)*cfg.vol*0.10);
+  last.h = Math.max(last.h, last.c); last.l = Math.min(last.l, last.c); last.v += Math.floor(Math.random()*200);
+  ST.prices[pair] = last.c;
+  if (!ST.priceHistory[pair]) ST.priceHistory[pair] = [];
+  ST.priceHistory[pair].push(last.c);
+  if (ST.priceHistory[pair].length > 500) ST.priceHistory[pair].shift();
 }
-function addNewCandle(pair){
-  const cs=ST.candles[pair];if(!cs||!cs.length)return;
-  const last=cs[cs.length-1],ms=(TF_MIN[ST.tf]||15)*60000,cfg=PAIRS[pair];
-  if(Date.now()-last.t<ms*0.9)return;
-  const c=last.c*(1+(Math.random()-.49)*cfg.vol*.3);
-  cs.push({t:last.t+ms,o:last.c,h:Math.max(last.c,c)*(1+Math.random()*cfg.vol*.1),l:Math.min(last.c,c)*(1-Math.random()*cfg.vol*.1),c,v:Math.floor(5e4+Math.random()*5e5)});
-  if(cs.length>600)cs.shift();
+
+function addNewCandle(pair) {
+  const cs = ST.candles[pair]; if (!cs || !cs.length) return;
+  const last = cs[cs.length-1], ms = (TF_MIN[ST.tf]||15)*60000, cfg = PAIRS[pair];
+  if (Date.now() - last.t < ms * 0.9) return;
+  const c = last.c * (1 + (Math.random()-.49)*cfg.vol*0.3);
+  cs.push({t:last.t+ms, o:last.c, h:Math.max(last.c,c)*(1+Math.random()*cfg.vol*0.1), l:Math.min(last.c,c)*(1-Math.random()*cfg.vol*0.1), c, v:Math.floor(5e4+Math.random()*5e5)});
+  if (cs.length > 600) cs.shift();
 }
 
 // ─── INDICATOR CALC ───────────────────────────────────────────────────────────
@@ -1714,7 +1737,7 @@ function initMatrix(){
   const cv=$('matrixCv');if(!cv)return;
   const ctx=cv.getContext('2d');cv.width=window.innerWidth;cv.height=window.innerHeight;
   const W=cv.width,H=cv.height,cols=Math.floor(W/12),drops=Array(cols).fill(1);
-  const chars='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%αβγδΣΩ∞▲◈⬡';
+  const chars='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%αβγδΣΩ▲◈⬡';
   setInterval(()=>{ctx.fillStyle='rgba(1,3,8,0.05)';ctx.fillRect(0,0,W,H);ctx.fillStyle='rgba(0,229,255,0.18)';ctx.font='10px JetBrains Mono';drops.forEach((y,i)=>{ctx.fillText(chars[Math.floor(Math.random()*chars.length)],i*12,y*12);if(y*12>H&&Math.random()>.975)drops[i]=0;drops[i]++;});},90);
 }
 
@@ -1901,7 +1924,7 @@ document.addEventListener('DOMContentLoaded',()=>{
   setInterval(syncAccount,60000);
   mainLoop();
   setTimeout(()=>{
-    toast('APEX ULTRA ∞ v3 — OMNI SNIPER ONLINE','quantum',5000);
+    toast('APEX ULTRA — OMNI SNIPER ONLINE','quantum',5000);
     beep(880,.2,.15);setTimeout(()=>beep(1100,.15,.1),200);
   },1800);
   openAlpacaModal(); // Show modal on startup for connection

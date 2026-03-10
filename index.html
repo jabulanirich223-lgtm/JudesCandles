@@ -1033,7 +1033,7 @@ function evalSignal(pair){
     ichi:icn>=0&&ia[icn]!=null&&ib[icn]!=null?(ia[icn]>ib[icn]?'BULL':'BEAR'):'--',
     fish:fn?fn.val.toFixed(2):'--',cmf:cmfv.toFixed(3),squeeze:(sqO.squeeze||[])[sqO.squeeze.length-1]?'ON':'OFF',
     smc:ms.bos?'BOS':ms.choch?'CHoCH':'--',regime:reg,hurst:(ind.hurst||0).toFixed(2),
-    kelly:(M.kelly(wr,rr)*100).toFixed(1),ev,infScore:Math.round(score*1.15)};
+    kelly:(M.kelly(wr,rr)*100).toFixed(1),ev};
 }
 
 // ─── OMNI SNIPER — scans ALL pairs simultaneously ────────────────────────────
@@ -1098,16 +1098,22 @@ function updateOmniTicker(results){
 function simulateTrade(pair,sig){
   if(ST.pnl.positions[pair])return;
   const price=ST.prices[pair]||sig.entry;
-  const slDist=Math.abs(price-sig.sl)||price*.01;
-  const qty=Math.max(.0001,(ST.pnl.equity*.015)/slDist);
-  ST.pnl.positions[pair]={dir:sig.dir,entry:price,sl:sig.sl,tp1:sig.tp1,qty,t:Date.now(),pair,quality:sig.quality};
-  ST.alpaca.orders.unshift({symbol:pair,side:sig.dir==='LONG'?'buy':'sell',qty:qty.toFixed(6),status:'FILLED',t:Date.now(),price});
+  if(!price||price<=0)return;
+  // Risk 1.5% of equity per trade, size by SL distance
+  const slDist=Math.abs(price-(sig.sl||price*0.99));
+  const riskAmt=ST.pnl.equity*0.015;
+  // Cap qty so a single trade doesn't exceed 20% of equity notional
+  const rawQty=riskAmt/slDist;
+  const maxQty=(ST.pnl.equity*0.20)/price;
+  const qty=Math.max(0.0001,Math.min(rawQty,maxQty));
+  ST.pnl.positions[pair]={dir:sig.dir,entry:price,sl:sig.sl||price*(sig.dir==='LONG'?0.99:1.01),tp1:sig.tp1||price*(sig.dir==='LONG'?1.02:0.98),qty,t:Date.now(),pair,quality:sig.quality};
+  const qtyDisplay=qty>=1?qty.toFixed(2):qty.toFixed(6);
+  ST.alpaca.orders.unshift({symbol:pair,side:sig.dir==='LONG'?'buy':'sell',qty:qtyDisplay,status:'FILLED',t:Date.now(),price});
   if(ST.alpaca.orders.length>50)ST.alpaca.orders.pop();
-  // Fire real Alpaca order if connected and auto-exec on
   if(ST.alpaca.connected&&ST.autoExec){
-    ALP.placeOrder(pair.replace('USD',''),sig.dir==='LONG'?'buy':'sell',qty.toFixed(6))
-      .then(r=>{if(r?.id)toast(`Alpaca order filled: ${pair} ${sig.dir}`,'success');else toast(`Alpaca order rejected: ${pair}`,'error');})
-      .catch(()=>toast('Alpaca order error','error'));
+    ALP.placeOrder(pair,sig.dir==='LONG'?'buy':'sell',qty)
+      .then(r=>{if(r?.id){toast('Order placed: '+pair+' '+sig.dir+' @ '+price.toFixed(2),'success',5000);}else{toast('Order rejected: '+pair,'error');}})
+      .catch(e=>toast('Order error: '+e.message,'error'));
   }
 }
 
@@ -1122,7 +1128,7 @@ function closePosition(pair,reason='MANUAL'){
   delete ST.pnl.positions[pair];
   toast(`${reason}: ${pair} P&L: $${pnl.toFixed(2)}`,pnl>=0?'bull':'bear',4000);
   // Close Alpaca position if connected
-  if(ST.alpaca.connected&&ST.autoExec){ALP.closePosition(pair.replace('USD',''));}
+  if(ST.alpaca.connected&&ST.autoExec){ALP.closePosition(pair);}
 }
 
 // ─── ALPACA API ───────────────────────────────────────────────────────────────
@@ -1150,8 +1156,13 @@ const ALP={
   async getAccount(){const d=await ALP._fetch('/v2/account');if(d)ST.alpaca.account=d;return d;},
   async getPositions(){const d=await ALP._fetch('/v2/positions');if(d)ST.alpaca.positions=d;return d;},
   async getOrders(){const d=await ALP._fetch('/v2/orders?status=all&limit=20');if(d)ST.alpaca.orders=d;return d;},
-  async placeOrder(sym,side,qty){return ALP._fetch('/v2/orders','POST',{symbol:sym,qty:String(qty),side,type:'market',time_in_force:'gtc'});},
-  async closePosition(sym){return ALP._fetch('/v2/positions/'+sym,'DELETE').catch(()=>null);}
+  async placeOrder(sym,side,qty){
+    const isCrypto=typeof sym==='string'&&(sym.endsWith('USD')||sym.includes('/'));
+    // Alpaca broker crypto symbol: BTCUSD. Stock symbol: AAPL. Both work as-is.
+    const qtyStr=isCrypto?String(Math.max(0.0001,qty)):String(Math.max(1,Math.round(qty)));
+    return ALP._fetch('/v2/orders','POST',{symbol:sym,qty:qtyStr,side,type:'market',time_in_force:'day'});
+  },
+  async closePosition(sym){return ALP._fetch('/v2/positions/'+encodeURIComponent(sym),'DELETE').catch(()=>null);}
 };
 
 // Auto-detect paper vs live by trying paper first, then live
@@ -1389,7 +1400,7 @@ function updateSignalBar(){
   setTxt('sbEntry',sig.entry?fmtPrice(sig.entry):'--');setTxt('sbSL',sig.sl?fmtPrice(sig.sl):'--');
   setTxt('sbTP',sig.tp1?fmtPrice(sig.tp1):'--');setTxt('sbRR',sig.rr?sig.rr.toFixed(1)+'R':'--');
   setTxt('sbKelly',sig.kelly?sig.kelly+'%':'--');
-  const se=$('sbScore');if(se){se.textContent=sig.infScore||'--';se.className='sb-score '+(sig.score>=90?'q':sig.score>=80?'hot':'');}
+  const se=$('sbScore');if(se){se.textContent=sig.score?sig.score.toFixed(0)+'%':'--';se.className='sb-score '+(sig.score>=90?'q':sig.score>=80?'hot':'');}
 }
 
 function updateHeader(){

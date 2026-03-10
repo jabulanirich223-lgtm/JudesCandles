@@ -361,6 +361,10 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:8px;height
 <div id="gridBg"></div>
 
 <!-- LOADER -->
+<div id="demoBanner" style="display:flex;position:fixed;top:0;left:0;right:0;z-index:9999;background:#1a0a00;border-bottom:1px solid #ff6600;padding:5px 14px;align-items:center;justify-content:space-between;font-family:monospace;font-size:10px;color:#ff9900;">
+  <span>⚠ DEMO MODE — Simulated data only. Connect Alpaca keys to load real market data and enable live signals.</span>
+  <button onclick="openAlpacaModal()" style="background:#ff6600;border:none;color:#000;padding:2px 10px;cursor:pointer;font-family:monospace;font-size:10px;font-weight:700;border-radius:2px;">CONNECT NOW</button>
+</div>
 <div id="loader">
   <div class="ld-logo">APEX ULTRA</div>
   <div class="ld-sub">∞ NEXUS ENGINE v3.0 — OMNI SNIPER</div>
@@ -751,52 +755,86 @@ const M={
 };
 
 // ─── REAL MARKET DATA ENGINE ─────────────────────────────────────────────────
-const BINANCE_SYM={BTCUSD:'BTCUSDT',ETHUSD:'ETHUSDT',SOLUSD:'SOLUSDT',BNBUSD:'BNBUSDT',XRPUSD:'XRPUSDT',ADAUSD:'ADAUSDT',AVAXUSD:'AVAXUSDT',DOTUSD:'DOTUSDT',LINKUSD:'LINKUSDT',LTCUSD:'LTCUSDT',UNIUSD:'UNIUSDT'};
-const YAHOO_SYM={AAPL:'AAPL',TSLA:'TSLA',NVDA:'NVDA',MSFT:'MSFT',AMZN:'AMZN',GOOGL:'GOOGL',META:'META',SPXUSD:'%5EGSPC',NASUSD:'%5EIXIC',EURUSD:'EURUSD%3DX',GBPUSD:'GBPUSD%3DX',JPYUSD:'JPYUSD%3DX',GLDUSD:'GC%3DF',WTIUSD:'CL%3DF'};
-const TF_BINANCE={'1M':'1m','3M':'3m','5M':'5m','15M':'15m','30M':'30m','1H':'1h','4H':'4h','D':'1d'};
-const TF_YAHOO={'1M':'2m','3M':'5m','5M':'5m','15M':'15m','30M':'30m','1H':'60m','4H':'60m','D':'1d'};
-const TF_YAHOO_RANGE={'1M':'1d','3M':'1d','5M':'1d','15M':'5d','30M':'5d','1H':'5d','4H':'60d','D':'6mo'};
+// ─── REAL MARKET DATA ENGINE ─────────────────────────────────────────────────
+// Source: Alpaca Data API (requires connected keys) — the only reliable
+// browser-accessible source for full OHLCV bars for both crypto and stocks.
+// Fallback: simulated data clearly labeled as DEMO so you always know what you're looking at.
+
 const DATA_CACHE={};
 const FETCH_QUEUE=new Set();
 
-async function fetchBinanceCandles(pair,tf){
-  const sym=BINANCE_SYM[pair];if(!sym)return null;
-  const url='https://api.binance.com/api/v3/klines?symbol='+sym+'&interval='+(TF_BINANCE[tf]||'15m')+'&limit=300';
-  try{
-    const r=await fetch(url);if(!r.ok)return null;
-    const data=await r.json();if(!Array.isArray(data)||data.length<20)return null;
-    return data.map(k=>({t:k[0],o:parseFloat(k[1]),h:parseFloat(k[2]),l:parseFloat(k[3]),c:parseFloat(k[4]),v:parseFloat(k[5])}));
-  }catch(e){return null;}
+// Alpaca timeframe map
+const TF_ALPACA={'1M':'1Min','3M':'3Min','5M':'5Min','15M':'15Min','30M':'30Min','1H':'1Hour','4H':'4Hour','D':'1Day'};
+
+// Which Alpaca data endpoint to use per asset type
+function alpacaDataBase(pair){
+  const cat=PAIRS[pair]?.cat;
+  // crypto uses broker data endpoint, stocks use market data endpoint
+  if(cat==='crypto') return 'https://data.alpaca.markets';
+  return 'https://data.alpaca.markets';
+}
+function alpacaDataPath(pair,tf){
+  const cat=PAIRS[pair]?.cat;
+  const tfStr=TF_ALPACA[tf]||'15Min';
+  const limit=300;
+  if(cat==='crypto'){
+    // Alpaca crypto symbol format: BTC/USD
+    const sym=pair.replace('USD','/USD');
+    return '/v1beta3/crypto/us/bars?symbols='+encodeURIComponent(sym)+'&timeframe='+tfStr+'&limit='+limit+'&sort=asc';
+  }
+  // Stocks/ETFs
+  return '/v2/stocks/'+pair+'/bars?timeframe='+tfStr+'&limit='+limit+'&adjustment=raw&feed=iex&sort=asc';
 }
 
-async function fetchYahooCandles(pair,tf){
-  const sym=YAHOO_SYM[pair];if(!sym)return null;
-  const interval=TF_YAHOO[tf]||'15m';
-  const range=TF_YAHOO_RANGE[tf]||'5d';
-  const url='https://query1.finance.yahoo.com/v8/finance/chart/'+sym+'?interval='+interval+'&range='+range+'&includePrePost=false';
+async function fetchAlpacaBars(pair,tf){
+  const alp=ST.alpaca;
+  if(!alp.connected||!alp.key||!alp.secret) return null;
+  const base=alpacaDataBase(pair);
+  const path=alpacaDataPath(pair,tf);
   try{
-    const r=await fetch(url,{headers:{accept:'application/json'}});if(!r.ok)return null;
+    const r=await fetch(base+path,{headers:{'APCA-API-KEY-ID':alp.key,'APCA-API-SECRET-KEY':alp.secret,'accept':'application/json'}});
+    if(!r.ok) return null;
     const json=await r.json();
-    const res=json?.chart?.result?.[0];if(!res)return null;
-    const ts=res.timestamp||[],q=res.indicators?.quote?.[0]||{};
-    const opens=q.open||[],highs=q.high||[],lows=q.low||[],closes=q.close||[],vols=q.volume||[];
-    const candles=[];
-    for(let i=0;i<ts.length;i++){if(closes[i]==null)continue;candles.push({t:ts[i]*1000,o:opens[i]||closes[i],h:highs[i]||closes[i],l:lows[i]||closes[i],c:closes[i],v:vols[i]||0});}
-    return candles.length>=20?candles:null;
-  }catch(e){return null;}
+    const cat=PAIRS[pair]?.cat;
+    let bars=[];
+    if(cat==='crypto'){
+      const sym=pair.replace('USD','/USD');
+      bars=(json.bars&&json.bars[sym])||[];
+    } else {
+      bars=json.bars||[];
+    }
+    if(!bars.length) return null;
+    return bars.map(b=>({
+      t: new Date(b.t).getTime(),
+      o: b.o, h: b.h, l: b.l, c: b.c, v: b.v||0
+    }));
+  }catch(e){ return null; }
+}
+
+// Simulate realistic candles from a starting price — used in DEMO mode
+// Clearly labeled so users know this is not real data
+function generateFallback(pair,n=300){
+  const cfg=PAIRS[pair];if(!cfg)return[];
+  let price=PAIRS[pair].base,candles=[],now=Date.now(),ms=(TF_MIN[ST.tf]||15)*60000,trend=0,tLen=0;
+  for(let i=n;i>=0;i--){
+    if(tLen<=0){trend=(Math.random()-.47)*cfg.vol*2;tLen=Math.floor(Math.random()*25)+5;}
+    tLen--;
+    const v=cfg.vol*(0.4+Math.random()*1.6),o=price,c=o*(1+trend+(Math.random()-.5)*v);
+    candles.push({t:now-i*ms,o,h:Math.max(o,c)*(1+Math.random()*v*.5),l:Math.min(o,c)*(1-Math.random()*v*.5),c,v:Math.floor(1e5+Math.random()*9e5),demo:true});
+    price=c;
+  }
+  ST.prices[pair]=price; return candles;
 }
 
 async function fetchRealCandles(pair,tf){
   const key=pair+'_'+tf;
   const cached=DATA_CACHE[key];
-  const maxAge=BINANCE_SYM[pair]?30000:60000;
-  if(cached&&Date.now()-cached.ts<maxAge)return cached.candles;
-  if(FETCH_QUEUE.has(key))return cached?.candles||null;
+  const maxAge=60000; // 1 min cache
+  if(cached&&Date.now()-cached.ts<maxAge) return cached.candles;
+  if(FETCH_QUEUE.has(key)) return cached?.candles||null;
   FETCH_QUEUE.add(key);
   try{
-    let candles=null;
-    if(BINANCE_SYM[pair])candles=await fetchBinanceCandles(pair,tf);
-    if(!candles&&YAHOO_SYM[pair])candles=await fetchYahooCandles(pair,tf);
+    const candles=await fetchAlpacaBars(pair,tf);
     if(candles&&candles.length>=20){
       DATA_CACHE[key]={candles,ts:Date.now()};
       const last=candles[candles.length-1];
@@ -804,6 +842,8 @@ async function fetchRealCandles(pair,tf){
       if(!ST.priceHistory[pair])ST.priceHistory[pair]=[];
       ST.priceHistory[pair].push(last.c);
       if(ST.priceHistory[pair].length>500)ST.priceHistory[pair].shift();
+      // Mark data as real
+      ST.dataMode=ST.dataMode||{};ST.dataMode[pair]='live';
       return candles;
     }
   }catch(e){}finally{FETCH_QUEUE.delete(key);}
@@ -811,28 +851,41 @@ async function fetchRealCandles(pair,tf){
 }
 
 async function refreshAllData(){
+  if(!ST.alpaca.connected){
+    // Not connected — use fallback for all and show DEMO banner
+    PAIR_KEYS.forEach(p=>{if(!ST.candles[p]||ST.candles[p].length<20){ST.candles[p]=generateFallback(p);ST.dataMode=ST.dataMode||{};ST.dataMode[p]='demo';}});
+    setDemoMode(true);
+    return;
+  }
+  setDemoMode(false);
   const tf=ST.tf;
+  // Fetch current pair first for instant chart update
   const cur=await fetchRealCandles(ST.pair,tf);
-  if(cur)ST.candles[ST.pair]=cur;
+  if(cur) ST.candles[ST.pair]=cur;
+  else if(!ST.candles[ST.pair]||ST.candles[ST.pair].length<20){ST.candles[ST.pair]=generateFallback(ST.pair);ST.dataMode[ST.pair]='demo';}
+  // Stagger all other pairs to avoid rate limits
   PAIR_KEYS.forEach((p,i)=>{
     if(p===ST.pair)return;
-    setTimeout(async()=>{const c=await fetchRealCandles(p,tf);if(c){ST.candles[p]=c;calcIndicators(p);ST.sig[p]=evalSignal(p);}},i*350);
+    setTimeout(async()=>{
+      const c=await fetchRealCandles(p,tf);
+      if(c){ST.candles[p]=c;calcIndicators(p);ST.sig[p]=evalSignal(p);}
+      else if(!ST.candles[p]||ST.candles[p].length<20){ST.candles[p]=generateFallback(p);if(!ST.dataMode)ST.dataMode={};ST.dataMode[p]='demo';}
+    },i*500);
   });
 }
 
-function generateFallback(pair,n=300){
-  const cfg=PAIRS[pair];if(!cfg)return[];
-  let price=PAIRS[pair].base,candles=[],now=Date.now(),ms=(TF_MIN[ST.tf]||15)*60000,trend=0,tLen=0;
-  for(let i=n;i>=0;i--){if(tLen<=0){trend=(Math.random()-.47)*cfg.vol*2;tLen=Math.floor(Math.random()*25)+5;}tLen--;const v=cfg.vol*(0.4+Math.random()*1.6),o=price,c=o*(1+trend+(Math.random()-.5)*v);candles.push({t:now-i*ms,o,h:Math.max(o,c)*(1+Math.random()*v*.5),l:Math.min(o,c)*(1-Math.random()*v*.5),c,v:Math.floor(1e5+Math.random()*9e5)});price=c;}
-  ST.prices[pair]=price;return candles;
+function setDemoMode(on){
+  const el=document.getElementById('demoBanner');
+  if(el)el.style.display=on?'flex':'none';
 }
 
 function tickCandle(pair){
   const cs=ST.candles[pair];if(!cs||cs.length<2)return;
+  // Only simulate ticks if data is stale (>20s) or in demo mode
   const key=pair+'_'+ST.tf,age=DATA_CACHE[key]?Date.now()-DATA_CACHE[key].ts:999999;
-  if(age<8000)return;
+  if(age<20000&&ST.alpaca.connected)return;
   const cfg=PAIRS[pair],last=cs[cs.length-1],prev=cs[cs.length-2];
-  last.c=last.c*(1+(last.c-prev.c)/prev.c*.05+(Math.random()-.49)*cfg.vol*.12);
+  last.c=last.c*(1+(last.c-prev.c)/prev.c*.04+(Math.random()-.49)*cfg.vol*.10);
   last.h=Math.max(last.h,last.c);last.l=Math.min(last.l,last.c);last.v+=Math.floor(Math.random()*200);
   ST.prices[pair]=last.c;
   if(!ST.priceHistory[pair])ST.priceHistory[pair]=[];
@@ -1748,16 +1801,11 @@ function mainLoop(){
 document.addEventListener('DOMContentLoaded',()=>{
   animLoader();
   // Pre-generate all pairs
-  // Seed prices, then fetch real data
-  PAIR_KEYS.forEach(p=>{ST.prices[p]=PAIRS[p].base;ST.candles[p]=[];});
-  refreshAllData().then(()=>{
-    PAIR_KEYS.forEach(p=>{if(ST.candles[p]&&ST.candles[p].length>20){calcIndicators(p);ST.sig[p]=evalSignal(p);}});
-    toast('\ud83d\udce1 Real market data loaded','success',3000);
-  }).catch(()=>{
-    PAIR_KEYS.forEach(p=>{if(!ST.candles[p]||ST.candles[p].length<20)ST.candles[p]=generateFallback(p);});
-    PAIR_KEYS.forEach(p=>{calcIndicators(p);ST.sig[p]=evalSignal(p);});
-    toast('Using simulated data (network unavailable)','warn',5000);
-  });
+  // Start in demo mode with simulated data — real data loads after Alpaca connect
+  ST.dataMode={};
+  PAIR_KEYS.forEach(p=>{ST.prices[p]=PAIRS[p].base;ST.candles[p]=generateFallback(p);ST.dataMode[p]='demo';});
+  PAIR_KEYS.forEach(p=>{calcIndicators(p);ST.sig[p]=evalSignal(p);});
+  setDemoMode(true);
   initChartEvents();initMatrix();buildHeaderPairs();
 
   // Delegate button events
@@ -1786,10 +1834,16 @@ document.addEventListener('DOMContentLoaded',()=>{
     try{
       const result=await connectAlpaca(key,sec,ST.alpaca.mode);
       if(result.ok){
-        const acc=result.account;const dm=(result.detectedMode||ST.alpaca.mode).toUpperCase();ms.style.color='#00ff9d';ms.textContent=`✓ Connected (${dm})! Equity: $${parseFloat(acc.equity||0).toLocaleString()}`;
+        const acc=result.account;const dm=(result.detectedMode||ST.alpaca.mode).toUpperCase();ms.style.color='#00ff9d';ms.textContent=`✓ Connected (${dm})! Loading real market data...`;
         ($('apiKey')).value=key;($('apiSec')).value='••••••••';
-        updateAlpacaPanel();toast('Alpaca '+ST.alpaca.mode.toUpperCase()+' connected!','success',5000);
-        setTimeout(closeAlpacaModal,1800);
+        updateAlpacaPanel();toast('Alpaca '+dm+' connected — fetching real data...','success',4000);
+        setDemoMode(false);
+        Object.keys(DATA_CACHE).forEach(k=>delete DATA_CACHE[k]); // clear cache to force fresh fetch
+        refreshAllData().then(()=>{
+          PAIR_KEYS.forEach(p=>{if(ST.candles[p]&&ST.candles[p].length>20){calcIndicators(p);ST.sig[p]=evalSignal(p);}});
+          toast('Real market data loaded','success',3000);
+        });
+        setTimeout(closeAlpacaModal,1200);
       }else{ms.style.color='#ff2d55';ms.textContent='✗ Connection failed — verify keys on alpaca.markets and ensure correct mode (paper/live)';$('modalKey').classList.add('error');$('modalSec').classList.add('error');setTimeout(()=>{$('modalKey').classList.remove('error');$('modalSec').classList.remove('error');},800);}
     }catch(e){ms.style.color='#ff2d55';ms.textContent='✗ '+( e.message.includes('fetch')||e.message.includes('Failed')?'Network error — check CORS or try a different browser':e.message );}
     btn.disabled=false;
@@ -1802,7 +1856,13 @@ document.addEventListener('DOMContentLoaded',()=>{
     if(ST.alpaca.connected){// Disconnect
       ST.alpaca={...ST.alpaca,connected:false,key:'',secret:'',account:null,positions:[]};
       btn.textContent='▶ CONNECT TO ALPACA';btn.classList.remove('conn');
-      $('btnDisconn').style.display='none';updateAlpacaPanel();toast('Disconnected','warn');return;}
+      $('btnDisconn').style.display='none';
+      // Revert to demo data
+      Object.keys(DATA_CACHE).forEach(k=>delete DATA_CACHE[k]);
+      PAIR_KEYS.forEach(p=>{ST.candles[p]=generateFallback(p);ST.dataMode[p]='demo';});
+      PAIR_KEYS.forEach(p=>{calcIndicators(p);ST.sig[p]=evalSignal(p);});
+      setDemoMode(true);
+      updateAlpacaPanel();toast('Disconnected — reverted to demo data','warn');return;}
     if(!key||!sec){toast('Enter API Key and Secret first','error');$('apiKey').classList.add('error');setTimeout(()=>$('apiKey').classList.remove('error'),500);return;}
     btn.textContent='⏳ CONNECTING...';btn.disabled=true;
     if(st){st.textContent='Connecting...';st.className='alp-api-st info';}
@@ -1810,8 +1870,15 @@ document.addEventListener('DOMContentLoaded',()=>{
       const result=await connectAlpaca(key,sec,ST.alpaca.mode==='live'?'live':'paper');
       if(result.ok){
         btn.textContent='■ DISCONNECT';btn.classList.add('conn');btn.disabled=false;$('btnDisconn').style.display='block';
-        if(st){st.textContent='CONNECTED — AUTO-EXECUTE '+(ST.autoExec?'ON':'OFF');st.className='alp-api-st ok';}
-        updateAlpacaPanel();toast('Alpaca connected successfully!','success',5000);
+        if(st){st.textContent='CONNECTED — LOADING REAL DATA...';st.className='alp-api-st ok';}
+        updateAlpacaPanel();toast('Connected — fetching real market data...','success',4000);
+        setDemoMode(false);
+        Object.keys(DATA_CACHE).forEach(k=>delete DATA_CACHE[k]);
+        refreshAllData().then(()=>{
+          PAIR_KEYS.forEach(p=>{if(ST.candles[p]&&ST.candles[p].length>20){calcIndicators(p);ST.sig[p]=evalSignal(p);}});
+          if(st)st.textContent='CONNECTED — REAL DATA LIVE';
+          toast('Real market data loaded','success',3000);
+        });
       }else{
         btn.textContent='▶ CONNECT TO ALPACA';btn.disabled=false;
         if(st){st.textContent='CONNECTION FAILED — CHECK KEYS';st.className='alp-api-st err';}

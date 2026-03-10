@@ -1,220 +1,243 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>APEX ULTRA — OMNI SNIPER TERMINAL</title>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Orbitron:wght@500;700;900&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">
-<style>
-:root{
-  --bg0:#010306;--bg1:#030810;--bg2:#050c18;--bg3:#081222;
-  --c:#00e5ff;--g:#00ff9d;--r:#ff2d55;--y:#ffd60a;--pu:#bf40ff;
-  --t0:#ddeeff;--t1:#99bbcc;--t3:#2a4455;
-  --glow-c:0 0 15px rgba(0,229,255,0.6);
-  --font-mono:'JetBrains Mono',monospace;
-  --font-disp:'Orbitron',sans-serif;
-  --font-data:'Rajdhani',sans-serif;
-}
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1.0">
+    <title>APEX ULTRA — Trading Terminal</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Orbitron:wght@500;700;900&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* [Internal CSS - Included original variables and core layout] */
+        :root{
+          --bg0:#010306;--bg1:#030810;--bg2:#050c18;--bg3:#081222;--bg4:#0c1830;--bg5:#101e38;
+          --c:#00e5ff;--c1:#00c8e0;--c2:#0099aa;--c3:#006677;--c4:#003344;
+          --g:#00ff9d;--g1:#00e088;--g2:#00b86e;--g3:#007748;--g4:#002211;
+          --r:#ff2d55;--r1:#dd1144;--r2:#990033;
+          --y:#ffd60a;--y1:#e0b800;--y2:#aa8800;
+          --t0:#ddeeff;--t1:#99bbcc;--t2:#558899;--t3:#2a4455;--t4:#142233;
+          --glow-c:0 0 12px rgba(0,229,255,.5);
+          --font-mono:'JetBrains Mono',monospace;
+          --font-disp:'Orbitron',sans-serif;
+          --font-data:'Rajdhani',sans-serif;
+          --lp:188px;--rp:272px;--hdr:50px;--sig:26px;--osc:106px;
+        }
+        *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+        body{background:var(--bg0);color:var(--t0);font-family:var(--font-mono);font-size:11px;height:100vh;overflow:hidden;display:flex;flex-direction:column;}
+        
+        #hdr{height:var(--hdr);background:var(--bg1);border-bottom:1px solid var(--c4);display:flex;align-items:center;padding:0 15px;justify-content:space-between;z-index:100;}
+        .logo-txt{font-family:var(--font-disp);font-size:18px;color:var(--c);letter-spacing:4px;text-shadow:var(--glow-c)}
+        
+        #main{display:flex;flex:1;overflow:hidden;}
+        #lp{width:var(--lp);background:var(--bg1);border-right:1px solid var(--bg3);display:flex;flex-direction:column;}
+        #center{flex:1;display:flex;flex-direction:column;background:var(--bg0);position:relative;}
+        #rp{width:var(--rp);background:var(--bg1);border-left:1px solid var(--bg3);padding:10px;}
 
-/* GLOBAL RESET & ANIMATIONS */
-*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
-body { 
-  background: var(--bg0); color: var(--t0); font-family: var(--font-mono); 
-  margin: 0; overflow: hidden; height: 100vh; display: flex; flex-direction: column;
-}
+        /* Scrollbars */
+        ::-webkit-scrollbar{width:4px;height:4px;}
+        ::-webkit-scrollbar-thumb{background:var(--c3);}
 
-@keyframes scanline { 0% { transform: translateY(-100%); } 100% { transform: translateY(100%); } }
-@keyframes neonPulse { from { filter: brightness(1); } to { filter: brightness(1.5) drop-shadow(0 0 5px var(--c)); } }
+        .wl-item{padding:8px 12px;border-bottom:1px solid var(--bg3);cursor:pointer;transition:0.2s;}
+        .wl-item:hover{background:var(--bg4);}
+        .wl-item.active{border-left:3px solid var(--c);background:var(--bg5);}
+        
+        .live-price{font-family:var(--font-disp);font-size:20px;font-weight:700;}
+        .up{color:var(--g) !important;}
+        .dn{color:var(--r) !important;}
 
-/* SCANLINE OVERLAY */
-body::after {
-  content: ""; position: absolute; inset: 0; pointer-events: none;
-  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
-  z-index: 1000; background-size: 100% 2px, 3px 100%;
-}
-
-/* HEADER */
-#hdr {
-  height: 50px; background: var(--bg1); border-bottom: 1px solid rgba(0,229,255,0.2);
-  display: flex; align-items: center; padding: 0 20px; justify-content: space-between;
-}
-.logo { font-family: var(--font-disp); font-size: 18px; letter-spacing: 4px; color: var(--c); text-shadow: var(--glow-c); }
-
-/* MAIN TERMINAL LAYOUT */
-#main { display: flex; flex: 1; overflow: hidden; }
-#lp { width: 220px; background: var(--bg1); border-right: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; }
-#center { flex: 1; display: flex; flex-direction: column; background: #010409; }
-#rp { width: 300px; background: var(--bg1); border-left: 1px solid rgba(255,255,255,0.05); padding: 15px; }
-
-/* OMNI SNIPER UI */
-.sniper-panel { background: rgba(0,229,255,0.03); border: 1px solid rgba(0,229,255,0.1); border-radius: 4px; padding: 12px; margin-bottom: 15px; }
-.sniper-title { font-family: var(--font-disp); font-size: 10px; color: var(--c); margin-bottom: 10px; display: flex; justify-content: space-between; }
-.badge { font-size: 8px; padding: 2px 6px; border-radius: 2px; text-transform: uppercase; border: 1px solid; }
-.badge.armed { color: var(--g); border-color: var(--g); background: rgba(0,255,157,0.15); animation: neonPulse 1s infinite alternate; }
-
-/* CANDLESTICK CANVAS */
-#cwrap { flex: 1; position: relative; }
-#candleCanvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; }
-
-/* STATS BAR */
-.stats-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
-.stat-box { background: var(--bg2); padding: 8px; border: 1px solid rgba(255,255,255,0.05); border-radius: 3px; }
-.stat-l { font-size: 8px; color: var(--t3); text-transform: uppercase; }
-.stat-v { font-family: var(--font-data); font-size: 14px; font-weight: bold; color: var(--t1); }
-</style>
+        #mainChart{width:100%;height:100%;}
+        .sh{background:var(--bg2);padding:5px 10px;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--t2);border-bottom:1px solid var(--bg3);}
+        
+        .kpi-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:10px;}
+        .kpi-box{background:var(--bg2);padding:10px;border:1px solid var(--bg4);border-radius:2px;}
+        .kpi-label{font-size:8px;color:var(--t3);}
+        .kpi-val{font-size:14px;font-family:var(--font-data);font-weight:700;}
+    </style>
 </head>
 <body>
 
 <header id="hdr">
-  <div class="logo">APEX ULTRA OMNI</div>
-  <div style="display:flex; gap:20px; align-items:center;">
-    <div id="ticker" style="font-family:var(--font-disp); color:var(--g)">BTC/USD $54,120.42</div>
-    <div id="ping-wrap" style="font-size:10px; color:var(--t3)">LATENCY: <span id="ping" style="color:var(--c)">12ms</span></div>
-  </div>
+    <div class="logo-zone">
+        <div class="logo-txt">APEX<span style="color:var(--t0)">ULTRA</span></div>
+    </div>
+    <div id="active-ticker-info" style="display:flex; gap:20px; align-items:center;">
+        <div id="cur-pair" style="font-family:var(--font-disp); color:var(--c)">BTC/USD</div>
+        <div id="cur-price" class="live-price">--.---</div>
+        <div id="cur-chg" class="price-chg">0.00%</div>
+    </div>
+    <div class="hdr-right">
+        <button class="connect-btn">NODE: ENCRYPTED</button>
+    </div>
 </header>
 
-<div id="main">
-  <aside id="lp">
-    <div style="padding:10px; font-size:10px; color:var(--t3); border-bottom:1px solid #111">TERMINAL WATCHLIST</div>
-    <div id="watchlist" style="flex:1; overflow-y:auto"></div>
-  </aside>
+<main id="main">
+    <aside id="lp">
+        <div class="sh">Market Watchlist</div>
+        <div id="watchlist" style="overflow-y:auto; flex:1;">
+            </div>
+    </aside>
 
-  <section id="center">
-    <div id="cwrap">
-      <canvas id="candleCanvas"></canvas>
-    </div>
-    <div style="height:30px; border-top:1px solid #111; display:flex; align-items:center; padding:0 15px; font-size:9px; color:var(--t3)">
-      VOL: 42.1B | RSI: 64.2 | MACD: <span style="color:var(--g)">+12.4</span>
-    </div>
-  </section>
+    <section id="center">
+        <div class="sh">Neural Engine Visualizer — <span id="chart-title">BTC/USD</span></div>
+        <canvas id="mainChart"></canvas>
+        <div id="oscp">
+            <div class="sh">Momentum Oscillator (RSI/MACD)</div>
+            <canvas id="oscCv"></canvas>
+        </div>
+    </section>
 
-  <aside id="rp">
-    <div class="sniper-panel">
-      <div class="sniper-title">
-        OMNI-SNIPER V4.0 
-        <span class="badge armed">Armed</span>
-      </div>
-      <div style="font-size:11px; margin-bottom:10px;">Execution Strategy: <span style="color:var(--y)">QUANTUM_HFT</span></div>
-      <div class="stats-row">
-        <div class="stat-box"><div class="stat-l">Balance</div><div class="stat-v">$142,500</div></div>
-        <div class="stat-box"><div class="stat-l">Open P&L</div><div class="stat-v" style="color:var(--g)">+$1,240</div></div>
-      </div>
-    </div>
-
-    <div style="font-size:10px; color:var(--t3); margin-bottom:10px;">SNIPER PARAMETERS</div>
-    <div style="display:flex; flex-direction:column; gap:8px;">
-      <label style="font-size:9px;">Sensitivity: <input type="range" style="width:100%"></label>
-      <label style="font-size:9px;">Auto-Exit TP%: <input type="range" style="width:100%"></label>
-    </div>
-
-    <div id="order-log" style="margin-top:20px; border-top:1px solid #222; padding-top:10px;">
-      <div style="font-size:9px; color:var(--t3)">LIVE SNIPER LOG:</div>
-      <div id="logs" style="font-size:8px; color:var(--t1); margin-top:5px; height:200px; overflow:hidden;"></div>
-    </div>
-  </aside>
-</div>
+    <aside id="rp">
+        <div class="sh">Execution Sniper</div>
+        <div class="kpi-grid">
+            <div class="kpi-box">
+                <div class="kpi-label">SIGNAL CONFIDENCE</div>
+                <div id="kpi-conf" class="kpi-val">84.2%</div>
+            </div>
+            <div class="kpi-box">
+                <div class="kpi-label">VOLATILITY (ATR)</div>
+                <div id="kpi-vol" class="kpi-val">0.42</div>
+            </div>
+        </div>
+        <div style="margin-top:20px;">
+            <div class="sh">AI Market Sentiment</div>
+            <div id="sentiment-bar" style="height:4px; background:var(--bg4); margin:10px 0; position:relative;">
+                <div id="sentiment-fill" style="position:absolute; height:100%; width:65%; background:var(--c); box-shadow:var(--glow-c);"></div>
+            </div>
+            <div style="display:flex; justify-content:space-between; font-size:8px; color:var(--t3);">
+                <span>BEARISH</span>
+                <span>BULLISH</span>
+            </div>
+        </div>
+    </aside>
+</main>
 
 <script>
-const canvas = document.getElementById('candleCanvas');
-const ctx = canvas.getContext('2d');
-const logEl = document.getElementById('logs');
-let width, height;
-let candles = [];
+/** * REAL DATA ENGINE
+ * Handles price simulation and prevents "Infinity" by ensuring 
+ * divisors are never 0 and data arrays are pre-filled.
+ */
+const DATA_CONFIG = {
+    symbols: [
+        { id: 'BTC', name: 'Bitcoin', price: 64230.50, vol: '2.4B', type: 'crypto' },
+        { id: 'ETH', name: 'Ethereum', price: 3450.25, vol: '1.1B', type: 'crypto' },
+        { id: 'TSLA', name: 'Tesla Inc', price: 175.40, vol: '800M', type: 'stock' },
+        { id: 'NVDA', name: 'Nvidia', price: 890.10, vol: '1.5B', type: 'stock' },
+        { id: 'XAU', name: 'Gold', price: 2160.40, vol: '400M', type: 'comm' }
+    ],
+    historySize: 100
+};
 
-// CANDLESTICK INITIALIZATION
-function initData() {
-    let lastClose = 54000;
-    for(let i=0; i<80; i++) {
-        let open = lastClose;
-        let close = open + (Math.random() - 0.5) * 300;
-        let high = Math.max(open, close) + Math.random() * 80;
-        let low = Math.min(open, close) - Math.random() * 80;
-        candles.push({open, high, low, close});
-        lastClose = close;
+let activeSymbol = DATA_CONFIG.symbols[0];
+let priceHistory = Array.from({length: DATA_CONFIG.historySize}, () => activeSymbol.price + (Math.random() - 0.5) * 100);
+
+const UI = {
+    price: document.getElementById('cur-price'),
+    chg: document.getElementById('cur-chg'),
+    ticker: document.getElementById('cur-pair'),
+    watchlist: document.getElementById('watchlist'),
+    chartTitle: document.getElementById('chart-title')
+};
+
+// Update Watchlist
+function renderWatchlist() {
+    UI.watchlist.innerHTML = DATA_CONFIG.symbols.map(s => `
+        <div class="wl-item ${s.id === activeSymbol.id ? 'active' : ''}" onclick="switchSymbol('${s.id}')">
+            <div style="display:flex; justify-content:space-between;">
+                <span style="font-weight:bold;">${s.id}</span>
+                <span id="wl-p-${s.id}">$${s.price.toLocaleString()}</span>
+            </div>
+            <div style="font-size:8px; color:var(--t3);">${s.name}</div>
+        </div>
+    `).join('');
+}
+
+function switchSymbol(id) {
+    activeSymbol = DATA_CONFIG.symbols.find(s => s.id === id);
+    priceHistory = Array.from({length: DATA_CONFIG.historySize}, () => activeSymbol.price);
+    UI.ticker.innerText = `${activeSymbol.id}/USD`;
+    UI.chartTitle.innerText = `${activeSymbol.id}/USD`;
+    renderWatchlist();
+}
+
+// Fixed Indicator Engine
+function getRSI(prices) {
+    if (prices.length < 14) return 50;
+    let gains = 0, losses = 0;
+    for (let i = prices.length - 14; i < prices.length; i++) {
+        let diff = prices[i] - prices[i-1];
+        diff >= 0 ? gains += diff : losses -= diff;
     }
+    if (losses === 0) return 100; // Fix Infinity
+    let rs = (gains / 14) / (losses / 14);
+    return 100 - (100 / (1 + rs));
 }
 
-function resize() {
-    width = canvas.width = canvas.parentElement.offsetWidth;
-    height = canvas.height = canvas.parentElement.offsetHeight;
-    render();
-}
+// Charting Logic
+const canvas = document.getElementById('mainChart');
+const ctx = canvas.getContext('2d');
 
-function render() {
-    ctx.clearRect(0, 0, width, height);
+function drawChart() {
+    canvas.width = canvas.offsetWidth;
+    canvas.height = canvas.offsetHeight;
     
-    // Grid Lines
-    ctx.strokeStyle = 'rgba(0, 229, 255, 0.05)';
+    const padding = 40;
+    const width = canvas.width - padding * 2;
+    const height = canvas.height - padding * 2;
+    
+    const min = Math.min(...priceHistory) * 0.999;
+    const max = Math.max(...priceHistory) * 1.001;
+    const range = (max - min) || 1; // Prevent Infinity
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Grid
+    ctx.strokeStyle = '#0c1830';
     ctx.lineWidth = 1;
-    for(let i=0; i<height; i+=40) { ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(width, i); ctx.stroke(); }
-
-    const candleWidth = (width / candles.length) * 0.8;
-    const spacing = (width / candles.length);
-    const scale = 2; // Price scaling factor
-
-    candles.forEach((c, i) => {
-        const x = i * spacing;
-        const isBull = c.close >= c.open;
-        const color = isBull ? '#00ff9d' : '#ff2d55';
-        
-        ctx.strokeStyle = color;
-        ctx.fillStyle = color;
-        
-        // Draw Wick
+    for(let i=0; i<=4; i++){
+        let y = padding + (height/4) * i;
         ctx.beginPath();
-        ctx.moveTo(x + candleWidth/2, height - (c.high - 53000) * scale);
-        ctx.lineTo(x + candleWidth/2, height - (c.low - 53000) * scale);
+        ctx.moveTo(padding, y); ctx.lineTo(canvas.width - padding, y);
         ctx.stroke();
-        
-        // Draw Body
-        const bodyTop = height - (Math.max(c.open, c.close) - 53000) * scale;
-        const bodyHeight = Math.max(1, Math.abs(c.open - c.close) * scale);
-        
-        if (isBull) {
-            ctx.globalAlpha = 0.3;
-            ctx.fillRect(x, bodyTop, candleWidth, bodyHeight);
-            ctx.globalAlpha = 1.0;
-            ctx.strokeRect(x, bodyTop, candleWidth, bodyHeight);
-        } else {
-            ctx.fillRect(x, bodyTop, candleWidth, bodyHeight);
-        }
+    }
+
+    // Line
+    ctx.beginPath();
+    ctx.strokeStyle = varToHex('--c');
+    ctx.lineWidth = 2;
+    priceHistory.forEach((p, i) => {
+        let x = padding + (width / (DATA_CONFIG.historySize - 1)) * i;
+        let y = padding + height - ((p - min) / range) * height;
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
     });
+    ctx.stroke();
 }
 
-// OMNI SNIPER EXECUTION ENGINE
-function startSniperEngine() {
-    setInterval(() => {
-        // Update Price
-        const last = candles[candles.length - 1];
-        const move = (Math.random() - 0.5) * 40;
-        last.close += move;
-        if(last.close > last.high) last.high = last.close;
-        if(last.close < last.low) last.low = last.close;
-
-        // UI Updates
-        document.getElementById('ticker').innerText = `BTC/USD $${last.close.toFixed(2)}`;
-        document.getElementById('ping').innerText = `${Math.floor(Math.random()*8 + 4)}ms`;
-        
-        // Random "Snipe" Log
-        if(Math.random() > 0.98) {
-            const entry = last.close.toFixed(2);
-            const side = Math.random() > 0.5 ? 'BUY' : 'SELL';
-            const logColor = side === 'BUY' ? 'var(--g)' : 'var(--r)';
-            const entryLog = document.createElement('div');
-            entryLog.innerHTML = `[${new Date().toLocaleTimeString()}] <span style="color:${logColor}">${side} EXECUTED</span> @ $${entry}`;
-            logEl.prepend(entryLog);
-        }
-
-        render();
-    }, 100);
+function varToHex(varName) {
+    return getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
 }
 
-// START TERMINAL
-window.addEventListener('resize', resize);
-initData();
-resize();
-startSniperEngine();
+// Main Loop
+setInterval(() => {
+    // Simulate Price
+    const volatility = activeSymbol.price * 0.0005;
+    const change = (Math.random() - 0.5) * volatility;
+    activeSymbol.price += change;
+    
+    priceHistory.push(activeSymbol.price);
+    priceHistory.shift();
 
+    // Update UI
+    UI.price.innerText = activeSymbol.price.toFixed(2);
+    UI.price.className = `live-price ${change >= 0 ? 'up' : 'dn'}`;
+    
+    const rsi = getRSI(priceHistory);
+    document.getElementById('kpi-conf').innerText = rsi.toFixed(1) + '%';
+    document.getElementById('sentiment-fill').style.width = rsi + '%';
+    
+    drawChart();
+}, 200);
+
+// Init
+renderWatchlist();
+window.addEventListener('resize', drawChart);
 </script>
 </body>
 </html>

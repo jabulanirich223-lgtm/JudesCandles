@@ -749,6 +749,48 @@ const ST={
 
 // ── BINANCE WS ────────────────────────────────────────────────────────────────
 let _bnWS=null,_bnWSPending=false;
+
+// ── BINANCE HISTORICAL KLINE SEEDING ─────────────────────────────────────────
+// Fetches real OHLCV history from Binance REST for all crypto pairs.
+// Called once when WS connects so chart history is real, not simulated.
+async function seedBinanceKlines(){
+  const interval=TF_BINANCE[ST.tf]||'15m';
+  const fetches=Object.entries(BINANCE_SYM).map(async([pair,sym])=>{
+    try{
+      const url='https://api.binance.com/api/v3/klines?symbol='+sym
+        +'&interval='+interval+'&limit=300';
+      const r=await fetch(url,{headers:{accept:'application/json'}});
+      if(!r.ok)return;
+      const data=await r.json();
+      if(!Array.isArray(data)||data.length<10)return;
+      const bars=data.map(k=>({
+        t:k[0],           // open time ms
+        o:parseFloat(k[1]),
+        h:parseFloat(k[2]),
+        l:parseFloat(k[3]),
+        c:parseFloat(k[4]),
+        v:parseFloat(k[5])
+      }));
+      // Validate: all OHLCV must be positive finite numbers
+      const valid=bars.every(b=>b.o>0&&b.h>0&&b.l>0&&b.c>0&&
+                                 b.h>=b.l&&b.h>=b.o&&b.h>=b.c&&
+                                 b.l<=b.o&&b.l<=b.c);
+      if(!valid)return;
+      ST.candles[pair]=bars;
+      const last=bars[bars.length-1];
+      ST.prices[pair]=last.c;
+      ST.sessionOpen[pair]=bars[0].o;
+      if(!ST.priceHistory[pair])ST.priceHistory[pair]=[];
+      ST.priceHistory[pair].push(last.c);
+      ST.dataMode[pair]='binance-live';
+      console.log('[Binance REST] Seeded',pair,bars.length,'bars @',interval);
+    }catch(e){
+      console.warn('[Binance REST] Failed',pair,e.message);
+    }
+  });
+  await Promise.all(fetches);
+}
+
 function connectBinanceWS(){
   if(_bnWS||_bnWSPending)return;_bnWSPending=true;
   const interval=TF_BINANCE[ST.tf]||'15m';
@@ -761,7 +803,7 @@ function connectBinanceWS(){
     try{
       const ws=new WebSocket(urls[ui]);let opened=false;
       const timer=setTimeout(()=>{if(!opened){try{ws.close();}catch(_){}ui++;tryConnect();}},5000);
-      ws.onopen=()=>{opened=true;clearTimeout(timer);_bnWS=ws;_bnWSPending=false;setDataBanner();toast('Binance live connected','info',3000);};
+      ws.onopen=()=>{opened=true;clearTimeout(timer);_bnWS=ws;_bnWSPending=false;setDataBanner();toast('Binance live — fetching history...','info',3000);seedBinanceKlines().then(()=>toast('Binance history loaded','info',2500));};
       ws.onmessage=e=>{
         try{const msg=JSON.parse(e.data);const d=msg.data;if(!d)return;
           if(d.e==='24hrMiniTicker'){const pair=Object.keys(BINANCE_SYM).find(k=>BINANCE_SYM[k]===d.s);if(!pair)return;const price=parseFloat(d.c);if(!price||price<=0)return;ST.prices[pair]=price;if(!ST.priceHistory[pair])ST.priceHistory[pair]=[];ST.priceHistory[pair].push(price);if(ST.priceHistory[pair].length>500)ST.priceHistory[pair].shift();const cs=ST.candles[pair];if(cs&&cs.length){const lc=cs[cs.length-1];lc.c=price;lc.h=Math.max(lc.h,price);lc.l=Math.min(lc.l,price);}ST.dataMode[pair]='binance-live';}
@@ -783,7 +825,24 @@ async function fetchRealCandles(pair,tf){
     let bars=null;
     if(CRYPTO_PAIRS.has(pair))bars=await fetchAlpacaCryptoBars(pair,tf);
     else if(STOCK_PAIRS.has(pair))bars=await fetchAlpacaStockBars(pair,tf);
-    if(bars&&bars.length>=20){ST.candles[pair]=bars;const last=bars[bars.length-1];ST.prices[pair]=last.c;if(!ST.priceHistory[pair])ST.priceHistory[pair]=[];ST.priceHistory[pair].push(last.c);if(ST.priceHistory[pair].length>500)ST.priceHistory[pair].shift();ST.dataMode[pair]='alpaca';return bars;}
+    if(!bars||bars.length<20)return null;
+    // Validate: reject bars with NaN/zero OHLCV or impossible geometry
+    const valid=bars.every(b=>
+      b.o>0&&b.h>0&&b.l>0&&b.c>0&&
+      isFinite(b.o)&&isFinite(b.h)&&isFinite(b.l)&&isFinite(b.c)&&
+      b.h>=b.l&&b.h>=b.o&&b.h>=b.c&&b.l<=b.o&&b.l<=b.c&&
+      b.h/b.l<1.5  // reject any bar with >50% range (data error)
+    );
+    if(!valid){console.warn('[Alpaca candles] Invalid bars for',pair);return null;}
+    ST.candles[pair]=bars;
+    const last=bars[bars.length-1];
+    ST.prices[pair]=last.c;
+    ST.sessionOpen[pair]=bars[0].o;
+    if(!ST.priceHistory[pair])ST.priceHistory[pair]=[];
+    ST.priceHistory[pair].push(last.c);
+    if(ST.priceHistory[pair].length>500)ST.priceHistory[pair].shift();
+    ST.dataMode[pair]='alpaca';
+    return bars;
   }catch(e){console.log('[Alpaca candles]',pair,e.message);}
   return null;
 }
@@ -800,7 +859,7 @@ async function fetchAlpacaCryptoBars(pair,tf){
 }
 async function fetchAlpacaStockBars(pair,tf){
   const alp=ST.alpaca;
-  const url='https://data.alpaca.markets/v2/stocks/'+pair+'/bars?timeframe='+(TF_ALPACA[tf]||'15Min')+'&limit=300&adjustment=raw&feed=iex&sort=asc';
+  const url='https://data.alpaca.markets/v2/stocks/'+pair+'/bars?timeframe='+(TF_ALPACA[tf]||'15Min')+'&limit=300&adjustment=split&feed=sip&sort=asc';
   const r=await fetch(url,{headers:{'APCA-API-KEY-ID':alp.key,'APCA-API-SECRET-KEY':alp.secret,'accept':'application/json'}});
   if(!r.ok)throw new Error('HTTP '+r.status);
   const json=await r.json();const bars=json.bars||[];
@@ -817,37 +876,83 @@ function setDataBanner(){
 }
 function generateFallback(pair,n=300){
   const cfg=PAIRS[pair];if(!cfg)return[];
-  let price=cfg.base,candles=[],now=Date.now(),ms=(TF_MIN[ST.tf]||15)*60000,trend=0,tLen=0;
-  for(let i=n;i>=0;i--){if(tLen<=0){trend=(Math.random()-.5)*cfg.vol*1.5;tLen=Math.floor(Math.random()*25)+5;}tLen--;const v=cfg.vol*(0.4+Math.random()*1.6),o=price,c=o*(1+trend+(Math.random()-.5)*v);candles.push({t:now-i*ms,o,h:Math.max(o,c)*(1+Math.random()*v*.5),l:Math.min(o,c)*(1-Math.random()*v*.5),c,v:Math.floor(1e5+Math.random()*9e5),sim:true});price=Math.max(c,cfg.base*0.01);}
-  ST.prices[pair]=price;ST.dataMode[pair]='sim';ST.sessionOpen[pair]=candles[0]?.o||price;return candles;
+  const tfMin=TF_MIN[ST.tf]||15;
+  const ms=tfMin*60000;
+  // Scale daily vol to per-candle vol via sqrt-of-time rule
+  // e.g. BTC (vol=0.018) on 15min: 0.018/sqrt(96) ≈ 0.0018 = 0.18% per bar
+  const barsPerDay=Math.max(1,(24*60)/tfMin);
+  const cv=cfg.vol/Math.sqrt(barsPerDay); // per-candle 1-sigma vol
+  const now=Date.now();
+  let price=cfg.base,candles=[],trend=0,tLen=0;
+  for(let i=n;i>=0;i--){
+    // Trend changes slowly, scaled to candle vol
+    if(tLen<=0){
+      trend=(Math.random()-0.5)*cv*0.4; // small directional bias
+      tLen=Math.floor(Math.random()*30)+10;
+    }
+    tLen--;
+    const o=price;
+    // Body: trend drift + random noise, both in candle-vol units
+    const body=trend+(Math.random()-0.5)*cv*0.9;
+    const c=o*(1+body);
+    // Wicks: realistic upper/lower shadows (20-50% of body size)
+    const wickFrac=0.15+Math.random()*0.35;
+    const h=Math.max(o,c)*(1+Math.random()*cv*wickFrac);
+    const l=Math.min(o,c)*(1-Math.random()*cv*wickFrac);
+    // Volume scales with move size
+    const volMult=1+Math.abs(body)/cv;
+    candles.push({t:now-i*ms,o,h,l,c,
+      v:Math.floor((3e4+Math.random()*7e4)*volMult),sim:true});
+    price=Math.max(c,cfg.base*0.001);
+  }
+  ST.prices[pair]=price;
+  ST.dataMode[pair]='sim';
+  ST.sessionOpen[pair]=candles[0]?.o||price;
+  return candles;
 }
 function tickCandle(pair){
   const cs=ST.candles[pair];if(!cs||cs.length<2)return;
   if(ST.dataMode[pair]==='binance-live'&&_bnWS)return;
   const cfg=PAIRS[pair],last=cs[cs.length-1];
   const now=Date.now();
-  const tfMs=(TF_MIN[ST.tf]||15)*60000;
+  const tfMin=TF_MIN[ST.tf]||15;
+  const tfMs=tfMin*60000;
 
-  // Rotate to a new candle when the timeframe has elapsed
+  // Rotate: open a new candle when the bar duration has elapsed
   if(now-last.t>=tfMs){
     const newO=last.c;
+    // Volume proportional to price move
+    const movePct=Math.abs(last.c-last.o)/(last.o||1);
+    const barsPerDay=Math.max(1,(24*60)/tfMin);
+    const cv=cfg.vol/Math.sqrt(barsPerDay);
+    const vMult=1+movePct/cv;
     cs.push({t:now,o:newO,h:newO,l:newO,c:newO,
-             v:Math.floor(5e4+Math.random()*5e5),sim:true});
+             v:Math.floor((2e4+Math.random()*6e4)*vMult),sim:true});
     if(cs.length>500)cs.shift();
     ST.sessionOpen[pair]=ST.sessionOpen[pair]||newO;
     return;
   }
 
-  // Tiny per-tick noise: vol*0.0008 ≈ ~0.007% per tick at 60fps
-  // This gives ~0.4% move per second — realistic intrabar drift
-  const meanRev=Math.sign(cfg.base-last.c)*Math.abs(cfg.base-last.c)/cfg.base*0.0005;
-  const noise=(Math.random()-0.5)*cfg.vol*0.0008;
-  const _newC=last.c*(1+noise+meanRev);
+  // Per-tick noise scaled to candle vol:
+  // At 60fps, a 15min candle = 900s * 60fps = 54000 ticks
+  // noise per tick = cv / sqrt(54000) so random-walk over bar ≈ 1-sigma cv
+  const barsPerDay=Math.max(1,(24*60)/tfMin);
+  const cv=cfg.vol/Math.sqrt(barsPerDay);
+  const ticksPerBar=tfMin*60*60; // ~60fps * seconds in bar
+  const tickNoise=cv/Math.sqrt(ticksPerBar);
+
+  // Gentle mean-reversion toward candle open (keeps bars from drifting too far)
+  const barDrift=(last.c-last.o)/last.o;
+  const revert=-barDrift*0.003;
+  const noise=(Math.random()-0.5)*2*tickNoise;
+  const _newC=last.c*(1+noise+revert);
   last.c=(isFinite(_newC)&&_newC>0)?_newC:last.c;
-  // h/l only extend within a reasonable intrabar range (4x expected ATR)
-  const maxRange=last.o*cfg.vol*0.04;
-  last.h=Math.min(Math.max(last.h,last.c),last.o+maxRange);
-  last.l=Math.max(Math.min(last.l,last.c),last.o-maxRange);
+
+  // Extend h/l but cap at 3-sigma candle range
+  const maxWick=last.o*cv*3;
+  last.h=Math.min(Math.max(last.h,last.c),last.o+maxWick);
+  last.l=Math.max(Math.min(last.l,last.c),last.o-maxWick);
+
   ST.prices[pair]=last.c;
   if(!ST.priceHistory[pair])ST.priceHistory[pair]=[];
   ST.priceHistory[pair].push(last.c);
@@ -1641,8 +1746,35 @@ function renderLog(){
 function switchPair(sym){
   if(!PAIRS[sym])return;
   ST.pair=sym;
-  if(ST.alpaca.connected){fetchRealCandles(sym,ST.tf).then(bars=>{if(bars&&bars.length>20){calcIndicators(sym);ST.sig[sym]=evalSignal(sym);}});}
-  else{if(ST.candles[sym]&&ST.candles[sym].length>30){calcIndicators(sym);ST.sig[sym]=evalSignal(sym);}}
+  // Always recalc with existing candles immediately for responsive feel
+  if(ST.candles[sym]&&ST.candles[sym].length>10){
+    calcIndicators(sym);ST.sig[sym]=evalSignal(sym);
+  }
+  // If Alpaca connected, refresh with real bars in background
+  if(ST.alpaca.connected){
+    fetchRealCandles(sym,ST.tf).then(bars=>{
+      if(bars&&bars.length>20){calcIndicators(sym);ST.sig[sym]=evalSignal(sym);}
+    });
+  }
+  // If Binance live for crypto, seed from REST API
+  else if(CRYPTO_PAIRS.has(sym)&&_bnWS){
+    const bSym=BINANCE_SYM[sym];
+    if(bSym){
+      const interval=TF_BINANCE[ST.tf]||'15m';
+      fetch('https://api.binance.com/api/v3/klines?symbol='+bSym+'&interval='+interval+'&limit=300')
+        .then(r=>r.json()).then(data=>{
+          if(!Array.isArray(data)||data.length<10)return;
+          const bars=data.map(k=>({t:k[0],o:parseFloat(k[1]),h:parseFloat(k[2]),l:parseFloat(k[3]),c:parseFloat(k[4]),v:parseFloat(k[5])}));
+          const valid=bars.every(b=>b.o>0&&b.h>=b.l&&b.h>=b.c&&b.l<=b.c);
+          if(!valid)return;
+          ST.candles[sym]=bars;
+          ST.prices[sym]=bars[bars.length-1].c;
+          ST.sessionOpen[sym]=bars[0].o;
+          ST.dataMode[sym]='binance-live';
+          calcIndicators(sym);ST.sig[sym]=evalSignal(sym);
+        }).catch(()=>{});
+    }
+  }
   renderRTab();
   toast(getDisplaySym(sym)+' selected','info',2000);
 }
@@ -1650,8 +1782,20 @@ function switchPair(sym){
 function switchTF(tf){
   ST.tf=tf;
   document.querySelectorAll('.tf-btn').forEach(b=>b.classList.toggle('active',b.dataset.tf===tf));
-  PAIR_KEYS.forEach(sym=>{if(!ST.alpaca.connected||!CRYPTO_PAIRS.has(sym)){ST.candles[sym]=generateFallback(sym,300);}});
+  // Regenerate sim candles at new TF scale for all non-live pairs
+  PAIR_KEYS.forEach(sym=>{
+    if(ST.dataMode[sym]!=='binance-live'&&ST.dataMode[sym]!=='alpaca'){
+      ST.candles[sym]=generateFallback(sym,300);
+    }
+  });
+  // Reconnect WS with new kline interval
   reconnectWSForTF();
+  // Re-seed Binance history at new interval if WS was connected
+  if(_bnWS)setTimeout(()=>seedBinanceKlines(),500);
+  // Re-fetch Alpaca bars for active pair at new TF
+  if(ST.alpaca.connected)fetchRealCandles(ST.pair,tf).then(bars=>{
+    if(bars&&bars.length>20){calcIndicators(ST.pair);ST.sig[ST.pair]=evalSignal(ST.pair);}
+  });
 }
 
 function toggleOvr(ovr){

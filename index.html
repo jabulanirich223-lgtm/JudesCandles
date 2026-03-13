@@ -825,14 +825,33 @@ function tickCandle(pair){
   const cs=ST.candles[pair];if(!cs||cs.length<2)return;
   if(ST.dataMode[pair]==='binance-live'&&_bnWS)return;
   const cfg=PAIRS[pair],last=cs[cs.length-1];
-  const meanRev=Math.sign(cfg.base-last.c)*Math.abs(cfg.base-last.c)/cfg.base*0.003;
-  const noise=(Math.random()-0.5)*cfg.vol*0.08;
+  const now=Date.now();
+  const tfMs=(TF_MIN[ST.tf]||15)*60000;
+
+  // Rotate to a new candle when the timeframe has elapsed
+  if(now-last.t>=tfMs){
+    const newO=last.c;
+    cs.push({t:now,o:newO,h:newO,l:newO,c:newO,
+             v:Math.floor(5e4+Math.random()*5e5),sim:true});
+    if(cs.length>500)cs.shift();
+    ST.sessionOpen[pair]=ST.sessionOpen[pair]||newO;
+    return;
+  }
+
+  // Tiny per-tick noise: vol*0.0008 ≈ ~0.007% per tick at 60fps
+  // This gives ~0.4% move per second — realistic intrabar drift
+  const meanRev=Math.sign(cfg.base-last.c)*Math.abs(cfg.base-last.c)/cfg.base*0.0005;
+  const noise=(Math.random()-0.5)*cfg.vol*0.0008;
   const _newC=last.c*(1+noise+meanRev);
   last.c=(isFinite(_newC)&&_newC>0)?_newC:last.c;
-  last.h=Math.max(last.h,last.c);last.l=Math.min(last.l,last.c);
+  // h/l only extend within a reasonable intrabar range (4x expected ATR)
+  const maxRange=last.o*cfg.vol*0.04;
+  last.h=Math.min(Math.max(last.h,last.c),last.o+maxRange);
+  last.l=Math.max(Math.min(last.l,last.c),last.o-maxRange);
   ST.prices[pair]=last.c;
   if(!ST.priceHistory[pair])ST.priceHistory[pair]=[];
-  ST.priceHistory[pair].push(last.c);if(ST.priceHistory[pair].length>500)ST.priceHistory[pair].shift();
+  ST.priceHistory[pair].push(last.c);
+  if(ST.priceHistory[pair].length>500)ST.priceHistory[pair].shift();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1015,17 +1034,41 @@ function executeTrade(pair,sig){
 }
 
 function fireAlpacaOrder(pair,sig,qty){
-  // Correct Alpaca symbol format per asset class
   const alpSym=alpacaSymbol(pair);
-  // Crypto: fractional shares, GTC; Stocks: whole shares, day
   const isCrypto=CRYPTO_PAIRS.has(pair);
-  const orderQty=isCrypto
-    ?String(Math.max(0.0001,parseFloat(sf(parseFloat(qty),6))))
-    :String(Math.max(1,Math.round(qty)));
-  const tif=isCrypto?'gtc':'day';
-  alpFetch('/v2/orders','POST',{symbol:alpSym,side:sig.dir==='LONG'?'buy':'sell',qty:orderQty,type:'market',time_in_force:tif})
-    .then(r=>{if(r&&r.id)toast('✓ '+getDisplaySym(pair)+' '+sig.dir+' '+orderQty+' filled','success',4000);else toast('⚠ Order rejected: '+getDisplaySym(pair),'error');})
-    .catch(e=>toast('Order error ('+getDisplaySym(pair)+'): '+e.message,'error'));
+  const price=ST.prices[pair]||sig.entry||1;
+
+  // Cap notional at 5% of account equity per trade
+  const acctEq=parseFloat(ST.alpaca.account?.equity||ST.pnl.equity||100000);
+  const maxNotional=acctEq*0.05;
+  const rawNotional=qty*price;
+  const notional=Math.min(rawNotional,maxNotional);
+
+  // Use gtc for ALL orders — works outside market hours for stocks too
+  const tif='gtc';
+  let body;
+  if(isCrypto){
+    // Alpaca crypto: use notional (dollar amount) — avoids min-qty issues entirely
+    const safeNotional=Math.max(1,parseFloat(notional.toFixed(2)));
+    body={symbol:alpSym,side:sig.dir==='LONG'?'buy':'sell',
+          notional:String(safeNotional),type:'market',time_in_force:tif};
+  } else {
+    // Stocks: whole shares, min 1
+    const shares=Math.max(1,Math.floor(notional/price));
+    body={symbol:alpSym,side:sig.dir==='LONG'?'buy':'sell',
+          qty:String(shares),type:'market',time_in_force:tif};
+  }
+
+  alpFetch('/v2/orders','POST',body)
+    .then(r=>{
+      if(r&&r.id){
+        const filled=isCrypto?'$'+parseFloat(body.notional||0).toFixed(0):body.qty+' sh';
+        toast('✓ '+getDisplaySym(pair)+' '+sig.dir+' '+filled,'success',4000);
+      } else {
+        toast('⚠ Rejected: '+getDisplaySym(pair)+' — '+(r?.message||r?.code||JSON.stringify(r)),'error',6000);
+      }
+    })
+    .catch(e=>toast('Order error ('+getDisplaySym(pair)+'): '+e.message,'error',6000));
 }
 
 function closePosition(pair,reason='MANUAL'){

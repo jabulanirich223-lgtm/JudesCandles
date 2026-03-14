@@ -3,6 +3,432 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<title>APEX ULTRA V4</title>
+
+<style>
+body{
+background:#0b0f14;
+color:#e6edf3;
+font-family:Segoe UI;
+margin:0;
+overflow:hidden
+}
+
+#topbar{
+height:42px;
+background:#11161d;
+display:flex;
+align-items:center;
+padding-left:12px;
+font-weight:600
+}
+
+#main{
+display:flex;
+height:calc(100vh - 42px)
+}
+
+#chartArea{
+flex:1;
+background:#0b0f14;
+position:relative
+}
+
+canvas{
+width:100%;
+height:100%
+}
+
+#side{
+width:340px;
+background:#0f141b;
+border-left:1px solid #1f2933;
+display:flex;
+flex-direction:column
+}
+
+.panel{
+padding:10px;
+border-bottom:1px solid #1f2933
+}
+
+button{
+background:#1f6feb;
+border:none;
+padding:6px 10px;
+margin:2px;
+border-radius:4px;
+color:white;
+cursor:pointer
+}
+
+.sell{background:#d13d3d}
+
+.order{
+padding:6px;
+border-bottom:1px solid #1f2933;
+font-size:13px
+}
+
+.green{color:#3fb950}
+.red{color:#f85149}
+
+#orders{
+flex:1;
+overflow:auto
+}
+
+#indicators{
+font-size:13px
+}
+</style>
+
+</head>
+<body>
+
+<div id="topbar">
+APEX ULTRA V4 — ALPACA TERMINAL
+</div>
+
+<div id="main">
+
+<div id="chartArea">
+<canvas id="chart"></canvas>
+</div>
+
+<div id="side">
+
+<div class="panel">
+SYMBOL
+<input id="symbol" value="AAPL" style="width:80px">
+<button onclick="connectMarket()">CONNECT</button>
+</div>
+
+<div class="panel">
+Quick Trade
+<br>
+<button onclick="sendOrder('buy')">▲ BUY</button>
+<button class="sell" onclick="sendOrder('sell')">▼ SELL</button>
+</div>
+
+<div class="panel">
+Balance: $<span id="balance">--</span>
+</div>
+
+<div class="panel" id="indicators">
+EMA: --
+<br>
+RSI: --
+<br>
+MACD: --
+</div>
+
+<div id="orders"></div>
+
+</div>
+</div>
+
+<script>
+
+/* ============================
+ALPACA CONFIG
+============================ */
+
+const ALPACA_KEY="YOUR_KEY"
+const ALPACA_SECRET="YOUR_SECRET"
+
+const REST="https://paper-api.alpaca.markets"
+const STREAM="wss://stream.data.alpaca.markets/v2/iex"
+
+/* ============================
+STATE
+============================ */
+
+const ST={
+symbol:"AAPL",
+candles:[],
+orders:[],
+balance:0
+}
+
+/* ============================
+CANVAS
+============================ */
+
+const canvas=document.getElementById("chart")
+const ctx=canvas.getContext("2d")
+
+let W,H
+
+function resize(){
+W=canvas.clientWidth
+H=canvas.clientHeight
+canvas.width=W
+canvas.height=H
+}
+
+window.addEventListener("resize",resize)
+resize()
+
+/* ============================
+INDICATORS
+============================ */
+
+function EMA(data,len){
+
+if(data.length<len)return null
+
+let k=2/(len+1)
+let ema=data[0]
+
+for(let i=1;i<data.length;i++){
+ema=data[i]*k+ema*(1-k)
+}
+
+return ema
+
+}
+
+function RSI(data,len){
+
+if(data.length<len)return null
+
+let gain=0
+let loss=0
+
+for(let i=data.length-len;i<data.length;i++){
+
+let d=data[i]-data[i-1]
+
+if(d>0)gain+=d
+else loss-=d
+
+}
+
+let rs=gain/(loss||1)
+
+return 100-(100/(1+rs))
+
+}
+
+function MACD(data){
+
+if(data.length<26)return null
+
+let ema12=EMA(data,12)
+let ema26=EMA(data,26)
+
+return ema12-ema26
+
+}
+
+/* ============================
+ALPACA ACCOUNT
+============================ */
+
+async function loadAccount(){
+
+let r=await fetch(REST+"/v2/account",{
+headers:{
+"APCA-API-KEY-ID":ALPACA_KEY,
+"APCA-API-SECRET-KEY":ALPACA_SECRET
+}
+})
+
+let j=await r.json()
+
+ST.balance=j.cash
+
+document.getElementById("balance").textContent=Number(j.cash).toFixed(2)
+
+}
+
+/* ============================
+ORDER
+============================ */
+
+async function sendOrder(side){
+
+let symbol=document.getElementById("symbol").value
+
+await fetch(REST+"/v2/orders",{
+
+method:"POST",
+
+headers:{
+"Content-Type":"application/json",
+"APCA-API-KEY-ID":ALPACA_KEY,
+"APCA-API-SECRET-KEY":ALPACA_SECRET
+},
+
+body:JSON.stringify({
+
+symbol,
+qty:1,
+side,
+type:"market",
+time_in_force:"day"
+
+})
+
+})
+
+}
+
+/* ============================
+MARKET STREAM
+============================ */
+
+let socket
+
+function connectMarket(){
+
+ST.symbol=document.getElementById("symbol").value
+
+socket=new WebSocket(STREAM)
+
+socket.onopen=()=>{
+
+socket.send(JSON.stringify({
+
+action:"auth",
+key:ALPACA_KEY,
+secret:ALPACA_SECRET
+
+}))
+
+socket.send(JSON.stringify({
+
+action:"subscribe",
+trades:[ST.symbol]
+
+}))
+
+}
+
+socket.onmessage=e=>{
+
+let msg=JSON.parse(e.data)
+
+msg.forEach(m=>{
+
+if(m.T==="t"){
+
+let price=m.p
+
+updateCandle(price)
+
+}
+
+})
+
+}
+
+}
+
+/* ============================
+CANDLES
+============================ */
+
+let lastCandleTime=0
+
+function updateCandle(price){
+
+let now=Date.now()
+
+if(now-lastCandleTime>5000){
+
+ST.candles.push({
+open:price,
+high:price,
+low:price,
+close:price
+})
+
+lastCandleTime=now
+
+}else{
+
+let c=ST.candles[ST.candles.length-1]
+
+c.high=Math.max(c.high,price)
+c.low=Math.min(c.low,price)
+c.close=price
+
+}
+
+if(ST.candles.length>150)ST.candles.shift()
+
+}
+
+/* ============================
+CHART
+============================ */
+
+function drawChart(){
+
+ctx.clearRect(0,0,W,H)
+
+if(ST.candles.length<2)return
+
+let highs=ST.candles.map(c=>c.high)
+let lows=ST.candles.map(c=>c.low)
+
+let max=Math.max(...highs)
+let min=Math.min(...lows)
+
+let scale=H/(max-min)
+
+let cw=W/ST.candles.length
+
+ST.candles.forEach((c,i)=>{
+
+let x=i*cw
+
+let openY=H-(c.open-min)*scale
+let closeY=H-(c.close-min)*scale
+let highY=H-(c.high-min)*scale
+let lowY=H-(c.low-min)*scale
+
+ctx.strokeStyle="white"
+
+ctx.beginPath()
+ctx.moveTo(x+cw/2,highY)
+ctx.lineTo(x+cw/2,lowY)
+ctx.stroke()
+
+ctx.fillStyle=c.close>=c.open?"#3fb950":"#f85149"
+
+ctx.fillRect(
+x+cw*0.25,
+Math.min(openY,closeY),
+cw*0.5,
+Math.abs(openY-closeY)
+)
+
+})
+
+}
+
+/* ============================
+INDICATOR PANEL
+============================ */
+
+function updateIndicators(){
+
+let closes=ST.candles.map(c=>c.close)
+
+let ema=EMA(closes,20)
+let rsi=RSI(closes,14)
+let macd=MACD(closes)
+
+document.getElementById("indicators").innerHTML=`
+EMA: ${ema?ema.toFixed(2):"--"}
+<br><!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="UTF-8">
 <title>APEX ULTRA V3 Terminal</title>
 <style>
 body{
@@ -306,6 +732,970 @@ requestAnimationFrame(loop)
 }
 
 setInterval(newCandle,1200)
+
+loop()
+
+</script>
+
+</body>
+</html>
+<!DOCTYPE html>
+
+<html>
+<head>
+<meta charset="UTF-8">
+<title>APEX ULTRA TERMINAL</title>
+
+<style>
+
+body{
+margin:0;
+background:#0b0f14;
+color:#e6edf3;
+font-family:Arial
+}
+
+#topbar{
+height:42px;
+background:#11161d;
+display:flex;
+align-items:center;
+padding-left:10px;
+font-weight:bold
+}
+
+#layout{
+display:flex;
+height:calc(100vh - 42px)
+}
+
+#chartArea{
+flex:1;
+position:relative
+}
+
+canvas{
+width:100%;
+height:100%
+}
+
+#side{
+width:360px;
+background:#0f141b;
+border-left:1px solid #1f2933;
+display:flex;
+flex-direction:column
+}
+
+.panel{
+padding:10px;
+border-bottom:1px solid #1f2933
+}
+
+button{
+background:#1f6feb;
+border:none;
+padding:6px 10px;
+margin:2px;
+color:white;
+cursor:pointer
+}
+
+.sell{background:#d13d3d}
+
+.order{
+border-bottom:1px solid #1f2933;
+padding:6px;
+font-size:13px
+}
+
+.green{color:#3fb950}
+.red{color:#f85149}
+
+#orders{
+flex:1;
+overflow:auto
+}
+
+#tape{
+height:140px;
+overflow:auto;
+font-size:12px;
+background:#0b0f14;
+border-top:1px solid #1f2933
+}
+
+</style>
+
+</head>
+
+<body>
+
+<div id="topbar">
+APEX ULTRA TERMINAL
+</div>
+
+<div id="layout">
+
+<div id="chartArea">
+<canvas id="chart"></canvas>
+</div>
+
+<div id="side">
+
+<div class="panel">
+Symbol
+<input id="symbol" value="AAPL" style="width:80px">
+<button onclick="connect()">Connect</button>
+</div>
+
+<div class="panel">
+<button onclick="order('buy')">▲ BUY</button>
+<button class="sell" onclick="order('sell')">▼ SELL</button>
+</div>
+
+<div class="panel">
+Balance: $<span id="balance">--</span>
+</div>
+
+<div class="panel" id="indicators">
+EMA: --
+<br>
+RSI: --
+<br>
+MACD: --
+</div>
+
+<div id="orders"></div>
+
+<div id="tape"></div>
+
+</div>
+
+</div>
+
+<script>
+
+/* =======================
+CONFIG
+======================= */
+
+const ALPACA_KEY="YOUR_KEY"
+const ALPACA_SECRET="YOUR_SECRET"
+
+const REST="https://paper-api.alpaca.markets"
+const STREAM="wss://stream.data.alpaca.markets/v2/iex"
+
+/* =======================
+STATE
+======================= */
+
+const ST={
+symbol:"AAPL",
+candles:[],
+orders:[],
+balance:0,
+trades:[]
+}
+
+/* =======================
+CANVAS
+======================= */
+
+const canvas=document.getElementById("chart")
+const ctx=canvas.getContext("2d")
+
+let W,H
+
+function resize(){
+W=canvas.clientWidth
+H=canvas.clientHeight
+canvas.width=W
+canvas.height=H
+}
+
+window.addEventListener("resize",resize)
+resize()
+
+/* =======================
+INDICATORS
+======================= */
+
+function EMA(data,len){
+
+if(data.length<len)return null
+
+let k=2/(len+1)
+let ema=data[0]
+
+for(let i=1;i<data.length;i++){
+ema=data[i]*k+ema*(1-k)
+}
+
+return ema
+
+}
+
+function RSI(data,len){
+
+if(data.length<len)return null
+
+let gain=0
+let loss=0
+
+for(let i=data.length-len;i<data.length;i++){
+
+let d=data[i]-data[i-1]
+
+if(d>0)gain+=d
+else loss-=d
+
+}
+
+let rs=gain/(loss||1)
+
+return 100-(100/(1+rs))
+
+}
+
+function MACD(data){
+
+if(data.length<26)return null
+
+let ema12=EMA(data,12)
+let ema26=EMA(data,26)
+
+return ema12-ema26
+
+}
+
+/* =======================
+ALPACA ACCOUNT
+======================= */
+
+async function loadAccount(){
+
+let r=await fetch(REST+"/v2/account",{
+
+headers:{
+"APCA-API-KEY-ID":ALPACA_KEY,
+"APCA-API-SECRET-KEY":ALPACA_SECRET
+}
+
+})
+
+let j=await r.json()
+
+ST.balance=j.cash
+
+document.getElementById("balance").textContent=Number(j.cash).toFixed(2)
+
+}
+
+/* =======================
+ORDER
+======================= */
+
+async function order(side){
+
+let symbol=document.getElementById("symbol").value
+
+await fetch(REST+"/v2/orders",{
+
+method:"POST",
+
+headers:{
+"Content-Type":"application/json",
+"APCA-API-KEY-ID":ALPACA_KEY,
+"APCA-API-SECRET-KEY":ALPACA_SECRET
+},
+
+body:JSON.stringify({
+
+symbol,
+qty:1,
+side,
+type:"market",
+time_in_force:"day"
+
+})
+
+})
+
+}
+
+/* =======================
+MARKET STREAM
+======================= */
+
+let socket
+
+function connect(){
+
+ST.symbol=document.getElementById("symbol").value
+
+socket=new WebSocket(STREAM)
+
+socket.onopen=()=>{
+
+socket.send(JSON.stringify({
+action:"auth",
+key:ALPACA_KEY,
+secret:ALPACA_SECRET
+}))
+
+socket.send(JSON.stringify({
+action:"subscribe",
+trades:[ST.symbol]
+}))
+
+}
+
+socket.onmessage=e=>{
+
+let msg=JSON.parse(e.data)
+
+msg.forEach(m=>{
+
+if(m.T==="t"){
+
+let price=m.p
+
+updateCandle(price)
+updateTape(m)
+
+}
+
+})
+
+}
+
+}
+
+/* =======================
+TAPE
+======================= */
+
+function updateTape(t){
+
+ST.trades.unshift(t)
+
+if(ST.trades.length>100)ST.trades.pop()
+
+document.getElementById("tape").innerHTML=
+
+ST.trades.map(x=>
+
+`<div>${x.p.toFixed(2)} (${x.s})</div>`
+
+).join("")
+
+}
+
+/* =======================
+CANDLES
+======================= */
+
+let last=0
+
+function updateCandle(price){
+
+let now=Date.now()
+
+if(now-last>5000){
+
+ST.candles.push({
+open:price,
+high:price,
+low:price,
+close:price
+})
+
+last=now
+
+}else{
+
+let c=ST.candles[ST.candles.length-1]
+
+c.high=Math.max(c.high,price)
+c.low=Math.min(c.low,price)
+c.close=price
+
+}
+
+if(ST.candles.length>200)ST.candles.shift()
+
+}
+
+/* =======================
+CHART
+======================= */
+
+function drawChart(){
+
+ctx.clearRect(0,0,W,H)
+
+if(ST.candles.length<2)return
+
+let highs=ST.candles.map(c=>c.high)
+let lows=ST.candles.map(c=>c.low)
+
+let max=Math.max(...highs)
+let min=Math.min(...lows)
+
+let scale=H/(max-min)
+
+let cw=W/ST.candles.length
+
+ST.candles.forEach((c,i)=>{
+
+let x=i*cw
+
+let openY=H-(c.open-min)*scale
+let closeY=H-(c.close-min)*scale
+let highY=H-(c.high-min)*scale
+let lowY=H-(c.low-min)*scale
+
+ctx.strokeStyle="white"
+
+ctx.beginPath()
+ctx.moveTo(x+cw/2,highY)
+ctx.lineTo(x+cw/2,lowY)
+ctx.stroke()
+
+ctx.fillStyle=c.close>=c.open?"#3fb950":"#f85149"
+
+ctx.fillRect(
+x+cw*0.25,
+Math.min(openY,closeY),
+cw*0.5,
+Math.abs(openY-closeY)
+)
+
+})
+
+}
+
+/* =======================
+INDICATORS
+======================= */
+
+function updateIndicators(){
+
+let closes=ST.candles.map(c=>c.close)
+
+let ema=EMA(closes,20)
+let rsi=RSI(closes,14)
+let macd=MACD(closes)
+
+document.getElementById("indicators").innerHTML=
+
+`EMA: ${ema?ema.toFixed(2):"--"}
+<br>
+RSI: ${rsi?rsi.toFixed(2):"--"}
+<br>
+MACD: ${macd?macd.toFixed(2):"--"}`
+
+}
+
+/* =======================
+LOOP
+======================= */
+
+function loop(){
+
+drawChart()
+updateIndicators()
+
+requestAnimationFrame(loop)
+
+}
+
+loadAccount()
+
+loop()
+
+</script>
+
+</body>
+</html>
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>APEX ULTRA V4</title>
+
+<style>
+body{
+background:#0b0f14;
+color:#e6edf3;
+font-family:Segoe UI;
+margin:0;
+overflow:hidden
+}
+
+#topbar{
+height:42px;
+background:#11161d;
+display:flex;
+align-items:center;
+padding-left:12px;
+font-weight:600
+}
+
+#main{
+display:flex;
+height:calc(100vh - 42px)
+}
+
+#chartArea{
+flex:1;
+background:#0b0f14;
+position:relative
+}
+
+canvas{
+width:100%;
+height:100%
+}
+
+#side{
+width:340px;
+background:#0f141b;
+border-left:1px solid #1f2933;
+display:flex;
+flex-direction:column
+}
+
+.panel{
+padding:10px;
+border-bottom:1px solid #1f2933
+}
+
+button{
+background:#1f6feb;
+border:none;
+padding:6px 10px;
+margin:2px;
+border-radius:4px;
+color:white;
+cursor:pointer
+}
+
+.sell{background:#d13d3d}
+
+.order{
+padding:6px;
+border-bottom:1px solid #1f2933;
+font-size:13px
+}
+
+.green{color:#3fb950}
+.red{color:#f85149}
+
+#orders{
+flex:1;
+overflow:auto
+}
+
+#indicators{
+font-size:13px
+}
+</style>
+
+</head>
+<body>
+
+<div id="topbar">
+APEX ULTRA V4 — ALPACA TERMINAL
+</div>
+
+<div id="main">
+
+<div id="chartArea">
+<canvas id="chart"></canvas>
+</div>
+
+<div id="side">
+
+<div class="panel">
+SYMBOL
+<input id="symbol" value="AAPL" style="width:80px">
+<button onclick="connectMarket()">CONNECT</button>
+</div>
+
+<div class="panel">
+Quick Trade
+<br>
+<button onclick="sendOrder('buy')">▲ BUY</button>
+<button class="sell" onclick="sendOrder('sell')">▼ SELL</button>
+</div>
+
+<div class="panel">
+Balance: $<span id="balance">--</span>
+</div>
+
+<div class="panel" id="indicators">
+EMA: --
+<br>
+RSI: --
+<br>
+MACD: --
+</div>
+
+<div id="orders"></div>
+
+</div>
+</div>
+
+<script>
+
+/* ============================
+ALPACA CONFIG
+============================ */
+
+const ALPACA_KEY="YOUR_KEY"
+const ALPACA_SECRET="YOUR_SECRET"
+
+const REST="https://paper-api.alpaca.markets"
+const STREAM="wss://stream.data.alpaca.markets/v2/iex"
+
+/* ============================
+STATE
+============================ */
+
+const ST={
+symbol:"AAPL",
+candles:[],
+orders:[],
+balance:0
+}
+
+/* ============================
+CANVAS
+============================ */
+
+const canvas=document.getElementById("chart")
+const ctx=canvas.getContext("2d")
+
+let W,H
+
+function resize(){
+W=canvas.clientWidth
+H=canvas.clientHeight
+canvas.width=W
+canvas.height=H
+}
+
+window.addEventListener("resize",resize)
+resize()
+
+/* ============================
+INDICATORS
+============================ */
+
+function EMA(data,len){
+
+if(data.length<len)return null
+
+let k=2/(len+1)
+let ema=data[0]
+
+for(let i=1;i<data.length;i++){
+ema=data[i]*k+ema*(1-k)
+}
+
+return ema
+
+}
+
+function RSI(data,len){
+
+if(data.length<len)return null
+
+let gain=0
+let loss=0
+
+for(let i=data.length-len;i<data.length;i++){
+
+let d=data[i]-data[i-1]
+
+if(d>0)gain+=d
+else loss-=d
+
+}
+
+let rs=gain/(loss||1)
+
+return 100-(100/(1+rs))
+
+}
+
+function MACD(data){
+
+if(data.length<26)return null
+
+let ema12=EMA(data,12)
+let ema26=EMA(data,26)
+
+return ema12-ema26
+
+}
+
+/* ============================
+ALPACA ACCOUNT
+============================ */
+
+async function loadAccount(){
+
+let r=await fetch(REST+"/v2/account",{
+headers:{
+"APCA-API-KEY-ID":ALPACA_KEY,
+"APCA-API-SECRET-KEY":ALPACA_SECRET
+}
+})
+
+let j=await r.json()
+
+ST.balance=j.cash
+
+document.getElementById("balance").textContent=Number(j.cash).toFixed(2)
+
+}
+
+/* ============================
+ORDER
+============================ */
+
+async function sendOrder(side){
+
+let symbol=document.getElementById("symbol").value
+
+await fetch(REST+"/v2/orders",{
+
+method:"POST",
+
+headers:{
+"Content-Type":"application/json",
+"APCA-API-KEY-ID":ALPACA_KEY,
+"APCA-API-SECRET-KEY":ALPACA_SECRET
+},
+
+body:JSON.stringify({
+
+symbol,
+qty:1,
+side,
+type:"market",
+time_in_force:"day"
+
+})
+
+})
+
+}
+
+/* ============================
+MARKET STREAM
+============================ */
+
+let socket
+
+function connectMarket(){
+
+ST.symbol=document.getElementById("symbol").value
+
+socket=new WebSocket(STREAM)
+
+socket.onopen=()=>{
+
+socket.send(JSON.stringify({
+
+action:"auth",
+key:ALPACA_KEY,
+secret:ALPACA_SECRET
+
+}))
+
+socket.send(JSON.stringify({
+
+action:"subscribe",
+trades:[ST.symbol]
+
+}))
+
+}
+
+socket.onmessage=e=>{
+
+let msg=JSON.parse(e.data)
+
+msg.forEach(m=>{
+
+if(m.T==="t"){
+
+let price=m.p
+
+updateCandle(price)
+
+}
+
+})
+
+}
+
+}
+
+/* ============================
+CANDLES
+============================ */
+
+let lastCandleTime=0
+
+function updateCandle(price){
+
+let now=Date.now()
+
+if(now-lastCandleTime>5000){
+
+ST.candles.push({
+open:price,
+high:price,
+low:price,
+close:price
+})
+
+lastCandleTime=now
+
+}else{
+
+let c=ST.candles[ST.candles.length-1]
+
+c.high=Math.max(c.high,price)
+c.low=Math.min(c.low,price)
+c.close=price
+
+}
+
+if(ST.candles.length>150)ST.candles.shift()
+
+}
+
+/* ============================
+CHART
+============================ */
+
+function drawChart(){
+
+ctx.clearRect(0,0,W,H)
+
+if(ST.candles.length<2)return
+
+let highs=ST.candles.map(c=>c.high)
+let lows=ST.candles.map(c=>c.low)
+
+let max=Math.max(...highs)
+let min=Math.min(...lows)
+
+let scale=H/(max-min)
+
+let cw=W/ST.candles.length
+
+ST.candles.forEach((c,i)=>{
+
+let x=i*cw
+
+let openY=H-(c.open-min)*scale
+let closeY=H-(c.close-min)*scale
+let highY=H-(c.high-min)*scale
+let lowY=H-(c.low-min)*scale
+
+ctx.strokeStyle="white"
+
+ctx.beginPath()
+ctx.moveTo(x+cw/2,highY)
+ctx.lineTo(x+cw/2,lowY)
+ctx.stroke()
+
+ctx.fillStyle=c.close>=c.open?"#3fb950":"#f85149"
+
+ctx.fillRect(
+x+cw*0.25,
+Math.min(openY,closeY),
+cw*0.5,
+Math.abs(openY-closeY)
+)
+
+})
+
+}
+
+/* ============================
+INDICATOR PANEL
+============================ */
+
+function updateIndicators(){
+
+let closes=ST.candles.map(c=>c.close)
+
+let ema=EMA(closes,20)
+let rsi=RSI(closes,14)
+let macd=MACD(closes)
+
+document.getElementById("indicators").innerHTML=`
+EMA: ${ema?ema.toFixed(2):"--"}
+<br>
+RSI: ${rsi?rsi.toFixed(2):"--"}
+<br>
+MACD: ${macd?macd.toFixed(2):"--"}
+`
+
+}
+
+/* ============================
+LOOP
+============================ */
+
+function loop(){
+
+drawChart()
+updateIndicators()
+
+requestAnimationFrame(loop)
+
+}
+
+loadAccount()
+
+loop()
+
+</script>
+
+</body>
+</html>
+
+RSI: ${rsi?rsi.toFixed(2):"--"}
+<br>
+MACD: ${macd?macd.toFixed(2):"--"}
+`
+
+}
+
+/* ============================
+LOOP
+============================ */
+
+function loop(){
+
+drawChart()
+updateIndicators()
+
+requestAnimationFrame(loop)
+
+}
+
+loadAccount()
 
 loop()
 

@@ -824,7 +824,7 @@ function renderChart(){
   var cv=$('mainChart'),wrap=$('cwrap');if(!cv||!wrap)return;
   var dpr=window.devicePixelRatio||1,W0=wrap.clientWidth,H0=wrap.clientHeight;
   if(cv.width!==W0*dpr||cv.height!==H0*dpr){cv.width=W0*dpr;cv.height=H0*dpr;cv.style.width=W0+'px';cv.style.height=H0+'px';}
-  var ctx=cv.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);
+  var ctx=cv.getContext('2d');if(!ctx)return;ctx.setTransform(dpr,0,0,dpr,0,0);
   var W=W0,H=H0;ctx.fillStyle='#010306';ctx.fillRect(0,0,W,H);
   var cs=ST.candles[ST.pair];if(!cs||cs.length<2)return;
   var ind=ST.ind[ST.pair]||{};
@@ -876,7 +876,7 @@ function renderOsc(){
   var cv=$('oscCv'),osp=$('oscp');if(!cv||!osp)return;
   var dpr=window.devicePixelRatio||1,W0=osp.clientWidth,H0=osp.clientHeight;
   if(cv.width!==W0*dpr||cv.height!==H0*dpr){cv.width=W0*dpr;cv.height=H0*dpr;cv.style.width=W0+'px';cv.style.height=H0+'px';}
-  var W=W0,H=H0,ctx=cv.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);ctx.fillStyle='#010307';ctx.fillRect(0,0,W,H);
+  var W=W0,H=H0,ctx=cv.getContext('2d');if(!ctx)return;ctx.setTransform(dpr,0,0,dpr,0,0);ctx.fillStyle='#010307';ctx.fillRect(0,0,W,H);
   var ind=ST.ind[ST.pair];if(!ind)return;
   var pL=52,pR=18,pT=22,pB=16,cW=W-pL-pR,cH=H-pT-pB,N=Math.max(10,Math.floor(cW/3));
   function dl2(data,col,lw,dash){lw=lw||1.5;if(!data||!data.length)return;var d=data.filter(function(v){return v!=null&&isFinite(v);});if(!d.length)return;var mn=Math.min.apply(null,d),mx=Math.max.apply(null,d),rng=mx-mn||1,sl=data.slice(-N);ctx.strokeStyle=col;ctx.lineWidth=lw;if(dash)ctx.setLineDash(dash);ctx.beginPath();var f=true;sl.forEach(function(v,i){if(v==null||!isFinite(v))return;var x=pL+i*(cW/(sl.length-1||1)),y=pT+cH-(v-mn)/rng*cH;if(f){ctx.moveTo(x,y);f=false;}else ctx.lineTo(x,y);});ctx.stroke();ctx.setLineDash([]);}
@@ -1275,6 +1275,7 @@ function initHandlers(){
 // ─── MATRIX BACKGROUND ───────────────────────────────────────
 function initMatrix(){
   var cv=$('matrixCv'),ctx=cv.getContext('2d');
+  if(!ctx)return;
   cv.width=window.innerWidth;cv.height=window.innerHeight;
   var cols=Math.floor(cv.width/14),drops=[];
   for(var i=0;i<cols;i++)drops.push(1);

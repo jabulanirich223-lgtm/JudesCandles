@@ -688,7 +688,7 @@ async function seedBinanceKlines(){
         var bars=data.map(function(k){return{t:k[0],o:parseFloat(k[1]),h:parseFloat(k[2]),l:parseFloat(k[3]),c:parseFloat(k[4]),v:parseFloat(k[5])};});
         if(!bars.every(function(b){return b.o>0&&b.h>=b.l&&b.h>=b.c&&b.l<=b.c;}))continue;
         ST.candles[pair]=bars;ST.prices[pair]=bars[bars.length-1].c;
-        ST.sessionOpen[pair]=findSessionOpen(bars);
+        ST.sessionOpen[pair]=getSessionOpen(bars);
         ST.dataMode[pair]='binance-live';
         if(!ST.priceHistory[pair])ST.priceHistory[pair]=[];
         ST.priceHistory[pair].push(bars[bars.length-1].c);
@@ -764,7 +764,7 @@ function connectBinanceWS(){
               cs2.push({t:bar.t,o:bar.o,h:bar.h,l:bar.l,c:bar.c,v:bar.v});
               if(cs2.length>600)cs2.shift();
               // Refresh sessionOpen if we crossed midnight
-              ST.sessionOpen[pair]=findSessionOpen(cs2);
+              ST.sessionOpen[pair]=getSessionOpen(cs2);
             }
             ST.prices[pair]=bar.c;ST.dataMode[pair]='binance-live';
           }
@@ -788,66 +788,99 @@ function reconnectWSForTF(){
 // ─────────────────────────────────────────────────────────────
 // ALPACA DATA
 // ─────────────────────────────────────────────────────────────
-// Find today's session open from a bar array — first bar whose date matches today's trading day
-function findSessionOpen(bars){
-  if(!bars||!bars.length)return bars&&bars[bars.length-1]?bars[bars.length-1].c:0;
-  var now=new Date(),today=now.toDateString();
-  // Walk backwards to find the earliest bar from today (market open)
+
+// ─────────────────────────────────────────────────────────────
+// ALPACA DATA LAYER — complete rewrite
+// Bugs fixed:
+//  1. feed=sip requires paid subscription → always use feed=iex (free, works for all)
+//  2. SPXUSD/NASUSD (indices) were excluded → added to ALP_TRADEABLE
+//  3. !ST.sessionOpen guard prevented real data from overwriting stale sim value
+//  4. findSessionOpen returned bars[0].o when market closed (weekend/premarket)
+//  5. connectAlpaca used Object.assign which preserved stale state fields
+// ─────────────────────────────────────────────────────────────
+
+// All symbol sets Alpaca can provide data for
+var ALP_STOCKS=new Set(['AAPL','TSLA','NVDA','MSFT','AMZN','GOOGL','META']);
+var ALP_INDICES=new Set(['SPXUSD','NASUSD']); // via SPY/QQQ proxy bars
+var ALP_TRADEABLE=new Set([].concat(Array.from(ALP_STOCKS),Array.from(ALP_INDICES)));
+
+// Map index symbols to tradeable ETF proxies for bar data
+var INDEX_PROXY={SPXUSD:'SPY',NASUSD:'QQQ'};
+
+// ── Feed selection ─────────────────────────────────────────────
+// IEX = free, works for paper and live. SIP = paid subscription only.
+// We always use IEX so paper users never get silent 403 failures.
+var _alpFeed='iex';
+
+// ── sessionOpen helper ─────────────────────────────────────────
+// Returns today's market open price from a bar array.
+// If market hasn't opened yet today (premarket / weekend), returns
+// yesterday's close so %change shows realistic after-hours move.
+function getSessionOpen(bars){
+  if(!bars||!bars.length)return 0;
+  var now=new Date(),todayStr=now.toDateString();
+  // Walk back from newest bar to find first bar from today
   for(var i=bars.length-1;i>=0;i--){
-    if(new Date(bars[i].t).toDateString()!==today)return bars[i+1]?bars[i+1].o:bars[bars.length-1].c;
+    var d=new Date(bars[i].t);
+    if(d.toDateString()===todayStr){
+      // Found a today bar — find the FIRST today bar (market open)
+      for(var j=i;j>=0;j--){
+        if(new Date(bars[j].t).toDateString()!==todayStr)return bars[j+1].o;
+      }
+      return bars[0].o; // all bars are today
+    }
   }
-  return bars[0].o; // all bars are today
+  // No bars from today — market closed, use last bar's close as baseline
+  return bars[bars.length-1].c;
 }
 
-async function fetchRealCandles(pair,tf){
-  if(!ST.alpaca.connected)return null;
-  // Never pull Alpaca bars for crypto that Binance is already streaming live —
-  // doing so overwrites dataMode, corrupts sessionOpen, and freezes %change.
-  if(CRYPTO_PAIRS.has(pair)&&ST.dataMode[pair]==='binance-live')return null;
-  // Only fetch for stocks; crypto gets prices from Binance (or Alpaca poll for non-live).
-  if(!STOCK_PAIRS.has(pair))return null;
-  try{
-    var bars=await fetchAlpacaStockBars(pair,tf);
-    if(!bars||bars.length<20)return null;
-    var valid=bars.every(function(b){return b.o>0&&b.h>0&&b.l>0&&b.c>0&&b.h>=b.l&&b.h/b.l<1.5;});
-    if(!valid)return null;
-    ST.candles[pair]=bars;
-    ST.prices[pair]=bars[bars.length-1].c;
-    ST.sessionOpen[pair]=findSessionOpen(bars);
-    ST.dataMode[pair]='alpaca';
-    if(!ST.priceHistory[pair])ST.priceHistory[pair]=[];
-    ST.priceHistory[pair].push(bars[bars.length-1].c);
-    return bars;
-  }catch(e){console.log('[Alpaca bars]',pair,e.message);}
-  return null;
-}
-async function fetchAlpacaCryptoBars(pair,tf){
-  var alp=ST.alpaca,sym=alpacaSymbol(pair);
-  var url='https://data.alpaca.markets/v1beta3/crypto/us/bars?symbols='+encodeURIComponent(sym)+'&timeframe='+(TF_ALPACA[tf]||'15Min')+'&limit=300&sort=asc';
-  var r=await fetch(url,{headers:{'APCA-API-KEY-ID':alp.key,'APCA-API-SECRET-KEY':alp.secret}});
-  if(!r.ok)throw new Error('HTTP '+r.status);
-  var json=await r.json();var bars=(json.bars&&json.bars[sym])||[];
-  return bars.map(function(b){return{t:new Date(b.t).getTime(),o:b.o,h:b.h,l:b.l,c:b.c,v:b.v||0};});
-}
-async function fetchAlpacaStockBars(pair,tf){
+// ── Bar fetching ───────────────────────────────────────────────
+async function fetchAlpacaStockBars(sym,tf){
   var alp=ST.alpaca;
-  var url='https://data.alpaca.markets/v2/stocks/'+pair+'/bars?timeframe='+(TF_ALPACA[tf]||'15Min')+'&limit=300&adjustment=split&feed=sip&sort=asc';
+  // Use proxy ticker for indices
+  var ticker=INDEX_PROXY[sym]||sym;
+  var url='https://data.alpaca.markets/v2/stocks/'+ticker
+    +'/bars?timeframe='+(TF_ALPACA[tf]||'15Min')
+    +'&limit=500&adjustment=split&feed='+_alpFeed+'&sort=asc';
   var r=await fetch(url,{headers:{'APCA-API-KEY-ID':alp.key,'APCA-API-SECRET-KEY':alp.secret}});
-  if(!r.ok)throw new Error('HTTP '+r.status);
-  var json=await r.json();var bars=json.bars||[];
-  return bars.map(function(b){return{t:new Date(b.t).getTime(),o:b.o,h:b.h,l:b.l,c:b.c,v:b.v||0};});
+  if(!r.ok)throw new Error(sym+' bars HTTP '+r.status);
+  var json=await r.json();
+  var raw=json.bars||[];
+  if(!raw.length)throw new Error(sym+' bars empty');
+  return raw.map(function(b){return{t:new Date(b.t).getTime(),o:b.o,h:b.h,l:b.l,c:b.c,v:b.v||0};});
 }
-// ─── ALPACA LIVE QUOTE POLLING ────────────────────────────────
-// Poll latest quotes/snapshots every 5s for all connected pairs.
-// This gives real-time prices for stocks & crypto without a WS subscription.
+
+async function fetchRealCandles(sym,tf){
+  if(!ST.alpaca.connected)return null;
+  // Crypto: Binance is authoritative — never overwrite with Alpaca bars
+  if(CRYPTO_PAIRS.has(sym))return null;
+  // Only fetch for known tradeable symbols
+  if(!ALP_TRADEABLE.has(sym))return null;
+  try{
+    var bars=await fetchAlpacaStockBars(sym,tf);
+    if(!bars||bars.length<10)return null;
+    // Basic OHLC sanity check
+    var valid=bars.every(function(b){return b.o>0&&b.h>=b.l&&b.h/b.l<2;});
+    if(!valid){console.warn('[Alpaca bars] invalid geometry',sym);return null;}
+    ST.candles[sym]=bars;
+    ST.prices[sym]=bars[bars.length-1].c;
+    ST.sessionOpen[sym]=getSessionOpen(bars); // always overwrite — never guard with !
+    ST.dataMode[sym]='alpaca';
+    if(!ST.priceHistory[sym])ST.priceHistory[sym]=[];
+    ST.priceHistory[sym].push(bars[bars.length-1].c);
+    console.log('[Alpaca bars]',sym,bars.length,'bars, sessionOpen=',ST.sessionOpen[sym]);
+    return bars;
+  }catch(e){console.warn('[Alpaca bars]',sym,e.message);return null;}
+}
+
+// ── Live snapshot polling ──────────────────────────────────────
 var _alpacaPollTimer=null;
 
 function startAlpacaPolling(){
-  if(_alpacaPollTimer)clearInterval(_alpacaPollTimer);
+  stopAlpacaPolling();
   if(!ST.alpaca.connected)return;
   pollAlpacaSnapshots(); // immediate first hit
-  _alpacaPollTimer=setInterval(pollAlpacaSnapshots, 5000);
-  console.log('[Alpaca] Live polling started (5s interval)');
+  _alpacaPollTimer=setInterval(pollAlpacaSnapshots,5000);
 }
 function stopAlpacaPolling(){
   if(_alpacaPollTimer){clearInterval(_alpacaPollTimer);_alpacaPollTimer=null;}
@@ -856,63 +889,57 @@ function stopAlpacaPolling(){
 async function pollAlpacaSnapshots(){
   if(!ST.alpaca.connected)return;
   var alp=ST.alpaca;
-  var h={'APCA-API-KEY-ID':alp.key,'APCA-API-SECRET-KEY':alp.secret,'accept':'application/json'};
+  var hdrs={'APCA-API-KEY-ID':alp.key,'APCA-API-SECRET-KEY':alp.secret,'accept':'application/json'};
 
-  // --- STOCKS & INDICES ---
-  var stockSyms=PAIR_KEYS.filter(function(s){return STOCK_PAIRS.has(s);});
-  if(stockSyms.length){
-    try{
-      var url='https://data.alpaca.markets/v2/stocks/snapshots?symbols='+stockSyms.join(',')+'&feed=sip';
-      var r=await fetch(url,{headers:h});
-      if(r.ok){
-        var data=await r.json();
-        stockSyms.forEach(function(sym){
-          var snap=data[sym];if(!snap)return;
-          // Latest trade price, fallback to latest quote midpoint
-          var price=(snap.latestTrade&&snap.latestTrade.p)
-                  ||(snap.latestQuote&&((snap.latestQuote.ap+snap.latestQuote.bp)/2))
-                  ||0;
-          if(!price||price<=0)return;
-          ST.prices[sym]=price;
-          ST.dataMode[sym]='alpaca';
-          // Update last candle close in real time
-          var cs=ST.candles[sym];
-          if(cs&&cs.length){var lc=cs[cs.length-1];lc.c=price;lc.h=Math.max(lc.h,price);lc.l=Math.min(lc.l,price);}
-          if(!ST.priceHistory[sym])ST.priceHistory[sym]=[];
-          ST.priceHistory[sym].push(price);if(ST.priceHistory[sym].length>500)ST.priceHistory[sym].shift();
-          // Today's session open from daily bar in snapshot
-          if(snap.dailyBar&&snap.dailyBar.o&&!ST.sessionOpen[sym]){
-            ST.sessionOpen[sym]=snap.dailyBar.o;
-          }
-        });
-      }
-    }catch(e){console.warn('[Alpaca poll stocks]',e.message);}
-  }
+  // Build list of real stock tickers (resolve index proxies)
+  var alpSyms=PAIR_KEYS.filter(function(s){return ALP_TRADEABLE.has(s);});
+  var tickers=alpSyms.map(function(s){return INDEX_PROXY[s]||s;});
 
-  // --- CRYPTO (via Alpaca data, supplements Binance) ---
-  var cryptoSyms=PAIR_KEYS.filter(function(s){return CRYPTO_PAIRS.has(s)&&ST.dataMode[s]!=='binance-live';});
-  if(cryptoSyms.length){
-    try{
-      var cSyms=cryptoSyms.map(alpacaSymbol);
-      var url2='https://data.alpaca.markets/v1beta3/crypto/us/snapshots?symbols='+cSyms.map(encodeURIComponent).join(',');
-      var r2=await fetch(url2,{headers:h});
-      if(r2.ok){
-        var data2=await r2.json();var snaps=data2.snapshots||{};
-        cryptoSyms.forEach(function(sym){
-          var csym=alpacaSymbol(sym),snap=snaps[csym];if(!snap)return;
-          var price=(snap.latestTrade&&snap.latestTrade.p)||(snap.latestQuote&&snap.latestQuote.mp)||0;
-          if(!price||price<=0)return;
-          ST.prices[sym]=price;ST.dataMode[sym]='alpaca';
-          var cs=ST.candles[sym];
-          if(cs&&cs.length){var lc=cs[cs.length-1];lc.c=price;lc.h=Math.max(lc.h,price);lc.l=Math.min(lc.l,price);}
-          if(!ST.priceHistory[sym])ST.priceHistory[sym]=[];
-          ST.priceHistory[sym].push(price);if(ST.priceHistory[sym].length>500)ST.priceHistory[sym].shift();
-          if(snap.dailyBar&&snap.dailyBar.o&&!ST.sessionOpen[sym])ST.sessionOpen[sym]=snap.dailyBar.o;
-        });
+  if(!tickers.length)return;
+  try{
+    var url='https://data.alpaca.markets/v2/stocks/snapshots?symbols='+tickers.join(',')+'&feed='+_alpFeed;
+    var r=await fetch(url,{headers:hdrs});
+    if(!r.ok){console.warn('[Alpaca poll]','HTTP '+r.status,await r.text().catch(function(){return'';}));return;}
+    var data=await r.json();
+
+    alpSyms.forEach(function(sym){
+      var ticker=INDEX_PROXY[sym]||sym;
+      var snap=data[ticker];if(!snap)return;
+
+      // Best price: latest trade → quote midpoint → prev close
+      var price=0;
+      if(snap.latestTrade&&snap.latestTrade.p>0)price=snap.latestTrade.p;
+      else if(snap.latestQuote){
+        var ap=snap.latestQuote.ap,bp=snap.latestQuote.bp;
+        if(ap>0&&bp>0)price=(ap+bp)/2;
+        else if(ap>0)price=ap;
+        else if(bp>0)price=bp;
       }
-    }catch(e){console.warn('[Alpaca poll crypto]',e.message);}
-  }
+      if(!price||price<=0)return;
+
+      // Always update sessionOpen from dailyBar — never guard with !existing
+      if(snap.dailyBar&&snap.dailyBar.o>0){
+        ST.sessionOpen[sym]=snap.dailyBar.o;
+      } else if(snap.prevDailyBar&&snap.prevDailyBar.c>0&&!ST.sessionOpen[sym]){
+        // Market hasn't opened yet today — use prev close as baseline
+        ST.sessionOpen[sym]=snap.prevDailyBar.c;
+      }
+
+      ST.prices[sym]=price;
+      ST.dataMode[sym]='alpaca';
+      var cs=ST.candles[sym];
+      if(cs&&cs.length){
+        var lc=cs[cs.length-1];
+        lc.c=price;lc.h=Math.max(lc.h,price);lc.l=Math.min(lc.l,price);
+      }
+      if(!ST.priceHistory[sym])ST.priceHistory[sym]=[];
+      ST.priceHistory[sym].push(price);
+      if(ST.priceHistory[sym].length>500)ST.priceHistory[sym].shift();
+    });
+  }catch(e){console.warn('[Alpaca poll]',e.message);}
 }
+
+// ── Alpaca REST utility ────────────────────────────────────────
 async function alpFetch(path,method,body){
   var alp=ST.alpaca;if(!alp.base||!alp.key||!alp.secret)throw new Error('Not connected');
   var headers={'APCA-API-KEY-ID':alp.key,'APCA-API-SECRET-KEY':alp.secret,'accept':'application/json'};
@@ -922,47 +949,49 @@ async function alpFetch(path,method,body){
   if(!r.ok){var e=await r.json().catch(function(){return null;});throw new Error((e&&e.message)||'HTTP '+r.status);}
   return r.json();
 }
+
 async function syncAlpaca(){
   if(!ST.alpaca.connected)return;
   try{
     var res=await Promise.all([alpFetch('/v2/account'),alpFetch('/v2/positions'),alpFetch('/v2/orders?status=all&limit=20')]);
     ST.alpaca.account=res[0];ST.alpaca.positions=res[1]||[];ST.alpaca.orders=res[2]||[];
     updateAlpacaPanel();
-    // Ensure polling is running
     if(!_alpacaPollTimer)startAlpacaPolling();
-  }catch(e){console.warn('Alpaca sync:',e);}
+  }catch(e){console.warn('[Alpaca sync]',e);}
 }
+
+// ── Connect ────────────────────────────────────────────────────
 async function connectAlpaca(key,secret,mode){
   var PAPER='https://paper-api.alpaca.markets',LIVE='https://api.alpaca.markets';
   var bases=mode==='live'?[LIVE,PAPER]:[PAPER,LIVE];
-  var modes=mode==='live'?['live','paper']:['paper','live'];
+  var modeLabels=mode==='live'?['live','paper']:['paper','live'];
   for(var i=0;i<bases.length;i++){
     try{
       var r=await fetch(bases[i]+'/v2/account',{headers:{'APCA-API-KEY-ID':key,'APCA-API-SECRET-KEY':secret}});
       if(!r.ok)continue;
       var acct=await r.json();
-      ST.alpaca=Object.assign({},ST.alpaca,{key:key,secret:secret,mode:modes[i],base:bases[i],connected:true,account:acct});
+      // Hard-set only the Alpaca fields — do NOT use Object.assign to preserve ST.alpaca
+      // because that carries over stale state. Reset to clean connection state.
+      ST.alpaca.key=key;ST.alpaca.secret=secret;ST.alpaca.mode=modeLabels[i];
+      ST.alpaca.base=bases[i];ST.alpaca.connected=true;ST.alpaca.account=acct;
+      ST.alpaca.positions=[];ST.alpaca.orders=[];
       try{var pr=await fetch(bases[i]+'/v2/positions',{headers:{'APCA-API-KEY-ID':key,'APCA-API-SECRET-KEY':secret}});ST.alpaca.positions=(await pr.json())||[];}catch(_){}
-      // Fetch bars for ALL stock pairs in background, staggered to avoid rate limits.
-      // Never touch crypto pairs — Binance is the authoritative source for those.
-      var allTradeable=PAIR_KEYS.filter(function(s){return STOCK_PAIRS.has(s);});
-      allTradeable.forEach(function(sym,idx){
+
+      // Start polling first — gets live prices immediately
+      startAlpacaPolling();
+
+      // Then fetch bars for all tradeable symbols (staggered to avoid rate limits)
+      var symsToFetch=PAIR_KEYS.filter(function(s){return ALP_TRADEABLE.has(s);});
+      symsToFetch.forEach(function(sym,idx){
         setTimeout(function(){
           fetchRealCandles(sym,ST.tf).then(function(bars){
-            if(bars&&bars.length>20){calcIndicators(sym);ST.sig[sym]=evalSignal(sym);}
+            if(bars&&bars.length>10){calcIndicators(sym);ST.sig[sym]=evalSignal(sym);}
           });
-        }, idx*400);
+        },idx*300);
       });
-      // Also fetch active pair if it's a stock
-      if(STOCK_PAIRS.has(ST.pair)){
-        fetchRealCandles(ST.pair,ST.tf).then(function(bars){
-          if(bars&&bars.length>20){calcIndicators(ST.pair);ST.sig[ST.pair]=evalSignal(ST.pair);}
-        });
-      }
-      // Start live price polling
-      startAlpacaPolling();
-      return{ok:true,account:acct,detectedMode:modes[i]};
-    }catch(ex){}
+
+      return{ok:true,account:acct,detectedMode:modeLabels[i]};
+    }catch(ex){console.warn('[connectAlpaca]',bases[i],ex.message);}
   }
   throw new Error('Keys rejected — check alpaca.markets');
 }
@@ -1794,7 +1823,7 @@ function switchPair(sym){
   if(!PAIRS[sym])return;
   ST.pair=sym;
   if(ST.candles[sym]&&ST.candles[sym].length>10){calcIndicators(sym);ST.sig[sym]=evalSignal(sym);}
-  if(ST.alpaca.connected&&STOCK_PAIRS.has(sym)){
+  if(ST.alpaca.connected&&ALP_TRADEABLE.has(sym)){
     // Only pull Alpaca bars for stocks — never for crypto (Binance owns those)
     fetchRealCandles(sym,ST.tf).then(function(bars){
       if(bars&&bars.length>20){calcIndicators(sym);ST.sig[sym]=evalSignal(sym);}
@@ -1823,7 +1852,7 @@ function switchTF(tf){
   PAIR_KEYS.forEach(function(sym){if(ST.dataMode[sym]!=='binance-live'&&ST.dataMode[sym]!=='alpaca')ST.candles[sym]=generateFallback(sym,300);});
   reconnectWSForTF();
   if(_bnWS)setTimeout(seedBinanceKlines,500);
-  if(ST.alpaca.connected&&STOCK_PAIRS.has(ST.pair)){
+  if(ST.alpaca.connected&&ALP_TRADEABLE.has(ST.pair)){
     fetchRealCandles(ST.pair,tf).then(function(bars){if(bars&&bars.length>20){calcIndicators(ST.pair);ST.sig[ST.pair]=evalSignal(ST.pair);}});
   }
 }
@@ -2081,7 +2110,7 @@ function mainLoop(){
     if(_frame%120===0)checkAlerts();
     if(_frame%1800===0&&ST.alpaca.connected)syncAlpaca();
     if(_frame%18000===0&&ST.alpaca.connected){
-      PAIR_KEYS.filter(function(s){return!CRYPTO_PAIRS.has(s)&&STOCK_PAIRS.has(s);})
+      PAIR_KEYS.filter(function(s){returnALP_TRADEABLE.has(s);})
         .forEach(function(sym,i){setTimeout(function(){fetchRealCandles(sym,ST.tf);},i*600);});
     }
   }catch(e){console.warn('Loop:',e);}

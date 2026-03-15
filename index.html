@@ -546,7 +546,16 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:8px;height
     </div>
   </div>
 </div>
-<script>
+<script>// ═══════════════════════════════════════════════════════════════
+// APEX ULTRA — REAL DATA ENGINE
+// Sources (auto-fallback chain):
+//   1. Binance WebSocket  — tick-level crypto prices + klines
+//   2. Binance REST       — 500-bar history for any timeframe
+//   3. CoinGecko REST     — crypto snapshot polling (15s)
+//   4. CoinCap REST       — crypto snapshot polling (fallback)
+//   5. Simulation         — always running, gets overwritten by real prices
+// ═══════════════════════════════════════════════════════════════
+
 // ─── UTILITIES ───────────────────────────────────────────────
 var $=function(id){return document.getElementById(id);};
 var _clean=function(v){var s=String(v==null?'--':v);return(s==='Infinity'||s==='-Infinity'||s==='NaN')?'--':s;};
@@ -565,32 +574,67 @@ function alpacaSymbol(sym){if(INDEX_PROXY&&INDEX_PROXY[sym])return INDEX_PROXY[s
 function toast(msg,type,dur){type=type||'info';dur=dur||3500;var tc=$('toasts');if(!tc)return;var d=document.createElement('div');d.className='toast '+type;d.textContent=msg;tc.appendChild(d);setTimeout(function(){d.style.opacity='0';d.style.transition='opacity .3s';setTimeout(function(){if(d.parentNode)d.remove();},300);},dur);}
 function beep(freq,dur,vol){try{var ctx=new(window.AudioContext||window.webkitAudioContext)();var o=ctx.createOscillator(),g=ctx.createGain();o.connect(g);g.connect(ctx.destination);o.frequency.value=freq||880;g.gain.value=vol||0.22;o.start();g.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+(dur||0.15));o.stop(ctx.currentTime+(dur||0.15));}catch(e){}}
 
-// ─── PAIRS & CONFIG ───────────────────────────────────────────
+// ─── PAIRS — REAL PRICES March 2026 ─────────────────────────
 var PAIRS={
-  BTCUSD:{base:84000,vol:.018,dec:0,cat:'crypto',name:'Bitcoin'},ETHUSD:{base:2050,vol:.022,dec:1,cat:'crypto',name:'Ethereum'},
-  SOLUSD:{base:135,vol:.028,dec:2,cat:'crypto',name:'Solana'},BNBUSD:{base:580,vol:.019,dec:2,cat:'crypto',name:'BNB'},
-  XRPUSD:{base:2.20,vol:.031,dec:4,cat:'crypto',name:'XRP'},ADAUSD:{base:0.72,vol:.033,dec:4,cat:'crypto',name:'Cardano'},
-  AVAXUSD:{base:20.0,vol:.027,dec:3,cat:'crypto',name:'Avalanche'},DOTUSD:{base:4.50,vol:.029,dec:3,cat:'crypto',name:'Polkadot'},
-  LINKUSD:{base:13.0,vol:.026,dec:3,cat:'crypto',name:'Chainlink'},LTCUSD:{base:90.0,vol:.021,dec:2,cat:'crypto',name:'Litecoin'},
-  UNIUSD:{base:6.80,vol:.030,dec:3,cat:'crypto',name:'Uniswap'},
-  AAPL:{base:220,vol:.012,dec:2,cat:'stock',name:'Apple'},TSLA:{base:280,vol:.025,dec:2,cat:'stock',name:'Tesla'},
-  NVDA:{base:120,vol:.028,dec:2,cat:'stock',name:'NVIDIA'},MSFT:{base:380,vol:.011,dec:2,cat:'stock',name:'Microsoft'},
-  AMZN:{base:210,vol:.014,dec:2,cat:'stock',name:'Amazon'},GOOGL:{base:165,vol:.013,dec:2,cat:'stock',name:'Alphabet'},
-  META:{base:590,vol:.016,dec:2,cat:'stock',name:'Meta'},
-  SPXUSD:{base:5600,vol:.009,dec:1,cat:'index',name:'S&P 500'},NASUSD:{base:19500,vol:.011,dec:0,cat:'index',name:'NASDAQ'},
-  EURUSD:{base:1.085,vol:.006,dec:5,cat:'forex',name:'EUR/USD'},GBPUSD:{base:1.285,vol:.007,dec:5,cat:'forex',name:'GBP/USD'},
-  JPYUSD:{base:.0067,vol:.005,dec:6,cat:'forex',name:'JPY/USD'},
-  GLDUSD:{base:2900,vol:.008,dec:1,cat:'comm',name:'Gold'},WTIUSD:{base:68.0,vol:.015,dec:2,cat:'comm',name:'WTI Oil'}
+  BTCUSD:{base:82000,vol:.018,dec:0,cat:'crypto',name:'Bitcoin'},
+  ETHUSD:{base:2080,vol:.022,dec:1,cat:'crypto',name:'Ethereum'},
+  SOLUSD:{base:87,vol:.028,dec:2,cat:'crypto',name:'Solana'},
+  BNBUSD:{base:620,vol:.019,dec:2,cat:'crypto',name:'BNB'},
+  XRPUSD:{base:1.39,vol:.031,dec:4,cat:'crypto',name:'XRP'},
+  ADAUSD:{base:0.30,vol:.033,dec:4,cat:'crypto',name:'Cardano'},
+  AVAXUSD:{base:17.5,vol:.027,dec:3,cat:'crypto',name:'Avalanche'},
+  DOTUSD:{base:4.10,vol:.029,dec:3,cat:'crypto',name:'Polkadot'},
+  LINKUSD:{base:11.0,vol:.026,dec:3,cat:'crypto',name:'Chainlink'},
+  LTCUSD:{base:84.0,vol:.021,dec:2,cat:'crypto',name:'Litecoin'},
+  UNIUSD:{base:5.50,vol:.030,dec:3,cat:'crypto',name:'Uniswap'},
+  AAPL:{base:257,vol:.012,dec:2,cat:'stock',name:'Apple'},
+  TSLA:{base:390,vol:.025,dec:2,cat:'stock',name:'Tesla'},
+  NVDA:{base:177,vol:.028,dec:2,cat:'stock',name:'NVIDIA'},
+  MSFT:{base:406,vol:.011,dec:2,cat:'stock',name:'Microsoft'},
+  AMZN:{base:211,vol:.014,dec:2,cat:'stock',name:'Amazon'},
+  GOOGL:{base:298,vol:.013,dec:2,cat:'stock',name:'Alphabet'},
+  META:{base:660,vol:.016,dec:2,cat:'stock',name:'Meta'},
+  SPXUSD:{base:5480,vol:.009,dec:1,cat:'index',name:'S&P 500'},
+  NASUSD:{base:19100,vol:.011,dec:0,cat:'index',name:'NASDAQ'},
+  EURUSD:{base:1.082,vol:.006,dec:5,cat:'forex',name:'EUR/USD'},
+  GBPUSD:{base:1.292,vol:.007,dec:5,cat:'forex',name:'GBP/USD'},
+  JPYUSD:{base:.00668,vol:.005,dec:6,cat:'forex',name:'JPY/USD'},
+  GLDUSD:{base:2985,vol:.008,dec:1,cat:'comm',name:'Gold'},
+  WTIUSD:{base:66.5,vol:.015,dec:2,cat:'comm',name:'WTI Oil'}
 };
+
+// ─── CONFIG ──────────────────────────────────────────────────
 var TF_MIN={'1M':1,'3M':3,'5M':5,'15M':15,'30M':30,'1H':60,'4H':240,'D':1440};
 var PAIR_KEYS=Object.keys(PAIRS);
+var TF_BINANCE={'1M':'1m','3M':'3m','5M':'5m','15M':'15m','30M':'30m','1H':'1h','4H':'4h','D':'1d'};
 var TF_ALPACA={'1M':'1Min','3M':'3Min','5M':'5Min','15M':'15Min','30M':'30Min','1H':'1Hour','4H':'4Hour','D':'1Day'};
-var CRYPTO_PAIRS=new Set(['BTCUSD','ETHUSD','SOLUSD','BNBUSD','XRPUSD','ADAUSD','AVAXUSD','DOTUSD','LINKUSD','LTCUSD','UNIUSD']);
-var ALP_STOCKS=new Set(['AAPL','TSLA','NVDA','MSFT','AMZN','GOOGL','META']);
-var ALP_INDICES=new Set(['SPXUSD','NASUSD']);
-var ALP_TRADEABLE=new Set([].concat(Array.from(ALP_STOCKS),Array.from(ALP_INDICES)));
+
+var BINANCE_SYM={
+  BTCUSD:'BTCUSDT',ETHUSD:'ETHUSDT',SOLUSD:'SOLUSDT',BNBUSD:'BNBUSDT',
+  XRPUSD:'XRPUSDT',ADAUSD:'ADAUSDT',AVAXUSD:'AVAXUSDT',DOTUSD:'DOTUSDT',
+  LINKUSD:'LINKUSDT',LTCUSD:'LTCUSDT',UNIUSD:'UNIUSDT'
+};
+var _bnRevMap={};
+Object.keys(BINANCE_SYM).forEach(function(k){_bnRevMap[BINANCE_SYM[k]]=k;});
+
+var CRYPTO_PAIRS=new Set(Object.keys(BINANCE_SYM));
+var STOCK_PAIRS=new Set(['AAPL','TSLA','NVDA','MSFT','AMZN','GOOGL','META']);
+var ALP_TRADEABLE=new Set(['AAPL','TSLA','NVDA','MSFT','AMZN','GOOGL','META','SPXUSD','NASUSD']);
 var INDEX_PROXY={SPXUSD:'SPY',NASUSD:'QQQ'};
 var _alpFeed='iex';
+
+// CoinGecko IDs
+var CG_IDS={
+  BTCUSD:'bitcoin',ETHUSD:'ethereum',SOLUSD:'solana',BNBUSD:'binancecoin',
+  XRPUSD:'ripple',ADAUSD:'cardano',AVAXUSD:'avalanche-2',DOTUSD:'polkadot',
+  LINKUSD:'chainlink',LTCUSD:'litecoin',UNIUSD:'uniswap'
+};
+// CoinCap IDs (fallback)
+var COINCAP_IDS={
+  BTCUSD:'bitcoin',ETHUSD:'ethereum',SOLUSD:'solana',BNBUSD:'binance-coin',
+  XRPUSD:'xrp',ADAUSD:'cardano',AVAXUSD:'avalanche',DOTUSD:'polkadot',
+  LINKUSD:'chainlink',LTCUSD:'litecoin',UNIUSD:'uniswap'
+};
 
 // ─── STATE ────────────────────────────────────────────────────
 var ST={
@@ -604,24 +648,555 @@ var ST={
   prices:{},priceHistory:{},dataMode:{},sessionOpen:{},alerts:[]
 };
 
-// ─── ALPACA ───────────────────────────────────────────────────
-function getSessionOpen(bars){if(!bars||!bars.length)return 0;var nowStr=new Date().toDateString();for(var i=bars.length-1;i>=0;i--){if(new Date(bars[i].t).toDateString()===nowStr){for(var j=i;j>=0;j--){if(new Date(bars[j].t).toDateString()!==nowStr)return bars[j+1].o;}return bars[0].o;}}return bars[bars.length-1].c;}
-async function fetchAlpacaStockBars(sym,tf){var alp=ST.alpaca,ticker=INDEX_PROXY[sym]||sym;var url='https://data.alpaca.markets/v2/stocks/'+ticker+'/bars?timeframe='+(TF_ALPACA[tf]||'15Min')+'&limit=500&adjustment=split&feed='+_alpFeed+'&sort=asc';var r=await fetch(url,{headers:{'APCA-API-KEY-ID':alp.key,'APCA-API-SECRET-KEY':alp.secret}});if(!r.ok)throw new Error(sym+' HTTP '+r.status);var json=await r.json(),raw=json.bars||[];if(!raw.length)throw new Error(sym+' empty');return raw.map(function(b){return{t:new Date(b.t).getTime(),o:b.o,h:b.h,l:b.l,c:b.c,v:b.v||0};});}
-async function fetchRealCandles(sym,tf){if(!ST.alpaca.connected||CRYPTO_PAIRS.has(sym)||!ALP_TRADEABLE.has(sym))return null;try{var bars=await fetchAlpacaStockBars(sym,tf);if(!bars||bars.length<10||!bars.every(function(b){return b.o>0&&b.h>=b.l&&b.h/b.l<2;}))return null;ST.candles[sym]=bars;ST.prices[sym]=bars[bars.length-1].c;ST.sessionOpen[sym]=getSessionOpen(bars);ST.dataMode[sym]='alpaca';if(!ST.priceHistory[sym])ST.priceHistory[sym]=[];ST.priceHistory[sym].push(bars[bars.length-1].c);return bars;}catch(e){return null;}}
-var _alpacaPollTimer=null;
-function startAlpacaPolling(){stopAlpacaPolling();if(!ST.alpaca.connected)return;pollAlpacaSnapshots();_alpacaPollTimer=setInterval(pollAlpacaSnapshots,5000);}
-function stopAlpacaPolling(){if(_alpacaPollTimer){clearInterval(_alpacaPollTimer);_alpacaPollTimer=null;}}
-async function pollAlpacaSnapshots(){if(!ST.alpaca.connected)return;var alp=ST.alpaca,hdrs={'APCA-API-KEY-ID':alp.key,'APCA-API-SECRET-KEY':alp.secret,'accept':'application/json'};var alpSyms=PAIR_KEYS.filter(function(s){return ALP_TRADEABLE.has(s);});var tickers=alpSyms.map(function(s){return INDEX_PROXY[s]||s;});if(!tickers.length)return;try{var r=await fetch('https://data.alpaca.markets/v2/stocks/snapshots?symbols='+tickers.join(',')+'&feed='+_alpFeed,{headers:hdrs});if(!r.ok)return;var data=await r.json();alpSyms.forEach(function(sym){var snap=data[INDEX_PROXY[sym]||sym];if(!snap)return;var price=0;if(snap.latestTrade&&snap.latestTrade.p>0)price=snap.latestTrade.p;else if(snap.latestQuote){var ap=snap.latestQuote.ap,bp=snap.latestQuote.bp;if(ap>0&&bp>0)price=(ap+bp)/2;else if(ap>0)price=ap;else if(bp>0)price=bp;}if(!price||price<=0)return;if(snap.dailyBar&&snap.dailyBar.o>0)ST.sessionOpen[sym]=snap.dailyBar.o;else if(snap.prevDailyBar&&snap.prevDailyBar.c>0&&!ST.sessionOpen[sym])ST.sessionOpen[sym]=snap.prevDailyBar.c;ST.prices[sym]=price;ST.dataMode[sym]='alpaca';var cs=ST.candles[sym];if(cs&&cs.length){var lc=cs[cs.length-1];lc.c=price;lc.h=Math.max(lc.h,price);lc.l=Math.min(lc.l,price);}if(!ST.priceHistory[sym])ST.priceHistory[sym]=[];ST.priceHistory[sym].push(price);if(ST.priceHistory[sym].length>500)ST.priceHistory[sym].shift();});}catch(e){}}
-async function alpFetch(path,method,body){var alp=ST.alpaca;if(!alp.base||!alp.key||!alp.secret)throw new Error('Not connected');var headers={'APCA-API-KEY-ID':alp.key,'APCA-API-SECRET-KEY':alp.secret,'accept':'application/json'};if(body)headers['Content-Type']='application/json';var opts={method:method||'GET',headers:headers};if(body)opts.body=JSON.stringify(body);var r=await fetch(alp.base+path,opts);if(!r.ok){var e=await r.json().catch(function(){return null;});throw new Error((e&&e.message)||'HTTP '+r.status);}return r.json();}
-async function syncAlpaca(){if(!ST.alpaca.connected)return;try{var res=await Promise.all([alpFetch('/v2/account'),alpFetch('/v2/positions'),alpFetch('/v2/orders?status=all&limit=20')]);ST.alpaca.account=res[0];ST.alpaca.positions=res[1]||[];ST.alpaca.orders=res[2]||[];updateAlpacaPanel();if(!_alpacaPollTimer)startAlpacaPolling();}catch(e){}}
-async function connectAlpaca(key,secret,mode){var PAPER='https://paper-api.alpaca.markets',LIVE='https://api.alpaca.markets';var bases=mode==='live'?[LIVE,PAPER]:[PAPER,LIVE],ml=mode==='live'?['live','paper']:['paper','live'];for(var i=0;i<bases.length;i++){try{var r=await fetch(bases[i]+'/v2/account',{headers:{'APCA-API-KEY-ID':key,'APCA-API-SECRET-KEY':secret}});if(!r.ok)continue;var acct=await r.json();ST.alpaca.key=key;ST.alpaca.secret=secret;ST.alpaca.mode=ml[i];ST.alpaca.base=bases[i];ST.alpaca.connected=true;ST.alpaca.account=acct;ST.alpaca.positions=[];ST.alpaca.orders=[];try{var pr=await fetch(bases[i]+'/v2/positions',{headers:{'APCA-API-KEY-ID':key,'APCA-API-SECRET-KEY':secret}});ST.alpaca.positions=(await pr.json())||[];}catch(_){}startAlpacaPolling();PAIR_KEYS.filter(function(s){return ALP_TRADEABLE.has(s);}).forEach(function(sym,idx){setTimeout(function(){fetchRealCandles(sym,ST.tf).then(function(bars){if(bars&&bars.length>10){calcIndicators(sym);ST.sig[sym]=evalSignal(sym);}});},idx*300);});return{ok:true,account:acct,detectedMode:ml[i]};}catch(ex){}}throw new Error('Keys rejected');}
-function setDataBanner(){var el=$('dataBanner');if(!el)return;el.style.display='block';if(ST.alpaca.connected){el.style.cssText='background:rgba(0,40,20,.95);border-bottom:1px solid #00ff9d;color:#00ff9d;padding:5px 14px;font-family:monospace;font-size:10px;position:fixed;top:0;left:0;right:0;z-index:10000;';el.innerHTML='&#x1F7E2; ALPACA CONNECTED ('+ST.alpaca.mode.toUpperCase()+') + SIM ENGINE';}else{el.style.cssText='background:rgba(0,15,30,.95);border-bottom:1px solid #0066aa;color:#0099cc;padding:5px 14px;font-family:monospace;font-size:10px;position:fixed;top:0;left:0;right:0;z-index:10000;';el.innerHTML='&#9670; SIM MODE &mdash; Realistic simulation running. <button onclick="showModal()" style="background:#00aacc;border:none;color:#000;padding:2px 10px;cursor:pointer;font-family:monospace;font-size:10px;font-weight:700;border-radius:2px;margin-left:10px">+ CONNECT ALPACA</button>';}}
+// ─── DATA STATUS TRACKING ─────────────────────────────────────
+var DATA_STATUS={
+  binanceWS:false,      // Binance WebSocket live
+  binanceREST:false,    // Binance REST klines loaded
+  coingecko:false,      // CoinGecko prices fetched
+  coincap:false,        // CoinCap prices fetched
+  alpaca:false,         // Alpaca connected
+  liveCount:0           // How many pairs have real data
+};
 
-// ─── SIMULATION ENGINE ────────────────────────────────────────
+// ─── BANNER ───────────────────────────────────────────────────
+function setDataBanner(){
+  var el=$('dataBanner');if(!el)return;
+  el.style.display='block';
+  var liveC=Object.values(ST.dataMode).filter(function(v){return v!=='sim';}).length;
+  DATA_STATUS.liveCount=liveC;
+
+  if(ST.alpaca.connected&&DATA_STATUS.binanceWS){
+    el.style.cssText='background:rgba(0,35,15,.97);border-bottom:1px solid #00ff88;color:#00ff88;padding:4px 14px;font-family:monospace;font-size:10px;position:fixed;top:0;left:0;right:0;z-index:10000;';
+    el.innerHTML='&#x1F7E2; FULLY LIVE — Binance WS ('+Object.keys(BINANCE_SYM).length+' crypto) + Alpaca ('+ST.alpaca.mode+')';
+  } else if(DATA_STATUS.binanceWS){
+    el.style.cssText='background:rgba(0,30,20,.97);border-bottom:1px solid #00ff9d;color:#00ff9d;padding:4px 14px;font-family:monospace;font-size:10px;position:fixed;top:0;left:0;right:0;z-index:10000;';
+    el.innerHTML='&#x1F7E2; BINANCE LIVE — '+Object.keys(BINANCE_SYM).length+' crypto streaming real-time  <button onclick="showModal()" style="background:rgba(0,255,157,.15);border:1px solid rgba(0,255,157,.4);color:#00ff9d;padding:2px 8px;cursor:pointer;font-family:monospace;font-size:9px;border-radius:2px;margin-left:8px">+ ALPACA STOCKS</button>';
+  } else if(DATA_STATUS.coingecko||DATA_STATUS.coincap){
+    var src=DATA_STATUS.coingecko?'COINGECKO':'COINCAP';
+    el.style.cssText='background:rgba(0,20,35,.97);border-bottom:1px solid #00aaff;color:#00aaff;padding:4px 14px;font-family:monospace;font-size:10px;position:fixed;top:0;left:0;right:0;z-index:10000;';
+    el.innerHTML='&#9679; '+src+' — '+liveC+' live prices (15s refresh). Connecting Binance WS...  <button onclick="showModal()" style="background:rgba(0,150,255,.12);border:1px solid rgba(0,150,255,.35);color:#00aaff;padding:2px 8px;cursor:pointer;font-family:monospace;font-size:9px;border-radius:2px;margin-left:8px">+ ALPACA</button>';
+  } else if(ST.alpaca.connected){
+    el.style.cssText='background:rgba(0,35,15,.97);border-bottom:1px solid #00ff88;color:#00ff88;padding:4px 14px;font-family:monospace;font-size:10px;position:fixed;top:0;left:0;right:0;z-index:10000;';
+    el.innerHTML='&#x1F7E2; ALPACA CONNECTED ('+ST.alpaca.mode.toUpperCase()+') — connecting Binance WS for crypto...';
+  } else {
+    el.style.cssText='background:rgba(15,10,5,.97);border-bottom:1px solid #664400;color:#cc8800;padding:4px 14px;font-family:monospace;font-size:10px;position:fixed;top:0;left:0;right:0;z-index:10000;';
+    el.innerHTML='&#9203; Connecting to live data... (open in browser for real prices)  <button onclick="retryLiveData()" style="background:rgba(255,150,0,.12);border:1px solid rgba(255,150,0,.35);color:#cc8800;padding:2px 8px;cursor:pointer;font-family:monospace;font-size:9px;border-radius:2px;margin-left:8px">RETRY</button>';
+  }
+}
+function retryLiveData(){
+  toast('Retrying live data connections...','info',3000);
+  _bnRetries=0;connectBinanceWS();
+  setTimeout(fetchAllCryptoPrices,500);
+}
+
+// ─── SESSION OPEN HELPER ─────────────────────────────────────
+function getSessionOpen(bars){
+  if(!bars||!bars.length)return 0;
+  var nowStr=new Date().toDateString();
+  for(var i=bars.length-1;i>=0;i--){
+    if(new Date(bars[i].t).toDateString()===nowStr){
+      for(var j=i;j>=0;j--){if(new Date(bars[j].t).toDateString()!==nowStr)return bars[j+1].o;}
+      return bars[0].o;
+    }
+  }
+  return bars[bars.length-1].c;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// BINANCE DATA — PRIMARY SOURCE
+// ═══════════════════════════════════════════════════════════════
+var _bnWS=null,_bnWSPending=false,_bnRetries=0,BN_MAX_RETRIES=4;
+var BN_REST_HOSTS=['https://api.binance.com','https://api1.binance.com','https://api2.binance.com'];
+
+// ─── Binance REST: load 500 historical klines ─────────────────
+async function seedBinanceKlines(pairOverride){
+  var interval=TF_BINANCE[ST.tf]||'15m';
+  var pairs=pairOverride?[pairOverride]:Object.keys(BINANCE_SYM);
+  for(var pi=0;pi<pairs.length;pi++){
+    var pair=pairs[pi],bsym=BINANCE_SYM[pair];
+    for(var ri=0;ri<BN_REST_HOSTS.length;ri++){
+      try{
+        var url=BN_REST_HOSTS[ri]+'/api/v3/klines?symbol='+bsym+'&interval='+interval+'&limit=500';
+        var r=await fetch(url,{signal:AbortSignal.timeout(8000)});
+        if(!r.ok)continue;
+        var data=await r.json();
+        if(!Array.isArray(data)||data.length<10)continue;
+        var bars=data.map(function(k){
+          return{t:+k[0],o:+k[1],h:+k[2],l:+k[3],c:+k[4],v:+k[5]};
+        });
+        if(!bars.every(function(b){return b.o>0&&b.h>=b.l&&b.c>0;}))continue;
+        ST.candles[pair]=bars;
+        ST.prices[pair]=bars[bars.length-1].c;
+        ST.sessionOpen[pair]=getSessionOpen(bars);
+        ST.dataMode[pair]='binance';
+        PAIRS[pair].base=ST.prices[pair];// Keep base synced to real price
+        if(!ST.priceHistory[pair])ST.priceHistory[pair]=[];
+        ST.priceHistory[pair].push(ST.prices[pair]);
+        DATA_STATUS.binanceREST=true;
+        break;
+      }catch(e){}
+    }
+  }
+  setDataBanner();
+}
+
+// ─── Binance WebSocket: tick-level streaming ──────────────────
+function connectBinanceWS(){
+  if(_bnWS||_bnWSPending||_bnRetries>=BN_MAX_RETRIES)return;
+  _bnWSPending=true;
+  var interval=TF_BINANCE[ST.tf]||'15m';
+  // Use combined stream: aggTrade for tick price + kline for OHLCV
+  var syms=Object.values(BINANCE_SYM);
+  var streams=syms.map(function(s){
+    var sl=s.toLowerCase();
+    return sl+'@aggTrade/'+sl+'@kline_'+interval;
+  }).join('/');
+  var hosts=[
+    'wss://stream.binance.com:9443',
+    'wss://stream.binance.com:443',
+    'wss://stream1.binance.com:9443',
+    'wss://data-stream.binance.com'
+  ];
+  var hi=0;
+  function tryHost(){
+    if(hi>=hosts.length){
+      _bnWSPending=false;_bnRetries++;
+      if(_bnRetries<BN_MAX_RETRIES){setTimeout(connectBinanceWS,5000*_bnRetries);}
+      else{toast('Binance WS unavailable — using CoinGecko fallback','warn',4000);}
+      setDataBanner();return;
+    }
+    var ws;
+    try{ws=new WebSocket(hosts[hi]+'/stream?streams='+streams);}
+    catch(e){hi++;setTimeout(tryHost,200);return;}
+
+    var openTimer=setTimeout(function(){try{ws.close();}catch(_){}},7000);
+
+    ws.onopen=function(){
+      clearTimeout(openTimer);
+      _bnWS=ws;_bnWSPending=false;_bnRetries=0;
+      DATA_STATUS.binanceWS=true;
+      setDataBanner();
+      toast('Binance WebSocket connected — live crypto streaming','bull',3500);
+      // Load historical klines now that WS is up
+      seedBinanceKlines().catch(function(){});
+      // Keepalive ping every 20s
+      var pingTimer=setInterval(function(){
+        if(!_bnWS||_bnWS.readyState!==1){clearInterval(pingTimer);return;}
+        try{_bnWS.send(JSON.stringify({method:'LIST_SUBSCRIPTIONS',id:999}));}catch(_){}
+      },20000);
+    };
+
+    ws.onmessage=function(ev){
+      try{
+        var msg=JSON.parse(ev.data);
+        var d=msg.data;if(!d||!d.e)return;
+        var pair=_bnRevMap[d.s];if(!pair)return;
+
+        if(d.e==='aggTrade'){
+          // Real-time trade price — most accurate
+          var p=parseFloat(d.p);if(!p||p<=0)return;
+          ST.prices[pair]=p;ST.dataMode[pair]='binance';PAIRS[pair].base=p;
+          var cs=ST.candles[pair];
+          if(cs&&cs.length){
+            var lc=cs[cs.length-1];
+            lc.c=p;lc.h=Math.max(lc.h,p);lc.l=Math.min(lc.l,p);
+          }
+          if(!ST.priceHistory[pair])ST.priceHistory[pair]=[];
+          ST.priceHistory[pair].push(p);
+          if(ST.priceHistory[pair].length>600)ST.priceHistory[pair].shift();
+        }
+
+        if(d.e==='kline'){
+          var k=d.k;if(!k)return;
+          var b={t:k.t,o:parseFloat(k.o),h:parseFloat(k.h),l:parseFloat(k.l),c:parseFloat(k.c),v:parseFloat(k.v)};
+          if(!b.o||b.h<b.l)return;
+          var cs2=ST.candles[pair];
+          if(!cs2||!cs2.length){ST.candles[pair]=[b];return;}
+          var lc2=cs2[cs2.length-1];
+          if(lc2.t===b.t){
+            lc2.h=Math.max(lc2.h,b.h);lc2.l=Math.min(lc2.l,b.l);lc2.c=b.c;lc2.v=b.v;
+          } else if(b.t>lc2.t){
+            cs2.push(b);if(cs2.length>600)cs2.shift();
+            ST.sessionOpen[pair]=getSessionOpen(cs2);
+          }
+          ST.prices[pair]=b.c;ST.dataMode[pair]='binance';
+        }
+      }catch(_){}
+    };
+
+    ws.onclose=function(){
+      clearTimeout(openTimer);
+      _bnWS=null;DATA_STATUS.binanceWS=false;
+      // Auto-reconnect after delay (exponential backoff capped at 30s)
+      var delay=Math.min(3000*(_bnRetries+1),30000);
+      setTimeout(function(){_bnWSPending=false;connectBinanceWS();},delay);
+      setDataBanner();
+    };
+
+    ws.onerror=function(){
+      clearTimeout(openTimer);
+      try{ws.close();}catch(_){}
+      hi++;setTimeout(tryHost,300);
+    };
+  }
+  tryHost();
+}
+
+// Reconnect when TF changes
+function reconnectBinanceForTF(){
+  if(_bnWS){try{_bnWS.close();}catch(_){}}_bnWS=null;_bnWSPending=false;
+  DATA_STATUS.binanceWS=false;
+  setTimeout(connectBinanceWS,400);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// COINGECKO + COINCAP — CRYPTO FALLBACK (every 15s)
+// ═══════════════════════════════════════════════════════════════
+var _cryptoPollTimer=null;
+
+function startCryptoPoll(){
+  if(_cryptoPollTimer)return;
+  fetchAllCryptoPrices();
+  _cryptoPollTimer=setInterval(function(){
+    // Only poll if Binance WS is down
+    if(!DATA_STATUS.binanceWS)fetchAllCryptoPrices();
+  },15000);
+}
+
+async function fetchAllCryptoPrices(){
+  if(DATA_STATUS.binanceWS)return;// WS handles it
+  // Try CoinGecko first
+  if(await fetchCoinGecko())return;
+  // Fallback to CoinCap
+  await fetchCoinCap();
+}
+
+async function fetchCoinGecko(){
+  var ids=Object.values(CG_IDS).join(',');
+  var urls=[
+    'https://api.coingecko.com/api/v3/simple/price?ids='+ids+'&vs_currencies=usd&include_24hr_change=true',
+    'https://api.coingecko.com/api/v3/simple/price?ids='+ids+'&vs_currencies=usd'
+  ];
+  for(var i=0;i<urls.length;i++){
+    try{
+      var r=await fetch(urls[i],{signal:AbortSignal.timeout(8000)});
+      if(!r.ok)continue;
+      var data=await r.json();
+      var updated=0;
+      Object.entries(CG_IDS).forEach(function(e){
+        var pair=e[0],id=e[1];
+        var entry=data[id];if(!entry)return;
+        var price=entry.usd;if(!price||price<=0)return;
+        _applyLivePrice(pair,price,'coingecko');
+        updated++;
+      });
+      if(updated>5){DATA_STATUS.coingecko=true;setDataBanner();return true;}
+    }catch(e){}
+  }
+  return false;
+}
+
+async function fetchCoinCap(){
+  try{
+    var r=await fetch('https://api.coincap.io/v2/assets?limit=50',{signal:AbortSignal.timeout(8000)});
+    if(!r.ok)return false;
+    var data=await r.json();
+    var assets=data.data||[];
+    var updated=0;
+    assets.forEach(function(coin){
+      var idMap={
+        bitcoin:'BTCUSD',ethereum:'ETHUSD',solana:'SOLUSD','binance-coin':'BNBUSD',
+        xrp:'XRPUSD',cardano:'ADAUSD',avalanche:'AVAXUSD',polkadot:'DOTUSD',
+        chainlink:'LINKUSD',litecoin:'LTCUSD',uniswap:'UNIUSD'
+      };
+      var pair=idMap[coin.id];if(!pair)return;
+      var price=parseFloat(coin.priceUsd);if(!price||price<=0)return;
+      _applyLivePrice(pair,price,'coincap');
+      updated++;
+    });
+    if(updated>3){DATA_STATUS.coincap=true;setDataBanner();return true;}
+  }catch(e){}
+  return false;
+}
+
+// Apply a real price update to state
+function _applyLivePrice(pair,price,src){
+  if(!price||price<=0||!isFinite(price))return;
+  var old=ST.prices[pair]||0;
+  ST.prices[pair]=price;
+  ST.dataMode[pair]=src;
+  PAIRS[pair].base=price;// Keep anchored to real price so sim stays realistic
+  // Update running candle
+  var cs=ST.candles[pair];
+  if(cs&&cs.length){
+    var lc=cs[cs.length-1];
+    lc.c=price;lc.h=Math.max(lc.h,price);lc.l=Math.min(lc.l,price);
+  }
+  if(!ST.sessionOpen[pair]&&old>0)ST.sessionOpen[pair]=old;
+  if(!ST.priceHistory[pair])ST.priceHistory[pair]=[];
+  ST.priceHistory[pair].push(price);
+  if(ST.priceHistory[pair].length>500)ST.priceHistory[pair].shift();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// BINANCE REST — KLINES ON PAIR/TF SWITCH
+// ═══════════════════════════════════════════════════════════════
+async function fetchBinanceKlinesFor(pair){
+  var bsym=BINANCE_SYM[pair];if(!bsym)return null;
+  var interval=TF_BINANCE[ST.tf]||'15m';
+  for(var ri=0;ri<BN_REST_HOSTS.length;ri++){
+    try{
+      var url=BN_REST_HOSTS[ri]+'/api/v3/klines?symbol='+bsym+'&interval='+interval+'&limit=500';
+      var r=await fetch(url,{signal:AbortSignal.timeout(8000)});
+      if(!r.ok)continue;
+      var data=await r.json();
+      if(!Array.isArray(data)||data.length<10)continue;
+      var bars=data.map(function(k){return{t:+k[0],o:+k[1],h:+k[2],l:+k[3],c:+k[4],v:+k[5]};});
+      if(!bars.every(function(b){return b.o>0&&b.h>=b.l;}))continue;
+      ST.candles[pair]=bars;
+      ST.prices[pair]=bars[bars.length-1].c;
+      ST.sessionOpen[pair]=getSessionOpen(bars);
+      ST.dataMode[pair]='binance';
+      PAIRS[pair].base=ST.prices[pair];
+      return bars;
+    }catch(e){}
+  }
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ALPACA DATA LAYER
+// ═══════════════════════════════════════════════════════════════
+async function fetchAlpacaStockBars(sym,tf){
+  var alp=ST.alpaca;
+  var ticker=INDEX_PROXY[sym]||sym;
+  var url='https://data.alpaca.markets/v2/stocks/'+ticker
+    +'/bars?timeframe='+(TF_ALPACA[tf]||'15Min')
+    +'&limit=500&adjustment=split&feed='+_alpFeed+'&sort=asc';
+  var r=await fetch(url,{headers:{'APCA-API-KEY-ID':alp.key,'APCA-API-SECRET-KEY':alp.secret},signal:AbortSignal.timeout(10000)});
+  if(!r.ok)throw new Error(sym+' HTTP '+r.status);
+  var json=await r.json();
+  var raw=json.bars||[];
+  if(!raw.length)throw new Error(sym+' no bars');
+  return raw.map(function(b){return{t:new Date(b.t).getTime(),o:b.o,h:b.h,l:b.l,c:b.c,v:b.v||0};});
+}
+
+async function fetchRealCandles(sym,tf){
+  if(!ST.alpaca.connected||CRYPTO_PAIRS.has(sym)||!ALP_TRADEABLE.has(sym))return null;
+  try{
+    var bars=await fetchAlpacaStockBars(sym,tf);
+    if(!bars||bars.length<10)return null;
+    if(!bars.every(function(b){return b.o>0&&b.h>=b.l&&b.h/b.l<3;}))return null;
+    ST.candles[sym]=bars;
+    ST.prices[sym]=bars[bars.length-1].c;
+    ST.sessionOpen[sym]=getSessionOpen(bars);
+    ST.dataMode[sym]='alpaca';
+    PAIRS[sym].base=ST.prices[sym];
+    if(!ST.priceHistory[sym])ST.priceHistory[sym]=[];
+    ST.priceHistory[sym].push(ST.prices[sym]);
+    return bars;
+  }catch(e){return null;}
+}
+
+var _alpacaPollTimer=null;
+function startAlpacaPolling(){
+  stopAlpacaPolling();if(!ST.alpaca.connected)return;
+  pollAlpacaSnapshots();
+  _alpacaPollTimer=setInterval(pollAlpacaSnapshots,5000);
+}
+function stopAlpacaPolling(){if(_alpacaPollTimer){clearInterval(_alpacaPollTimer);_alpacaPollTimer=null;}}
+
+async function pollAlpacaSnapshots(){
+  if(!ST.alpaca.connected)return;
+  var alp=ST.alpaca;
+  var hdrs={'APCA-API-KEY-ID':alp.key,'APCA-API-SECRET-KEY':alp.secret,'accept':'application/json'};
+  var alpSyms=PAIR_KEYS.filter(function(s){return ALP_TRADEABLE.has(s);});
+  var tickers=alpSyms.map(function(s){return INDEX_PROXY[s]||s;});
+  if(!tickers.length)return;
+  try{
+    var r=await fetch('https://data.alpaca.markets/v2/stocks/snapshots?symbols='+tickers.join(',')+'&feed='+_alpFeed,{headers:hdrs,signal:AbortSignal.timeout(8000)});
+    if(!r.ok)return;
+    var data=await r.json();
+    alpSyms.forEach(function(sym){
+      var snap=data[INDEX_PROXY[sym]||sym];if(!snap)return;
+      var price=0;
+      if(snap.latestTrade&&snap.latestTrade.p>0)price=snap.latestTrade.p;
+      else if(snap.latestQuote){
+        var ap=snap.latestQuote.ap,bp=snap.latestQuote.bp;
+        if(ap>0&&bp>0)price=(ap+bp)/2;else if(ap>0)price=ap;else if(bp>0)price=bp;
+      }
+      if(!price||price<=0)return;
+      if(snap.dailyBar&&snap.dailyBar.o>0)ST.sessionOpen[sym]=snap.dailyBar.o;
+      else if(snap.prevDailyBar&&snap.prevDailyBar.c>0&&!ST.sessionOpen[sym])ST.sessionOpen[sym]=snap.prevDailyBar.c;
+      _applyLivePrice(sym,price,'alpaca');
+    });
+    setDataBanner();
+  }catch(e){}
+}
+
+async function alpFetch(path,method,body){
+  var alp=ST.alpaca;if(!alp.base||!alp.key||!alp.secret)throw new Error('Not connected');
+  var headers={'APCA-API-KEY-ID':alp.key,'APCA-API-SECRET-KEY':alp.secret,'accept':'application/json'};
+  if(body)headers['Content-Type']='application/json';
+  var opts={method:method||'GET',headers:headers,signal:AbortSignal.timeout(12000)};
+  if(body)opts.body=JSON.stringify(body);
+  var r=await fetch(alp.base+path,opts);
+  if(!r.ok){var e=await r.json().catch(function(){return null;});throw new Error((e&&e.message)||'HTTP '+r.status);}
+  return r.json();
+}
+
+async function syncAlpaca(){
+  if(!ST.alpaca.connected)return;
+  try{
+    var res=await Promise.all([alpFetch('/v2/account'),alpFetch('/v2/positions'),alpFetch('/v2/orders?status=all&limit=20')]);
+    ST.alpaca.account=res[0];ST.alpaca.positions=res[1]||[];ST.alpaca.orders=res[2]||[];
+    updateAlpacaPanel();if(!_alpacaPollTimer)startAlpacaPolling();
+  }catch(e){}
+}
+
+async function connectAlpaca(key,secret,mode){
+  var PAPER='https://paper-api.alpaca.markets',LIVE='https://api.alpaca.markets';
+  var bases=mode==='live'?[LIVE,PAPER]:[PAPER,LIVE];
+  var ml=mode==='live'?['live','paper']:['paper','live'];
+  for(var i=0;i<bases.length;i++){
+    try{
+      var r=await fetch(bases[i]+'/v2/account',{headers:{'APCA-API-KEY-ID':key,'APCA-API-SECRET-KEY':secret},signal:AbortSignal.timeout(10000)});
+      if(!r.ok)continue;
+      var acct=await r.json();
+      ST.alpaca.key=key;ST.alpaca.secret=secret;ST.alpaca.mode=ml[i];
+      ST.alpaca.base=bases[i];ST.alpaca.connected=true;ST.alpaca.account=acct;
+      ST.alpaca.positions=[];ST.alpaca.orders=[];
+      DATA_STATUS.alpaca=true;
+      try{var pr=await fetch(bases[i]+'/v2/positions',{headers:{'APCA-API-KEY-ID':key,'APCA-API-SECRET-KEY':secret}});ST.alpaca.positions=(await pr.json())||[];}catch(_){}
+      startAlpacaPolling();
+      // Fetch historical bars for all stocks/ETFs
+      PAIR_KEYS.filter(function(s){return ALP_TRADEABLE.has(s);}).forEach(function(sym,idx){
+        setTimeout(function(){
+          fetchRealCandles(sym,ST.tf).then(function(bars){
+            if(bars&&bars.length>10){calcIndicators(sym);ST.sig[sym]=evalSignal(sym);}
+          });
+        },idx*200);
+      });
+      setDataBanner();
+      return{ok:true,account:acct,detectedMode:ml[i]};
+    }catch(ex){}
+  }
+  throw new Error('Keys rejected — check alpaca.markets');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SIMULATION ENGINE — runs for non-live pairs, anchored to real prices
+// ═══════════════════════════════════════════════════════════════
 var _simState={};
-function initSimState(pair){var cfg=PAIRS[pair];_simState[pair]={trend:(Math.random()-0.48)*cfg.vol*0.15,trendLen:Math.floor(Math.random()*80+40),trendCount:0,volRegime:Math.random()<0.7?'normal':'high',volRegimeLen:Math.floor(Math.random()*100+50),volCount:0,meanRevStr:0.003+Math.random()*0.004};}
-function generateFallback(pair,n){n=n||300;var cfg=PAIRS[pair];if(!cfg)return[];if(!_simState[pair])initSimState(pair);var sim=_simState[pair];var tfMin=TF_MIN[ST.tf]||15,ms=tfMin*60000,bpd=Math.max(1,(24*60)/tfMin);var now=Date.now(),price=cfg.base,candles=[];for(var i=n;i>=0;i--){sim.trendCount++;if(sim.trendCount>=sim.trendLen){sim.trend=(Math.random()-0.47)*cfg.vol*0.2;sim.trendLen=Math.floor(Math.random()*80+30);sim.trendCount=0;}sim.volCount++;if(sim.volCount>=sim.volRegimeLen){sim.volRegime=Math.random()<0.65?'normal':'high';sim.volRegimeLen=Math.floor(Math.random()*80+40);sim.volCount=0;}var cv=cfg.vol/Math.sqrt(bpd)*(sim.volRegime==='high'?1.8:1.0);var meanRev=-(price-cfg.base)/cfg.base*sim.meanRevStr;var o=price,body=sim.trend+meanRev+(Math.random()-0.5)*cv*0.9;var c=Math.max(o*(1+body),cfg.base*0.05);var wf=0.15+Math.random()*0.35;var h=Math.max(o,c)*(1+Math.abs(Math.random()*cv*wf));var l=Math.min(o,c)*(1-Math.abs(Math.random()*cv*wf));candles.push({t:now-i*ms,o:o,h:h,l:l,c:c,v:Math.floor((3e4+Math.random()*7e4)*(1+Math.abs(body)/cv)),sim:true});price=c;}ST.prices[pair]=price;ST.dataMode[pair]='sim';ST.sessionOpen[pair]=price;return candles;}
-function tickCandle(pair){var cs=ST.candles[pair];if(!cs||cs.length<2)return;if(ST.dataMode[pair]==='alpaca'&&ST.alpaca.connected)return;if(!_simState[pair])initSimState(pair);var sim=_simState[pair],cfg=PAIRS[pair],last=cs[cs.length-1],now=Date.now();var tfMin=TF_MIN[ST.tf]||15,tfMs=tfMin*60000,bpd=Math.max(1,(24*60)/tfMin);sim.trendCount++;if(sim.trendCount>sim.trendLen){sim.trend=(Math.random()-0.47)*cfg.vol*0.18;sim.trendLen=Math.floor(Math.random()*70+30);sim.trendCount=0;}var cv=cfg.vol/Math.sqrt(bpd)*(sim.volRegime==='high'?1.7:1.0);if(now-last.t>=tfMs){cs.push({t:now,o:last.c,h:last.c,l:last.c,c:last.c,v:Math.floor((2e4+Math.random()*6e4)),sim:true});if(cs.length>600)cs.shift();ST.sessionOpen[pair]=ST.sessionOpen[pair]||last.c;return;}var tickNoise=cv/Math.sqrt(Math.max(1,tfMin*60*0.5));var meanRev=-(last.c-last.o)/last.o*0.004,drift=sim.trend*0.5;last.c=Math.max(last.c*(1+(Math.random()-0.5)*2*tickNoise+meanRev+drift),cfg.base*0.001);last.h=Math.max(last.h,last.c);last.l=Math.min(last.l,last.c);ST.prices[pair]=last.c;if(!ST.priceHistory[pair])ST.priceHistory[pair]=[];ST.priceHistory[pair].push(last.c);if(ST.priceHistory[pair].length>500)ST.priceHistory[pair].shift();}
+function initSimState(pair){
+  var cfg=PAIRS[pair];
+  _simState[pair]={
+    trend:(Math.random()-0.48)*cfg.vol*0.15,
+    trendLen:Math.floor(Math.random()*80+40),trendCount:0,
+    volRegime:Math.random()<0.7?'normal':'high',
+    volRegimeLen:Math.floor(Math.random()*100+50),volCount:0,
+    meanRevStr:0.002+Math.random()*0.003
+  };
+}
+
+function generateFallback(pair,n){
+  n=n||300;
+  var cfg=PAIRS[pair];if(!cfg)return[];
+  if(!_simState[pair])initSimState(pair);
+  var sim=_simState[pair];
+  var tfMin=TF_MIN[ST.tf]||15,ms=tfMin*60000,bpd=Math.max(1,(24*60)/tfMin);
+  var now=Date.now(),price=cfg.base,candles=[];
+  for(var i=n;i>=0;i--){
+    sim.trendCount++;
+    if(sim.trendCount>=sim.trendLen){sim.trend=(Math.random()-0.47)*cfg.vol*0.2;sim.trendLen=Math.floor(Math.random()*80+30);sim.trendCount=0;}
+    sim.volCount++;
+    if(sim.volCount>=sim.volRegimeLen){sim.volRegime=Math.random()<0.65?'normal':'high';sim.volRegimeLen=Math.floor(Math.random()*80+40);sim.volCount=0;}
+    var cv=cfg.vol/Math.sqrt(bpd)*(sim.volRegime==='high'?1.8:1.0);
+    var meanRev=-(price-cfg.base)/cfg.base*sim.meanRevStr;
+    var o=price,body=sim.trend+meanRev+(Math.random()-0.5)*cv*0.9;
+    var c=Math.max(o*(1+body),cfg.base*0.01);
+    var wf=0.15+Math.random()*0.35;
+    var h=Math.max(o,c)*(1+Math.abs(Math.random()*cv*wf));
+    var l=Math.min(o,c)*(1-Math.abs(Math.random()*cv*wf));
+    candles.push({t:now-i*ms,o:o,h:h,l:l,c:c,v:Math.floor((3e4+Math.random()*7e4)*(1+Math.abs(body)/cv)),sim:true});
+    price=c;
+  }
+  ST.prices[pair]=price;ST.dataMode[pair]='sim';ST.sessionOpen[pair]=price;
+  return candles;
+}
+
+function tickCandle(pair){
+  var cs=ST.candles[pair];if(!cs||cs.length<2)return;
+  // NEVER simulate over real live data
+  var dm=ST.dataMode[pair];
+  if(dm==='binance'||dm==='coingecko'||dm==='coincap')return;
+  if(dm==='alpaca'&&ST.alpaca.connected)return;
+
+  if(!_simState[pair])initSimState(pair);
+  var sim=_simState[pair],cfg=PAIRS[pair],last=cs[cs.length-1],now=Date.now();
+  var tfMin=TF_MIN[ST.tf]||15,tfMs=tfMin*60000,bpd=Math.max(1,(24*60)/tfMin);
+
+  sim.trendCount++;
+  if(sim.trendCount>sim.trendLen){sim.trend=(Math.random()-0.47)*cfg.vol*0.18;sim.trendLen=Math.floor(Math.random()*70+30);sim.trendCount=0;}
+  var cv=cfg.vol/Math.sqrt(bpd)*(sim.volRegime==='high'?1.7:1.0);
+
+  if(now-last.t>=tfMs){
+    cs.push({t:now,o:last.c,h:last.c,l:last.c,c:last.c,v:Math.floor(2e4+Math.random()*6e4),sim:true});
+    if(cs.length>600)cs.shift();
+    if(!ST.sessionOpen[pair])ST.sessionOpen[pair]=last.c;
+    return;
+  }
+  var tickNoise=cv/Math.sqrt(Math.max(1,tfMin*60*0.5));
+  var meanRev=-(last.c-last.o)/last.o*0.004;
+  last.c=Math.max(last.c*(1+(Math.random()-0.5)*2*tickNoise+meanRev),cfg.base*0.001);
+  last.h=Math.max(last.h,last.c);last.l=Math.min(last.l,last.c);
+  ST.prices[pair]=last.c;
+  if(!ST.priceHistory[pair])ST.priceHistory[pair]=[];
+  ST.priceHistory[pair].push(last.c);
+  if(ST.priceHistory[pair].length>500)ST.priceHistory[pair].shift();
+}
+
+// ─── TRADE EXECUTION ──────────────────────────────────────────
+var _localOrders=[];
+// ─── PAIR SWITCHING WITH LIVE DATA REFRESH ────────────────────
+function switchPair(sym){
+  if(!PAIRS[sym])return;
+  ST.pair=sym;
+  // Refresh live data for this pair
+  if(CRYPTO_PAIRS.has(sym)){
+    if(_bnWS&&_bnWS.readyState===1){
+      // Binance WS is live, fetch history for new TF
+      fetchBinanceKlinesFor(sym).then(function(bars){
+        if(bars){calcIndicators(sym);ST.sig[sym]=evalSignal(sym);}
+      });
+    }
+  } else if(ALP_TRADEABLE.has(sym)&&ST.alpaca.connected){
+    fetchRealCandles(sym,ST.tf).then(function(bars){
+      if(bars&&bars.length>10){calcIndicators(sym);ST.sig[sym]=evalSignal(sym);}
+    });
+    pollAlpacaSnapshots();
+  }
+  if(ST.candles[sym]&&ST.candles[sym].length>10){
+    calcIndicators(sym);ST.sig[sym]=evalSignal(sym);
+  }
+  renderRTab();
+  toast(getDisplaySym(sym)+' selected','info',1500);
+}
+
+function switchTF(tf){
+  ST.tf=tf;
+  document.querySelectorAll('.tf-btn').forEach(function(b){b.classList.toggle('active',b.dataset.tf===tf);});
+  // Regenerate sim candles for non-live pairs
+  PAIR_KEYS.forEach(function(sym){
+    if(ST.dataMode[sym]==='sim')ST.candles[sym]=generateFallback(sym,300);
+  });
+  // Refetch live candles for current pair
+  if(CRYPTO_PAIRS.has(ST.pair)){
+    reconnectBinanceForTF();
+  } else if(ALP_TRADEABLE.has(ST.pair)&&ST.alpaca.connected){
+    fetchRealCandles(ST.pair,tf).then(function(bars){if(bars&&bars.length>10){calcIndicators(ST.pair);ST.sig[ST.pair]=evalSignal(ST.pair);}});
+  }
+}
 
 // ─── MATH ENGINE ─────────────────────────────────────────────
 var M={
@@ -1085,79 +1660,7 @@ function renderOmniTab(){
 function aggregateTF(candles,fromMin,toMin){var ratio=Math.max(1,Math.round(toMin/fromMin));if(ratio===1)return candles;var out=[];for(var i=0;i<candles.length;i+=ratio){var sl=candles.slice(i,i+ratio);if(!sl.length)break;out.push({t:sl[0].t,o:sl[0].o,h:safeMax(sl.map(function(x){return x.h;}),sl[0].h),l:safeMin(sl.map(function(x){return x.l;}),sl[0].l),c:sl[sl.length-1].c,v:M.sum(sl.map(function(x){return x.v;}))});}return out;}
 
 // ─── NAVIGATION ────────────────────────────────────────────
-function switchPair(sym){
-  if(!PAIRS[sym])return;
-  ST.pair=sym;
-  if(ST.candles[sym]&&ST.candles[sym].length>10){calcIndicators(sym);ST.sig[sym]=evalSignal(sym);}
-  if(ST.alpaca.connected&&ALP_TRADEABLE.has(sym)){
-    fetchRealCandles(sym,ST.tf).then(function(bars){
-      if(bars&&bars.length>20){calcIndicators(sym);ST.sig[sym]=evalSignal(sym);}
-    });
-    pollAlpacaSnapshots();
-  }
-  renderRTab();
-  toast(getDisplaySym(sym)+' selected','info',1500);
-}
-function switchTF(tf){
-  ST.tf=tf;
-  document.querySelectorAll('.tf-btn').forEach(function(b){b.classList.toggle('active',b.dataset.tf===tf);});
-  // Re-seed fallback candles for non-alpaca pairs
-  PAIR_KEYS.forEach(function(sym){
-    if(ST.dataMode[sym]!=='alpaca')ST.candles[sym]=generateFallback(sym,300);
-  });
-  if(ST.alpaca.connected&&ALP_TRADEABLE.has(ST.pair)){
-    fetchRealCandles(ST.pair,tf).then(function(bars){if(bars&&bars.length>20){calcIndicators(ST.pair);ST.sig[ST.pair]=evalSignal(ST.pair);}});
-  }
-}
-function toggleOvr(ovr){
-  ST.overlays[ovr]=!ST.overlays[ovr];
-  document.querySelectorAll('.ovr-btn').forEach(function(b){if(b.dataset.ovr===ovr)b.classList.toggle('on',ST.overlays[ovr]);});
-}
-function setOsc(osc){ST.osc=osc;document.querySelectorAll('.osc-tab').forEach(function(b){b.classList.toggle('active',b.dataset.osc===osc);});}
-function setRTab(tab){ST.rtab=tab;document.querySelectorAll('.rtab').forEach(function(b){b.classList.toggle('active',b.dataset.tab===tab);});renderRTab();}
-function setStrategy(s){ST.strategy=s;document.querySelectorAll('.strat-btn').forEach(function(b){b.classList.toggle('active',b.dataset.strat===s);});}
-function setThresh(v){
-  ST.thresh=+v;
-  var labels={30:'LOW',40:'MOD-',50:'MOD',55:'MOD+',65:'HIGH',75:'ELITE',85:'APEX',95:'MAX'};
-  var key=Object.keys(labels).reverse().find(function(k){return +v>=+k;})||'LOW';
-  setTxt('threshVal',v+'%');setTxt('threshLbl',labels[key]||'MOD');
-}
-function toggleSniper(){
-  ST.sniper.active=!ST.sniper.active;
-  var b=$('armBtn'),d=$('sniperDot'),t=$('sniperTxt'),sb=$('sniperBadge');
-  if(b){b.innerHTML=ST.sniper.active?'&#9632; ARMED':'&#9633; PAUSED';b.className='arm-btn '+(ST.sniper.active?'on':'off');}
-  if(d)d.className='sdot '+(ST.sniper.active?'on':'off');
-  if(t)t.textContent=ST.sniper.active?'OMNI ARMED':'PAUSED';
-  if(sb)sb.className='sniper-badge '+(ST.sniper.active?'armed':'paused');
-  toast(ST.sniper.active?'Sniper ARMED':'Sniper PAUSED',ST.sniper.active?'bull':'warn');
-}
-function addAlert(){
-  var type=document.getElementById('alertType'),val=parseFloat((document.getElementById('alertVal')||{}).value||0);
-  ST.alerts.push({pair:ST.pair,type:type?type.value:'PRICE_ABOVE',val:val,active:true});
-  toast('Alert added','info');renderRTab();
-}
-function removeAlert(i){ST.alerts.splice(i,1);renderRTab();}
-function checkAlerts(){
-  ST.alerts.forEach(function(a){
-    if(!a.active)return;
-    var price=ST.prices[a.pair]||0,fired=false;
-    if(a.type==='PRICE_ABOVE'&&price>a.val)fired=true;
-    if(a.type==='PRICE_BELOW'&&price<a.val)fired=true;
-    var ind=ST.ind[a.pair]||{},rsiV=lx(ind.rsi14)||50;
-    if(a.type==='RSI_OB'&&rsiV>70)fired=true;
-    if(a.type==='RSI_OS'&&rsiV<30)fired=true;
-    var sig=ST.sig[a.pair];
-    if(sig){
-      if(a.type==='SIGNAL_LONG'&&sig.dir==='LONG')fired=true;
-      if(a.type==='SIGNAL_SHORT'&&sig.dir==='SHORT')fired=true;
-      if(a.type==='QUANTUM_SIGNAL'&&sig.quality==='QUANTUM')fired=true;
-    }
-    if(fired){a.active=false;toast('&#9889; ALERT: '+a.type+' on '+getDisplaySym(a.pair),'quantum');}
-  });
-}
-function showModal(){var m=$('alpModal');if(m)m.classList.add('show');}
-function hideModal(){var m=$('alpModal');if(m)m.classList.remove('show');}
-function setQtAmt(v){var el=$('qtAmt');if(el)el.value=v;}
+
 
 // ─── EVENT HANDLERS ──────────────────────────────────────────
 var _alpMode='paper';
@@ -1429,18 +1932,78 @@ function renderLog(){
 
 // ─── MAIN LOOP ────────────────────────────────────────────────
 var _frame=0,_lastCandleClose={},_lastOmni=0;
+// ─── INIT ─────────────────────────────────────────────────────
+
+// ─── NAVIGATION HELPERS ───────────────────────────────────────
+function toggleOvr(ovr){
+  ST.overlays[ovr]=!ST.overlays[ovr];
+  document.querySelectorAll('.ovr-btn').forEach(function(b){if(b.dataset.ovr===ovr)b.classList.toggle('on',ST.overlays[ovr]);});
+}
+function setOsc(osc){ST.osc=osc;document.querySelectorAll('.osc-tab').forEach(function(b){b.classList.toggle('active',b.dataset.osc===osc);});}
+function setRTab(tab){ST.rtab=tab;document.querySelectorAll('.rtab').forEach(function(b){b.classList.toggle('active',b.dataset.tab===tab);});renderRTab();}
+function setStrategy(s){ST.strategy=s;document.querySelectorAll('.strat-btn').forEach(function(b){b.classList.toggle('active',b.dataset.strat===s);});}
+function setThresh(v){
+  ST.thresh=+v;
+  var labels={30:'LOW',40:'MOD-',50:'MOD',55:'MOD+',65:'HIGH',75:'ELITE',85:'APEX',95:'MAX'};
+  var key=Object.keys(labels).reverse().find(function(k){return +v>=+k;})||'LOW';
+  setTxt('threshVal',v+'%');setTxt('threshLbl',labels[key]||'MOD');
+}
+function toggleSniper(){
+  ST.sniper.active=!ST.sniper.active;
+  var b=$('armBtn'),d=$('sniperDot'),t=$('sniperTxt'),sb=$('sniperBadge');
+  if(b){b.innerHTML=ST.sniper.active?'&#9632; ARMED':'&#9633; PAUSED';b.className='arm-btn '+(ST.sniper.active?'on':'off');}
+  if(d)d.className='sdot '+(ST.sniper.active?'on':'off');
+  if(t)t.textContent=ST.sniper.active?'OMNI ARMED':'PAUSED';
+  if(sb)sb.className='sniper-badge '+(ST.sniper.active?'armed':'paused');
+  toast(ST.sniper.active?'Sniper ARMED':'Sniper PAUSED',ST.sniper.active?'bull':'warn');
+}
+function addAlert(){
+  var type=document.getElementById('alertType'),val=parseFloat((document.getElementById('alertVal')||{}).value||0);
+  ST.alerts.push({pair:ST.pair,type:type?type.value:'PRICE_ABOVE',val:val,active:true});
+  toast('Alert added','info');renderRTab();
+}
+function removeAlert(i){ST.alerts.splice(i,1);renderRTab();}
+function checkAlerts(){
+  ST.alerts.forEach(function(a){
+    if(!a.active)return;
+    var price=ST.prices[a.pair]||0,fired=false;
+    if(a.type==='PRICE_ABOVE'&&price>a.val)fired=true;
+    if(a.type==='PRICE_BELOW'&&price<a.val)fired=true;
+    var ind=ST.ind[a.pair]||{},rsiV=lx(ind.rsi14)||50;
+    if(a.type==='RSI_OB'&&rsiV>70)fired=true;
+    if(a.type==='RSI_OS'&&rsiV<30)fired=true;
+    var sig=ST.sig[a.pair];
+    if(sig){
+      if(a.type==='SIGNAL_LONG'&&sig.dir==='LONG')fired=true;
+      if(a.type==='SIGNAL_SHORT'&&sig.dir==='SHORT')fired=true;
+      if(a.type==='QUANTUM_SIGNAL'&&sig.quality==='QUANTUM')fired=true;
+    }
+    if(fired){a.active=false;toast('\u26a1 ALERT: '+a.type+' on '+getDisplaySym(a.pair),'quantum');}
+  });
+}
+function showModal(){var m=$('alpModal');if(m)m.classList.add('show');}
+function hideModal(){var m=$('alpModal');if(m)m.classList.remove('show');}
+function setQtAmt(v){var el=$('qtAmt');if(el)el.value=v;}
+
+// ─── MAIN LOOP ────────────────────────────────────────────────
+var _frame=0,_lastSigKey={},_lastOmni=0;
 function mainLoop(){
   _frame++;
   try{
+    // Tick simulation for non-live pairs
     tickCandle(ST.pair);
     if(_frame%6===0)PAIR_KEYS.forEach(function(sym){if(sym!==ST.pair)tickCandle(sym);});
+    // Recalculate indicators when price changes
     var cs=ST.candles[ST.pair];
     if(cs&&cs.length>30){
-      var lc=cs[cs.length-1],ck=ST.pair+':'+lc.t+':'+lc.c.toFixed(4);
-      if(ck!==_lastCandleClose[ST.pair]){_lastCandleClose[ST.pair]=ck;calcIndicators(ST.pair);ST.sig[ST.pair]=evalSignal(ST.pair);}
+      var lc=cs[cs.length-1];
+      var ck=ST.pair+':'+lc.t+':'+lc.c.toFixed(4);
+      if(ck!==_lastSigKey[ST.pair]){_lastSigKey[ST.pair]=ck;calcIndicators(ST.pair);ST.sig[ST.pair]=evalSignal(ST.pair);}
     }
+    // Omni scan every 5s
     var now=Date.now();
     if(now-_lastOmni>5000){_lastOmni=now;omniScan();}
+    // Render
     renderChart();
     if(_frame%2===0)renderOsc();
     updateSignalBar();
@@ -1451,10 +2014,12 @@ function mainLoop(){
     if(_frame%6===0){updateIndPanel();updatePnlPanel();updateKPIs();}
     if(_frame%90===0)renderRTab();
     if(_frame%120===0)checkAlerts();
-    if(_frame%1800===0&&ST.alpaca.connected)syncAlpaca();
-    if(_frame%18000===0&&ST.alpaca.connected){
-      PAIR_KEYS.filter(function(s){return ALP_TRADEABLE.has(s);})
-        .forEach(function(sym,i){setTimeout(function(){fetchRealCandles(sym,ST.tf);},i*600);});
+    if(_frame%600===0&&ST.alpaca.connected)syncAlpaca();
+    // Periodically resync live data
+    if(_frame%3600===0&&ST.alpaca.connected){
+      PAIR_KEYS.filter(function(s){return ALP_TRADEABLE.has(s);}).forEach(function(sym,i){
+        setTimeout(function(){fetchRealCandles(sym,ST.tf);},i*400);
+      });
     }
   }catch(e){}
   requestAnimationFrame(mainLoop);
@@ -1463,20 +2028,34 @@ function mainLoop(){
 // ─── INIT ─────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded',function(){
   initMatrix();
-  initHandlers();
+  // Seed simulation baseline for all pairs (will be overwritten by live data)
   PAIR_KEYS.forEach(function(sym){
     initSimState(sym);
     ST.candles[sym]=generateFallback(sym,300);
     ST.prices[sym]=ST.candles[sym][ST.candles[sym].length-1].c;
     ST.priceHistory[sym]=[ST.prices[sym]];
     ST.dataMode[sym]='sim';
+    ST.sessionOpen[sym]=ST.prices[sym];
   });
   setDataBanner();
+  initHandlers();
   renderRTab();
   runLoader(function(){
     mainLoop();
-    // Show modal after 3s — not immediately so user can see the UI first
-    setTimeout(function(){if(!ST.alpaca.connected)showModal();},3000);
+    // ── LIVE DATA STARTUP ──────────────────────────────────────
+    // 1. Binance WebSocket — best source for crypto (tick-level)
+    setTimeout(function(){try{connectBinanceWS();}catch(e){}},300);
+    // 2. CoinGecko/CoinCap — immediate snapshot + 15s polling
+    //    This gives crypto prices INSTANTLY before WS connects
+    setTimeout(function(){
+      fetchAllCryptoPrices().catch(function(){});
+    },800);
+    // 3. Keep polling crypto every 15s (WS auto-skips if active)
+    setInterval(function(){
+      fetchAllCryptoPrices().catch(function(){});
+    },15000);
+    // 4. Show Alpaca connect modal after 5s
+    setTimeout(function(){if(!ST.alpaca.connected)showModal();},5000);
   });
 });
 </script>

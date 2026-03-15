@@ -594,7 +594,12 @@ function getDisplaySym(sym){
   if(sym.endsWith('USD'))return sym.slice(0,-3);
   return sym;
 }
+// Returns the correct Alpaca order symbol for any internal pair key
+// Crypto: 'BTCUSD' → 'BTC/USD'
+// Indices: 'SPXUSD' → 'SPY', 'NASUSD' → 'QQQ'  (tradeable proxies)
+// Stocks: 'AAPL' → 'AAPL'
 function alpacaSymbol(sym){
+  if(INDEX_PROXY&&INDEX_PROXY[sym])return INDEX_PROXY[sym];
   if(CRYPTO_PAIRS&&CRYPTO_PAIRS.has(sym)&&sym.endsWith('USD'))return sym.slice(0,-3)+'/USD';
   return sym;
 }
@@ -1242,34 +1247,89 @@ function updateOmniTicker(results){
 // ─────────────────────────────────────────────────────────────
 // TRADE EXECUTION
 // ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// TRADE EXECUTION — fully rewritten
+// ─────────────────────────────────────────────────────────────
+
 function executeTrade(pair,sig){
-  if(ST.pnl.positions[pair])return;
+  if(ST.pnl.positions[pair])return; // already in position
   var price=ST.prices[pair]||sig.entry;if(!price||price<=0)return;
   var slDist=Math.abs(price-(sig.sl||price*0.99))||price*0.01;
-  var riskAmt=ST.pnl.equity*0.015,qty=clamp(riskAmt/slDist,0.0001,(ST.pnl.equity*0.20)/price);
-  var sl=sig.sl||price*(sig.dir==='LONG'?0.985:1.015),tp1=sig.tp1||price*(sig.dir==='LONG'?1.03:0.97);
+  var riskAmt=ST.pnl.equity*0.015;
+  var qty=clamp(riskAmt/slDist,0.0001,(ST.pnl.equity*0.20)/price);
+  var sl=sig.sl||price*(sig.dir==='LONG'?0.985:1.015);
+  var tp1=sig.tp1||price*(sig.dir==='LONG'?1.03:0.97);
+  // Record local sim position
   ST.pnl.positions[pair]={dir:sig.dir,entry:price,sl:sl,tp1:tp1,qty:qty,t:Date.now(),pair:pair,quality:sig.quality};
-  ST.alpaca.orders.unshift({symbol:pair,side:sig.dir==='LONG'?'buy':'sell',qty:qty>=1?sf(qty,2):sf(qty,6),status:'sim',t:Date.now(),price:price});
-  if(ST.alpaca.orders.length>50)ST.alpaca.orders.pop();
-  if(ST.alpaca.connected&&ST.autoExec)fireAlpacaOrder(pair,sig,qty);
+  // Add to local order log
+  _logOrder({symbol:pair,side:sig.dir==='LONG'?'buy':'sell',qty:qty,notional:qty*price,status:'pending',t:Date.now(),price:price,source:'auto'});
+  if(ST.alpaca.connected&&ST.autoExec)fireAlpacaOrder(pair,sig.dir,qty*price,false);
 }
-function fireAlpacaOrder(pair,sig,qty){
-  var alpSym=alpacaSymbol(pair),isCrypto=CRYPTO_PAIRS.has(pair);
-  var price=ST.prices[pair]||sig.entry||1;
-  var acctEq=parseFloat((ST.alpaca.account&&ST.alpaca.account.equity)||ST.pnl.equity||100000);
-  var notional=Math.min(qty*price,acctEq*0.05);
+
+// Main Alpaca order firing function
+// pair: internal symbol (e.g. 'BTCUSD', 'AAPL', 'SPXUSD')
+// dir: 'LONG' or 'SHORT'
+// notionalUSD: dollar amount to trade
+// closeOnly: true = close/reduce position (sell existing qty)
+function fireAlpacaOrder(pair,dir,notionalUSD,closeOnly){
+  if(!ST.alpaca.connected)return;
+  var alp=ST.alpaca;
+  var alpSym=alpacaSymbol(pair); // BTC/USD, AAPL, SPY, etc.
+  var isCrypto=CRYPTO_PAIRS.has(pair);
+  var side=closeOnly?(dir==='LONG'?'sell':'buy'):(dir==='LONG'?'buy':'sell');
+  var price=ST.prices[pair]||1;
+  var acctEq=parseFloat((alp.account&&alp.account.equity)||ST.pnl.equity||100000);
+
+  // Cap to 5% of account equity per trade
+  var safeNotional=Math.min(notionalUSD||100,acctEq*0.05);
+  if(safeNotional<1)safeNotional=1;
+
   var body;
   if(isCrypto){
-    body={symbol:alpSym,side:sig.dir==='LONG'?'buy':'sell',notional:String(Math.max(1,parseFloat(notional.toFixed(2)))),type:'market',time_in_force:'gtc'};
-  }else{
-    body={symbol:alpSym,side:sig.dir==='LONG'?'buy':'sell',qty:String(Math.max(1,Math.floor(notional/price))),type:'market',time_in_force:'gtc'};
+    // Crypto: use notional (dollar amount) — Alpaca handles fractional qty
+    body={
+      symbol:alpSym,
+      side:side,
+      notional:safeNotional.toFixed(2),
+      type:'market',
+      time_in_force:'gtc'
+    };
+  } else {
+    // Stocks/ETFs: whole shares only
+    // Use fractional_shares=true if available, otherwise round to whole shares
+    var shares=Math.max(1,Math.floor(safeNotional/price));
+    body={
+      symbol:alpSym,
+      side:side,
+      qty:String(shares),
+      type:'market',
+      time_in_force:'day' // 'day' for stocks: avoids zombie GTC orders
+    };
   }
+
   alpFetch('/v2/orders','POST',body)
     .then(function(r){
-      if(r&&r.id)toast('&#10003; '+getDisplaySym(pair)+' '+sig.dir+(isCrypto?' $'+parseFloat(body.notional).toFixed(0):' '+body.qty+' sh'),'success',4000);
-      else toast('&#9888; Rejected: '+getDisplaySym(pair)+' — '+((r&&(r.message||r.code))||'unknown'),'error',6000);
-    }).catch(function(e){toast('Order error: '+e.message,'error',6000);});
+      if(r&&r.id){
+        var label=isCrypto?'$'+parseFloat(body.notional).toFixed(0):body.qty+' sh';
+        var msg=(closeOnly?'CLOSED ':'') + getDisplaySym(pair)+' '+side.toUpperCase()+' '+label;
+        toast('&#10003; '+msg,'success',4000);
+        // Update local order log with real Alpaca order ID
+        _logOrder({id:r.id,symbol:pair,side:side,qty:parseFloat(body.qty||0)||parseFloat(body.notional||0)/price,notional:safeNotional,status:r.status||'accepted',t:Date.now(),price:price,source:'alpaca'});
+        // Refresh positions after a short delay
+        setTimeout(syncAlpaca,1500);
+      } else {
+        var errMsg=(r&&(r.message||r.code))||JSON.stringify(r)||'unknown error';
+        toast('&#9888; Order rejected: '+errMsg,'error',7000);
+        console.error('[fireAlpacaOrder] rejected:',r);
+      }
+    })
+    .catch(function(e){
+      toast('&#9888; Order failed: '+e.message,'error',6000);
+      console.error('[fireAlpacaOrder]',e);
+    });
 }
+
+// Close position — sends a real market order for exact qty, not DELETE
 function closePosition(pair,reason){
   reason=reason||'MANUAL';
   var pos=ST.pnl.positions[pair];if(!pos)return;
@@ -1279,10 +1339,38 @@ function closePosition(pair,reason){
   ST.pnl.trades.push({pair:pair,dir:pos.dir,pnl:pnl,entry:pos.entry,exit:price,t:Date.now(),reason:reason});
   if(pnl>0){ST.pnl.wins++;ST.pnl.streak=Math.max(0,ST.pnl.streak)+1;}
   else{ST.pnl.losses++;ST.pnl.streak=Math.min(0,ST.pnl.streak)-1;}
-  ST.sniper.log.push({type:'CLOSE',pair:pair,price:price,pnl:pnl,qual:reason});
+  ST.sniper.log.push({type:'CLOSE',pair:pair,price:price,pnl:pnl,qual:reason,entry:pos.entry});
   delete ST.pnl.positions[pair];
-  toast(reason+': '+getDisplaySym(pair)+' $'+(pnl>=0?'+':'')+sf(pnl,2),pnl>=0?'bull':'bear',4000);
-  if(ST.alpaca.connected&&ST.autoExec)alpFetch('/v2/positions/'+encodeURIComponent(alpacaSymbol(pair)),'DELETE').catch(function(){});
+  toast(reason+': '+getDisplaySym(pair)+' P&L $'+(pnl>=0?'+':'')+sf(pnl,2),pnl>=0?'bull':'bear',4000);
+  if(ST.alpaca.connected&&ST.autoExec){
+    // Use a sell/buy market order for the EXACT qty — NOT DELETE (which closes ALL)
+    fireAlpacaOrder(pair,pos.dir,pos.qty*price,true);
+  }
+}
+
+// Local order log helper — keeps a clean list for the UI
+var _localOrders=[];
+function _logOrder(o){
+  _localOrders.unshift(o);
+  if(_localOrders.length>50)_localOrders.pop();
+}
+
+// Quick trade from the UI panel
+function qtExecute(dir){
+  var amt=parseFloat((document.getElementById('qtAmt')||{}).value||100);
+  if(!amt||amt<1){toast('Enter a valid dollar amount','warn');return;}
+  var pair=ST.pair,price=ST.prices[pair]||PAIRS[pair].base||1;
+  var qty=amt/price;
+  // Build a sig-like object for SL/TP defaults
+  var sig={dir:dir,entry:price,sl:dir==='LONG'?price*0.985:price*1.015,tp1:dir==='LONG'?price*1.03:price*0.97,quality:'MANUAL',rr:2};
+  // Always allow manual trades even if position exists (user intent)
+  if(!ST.pnl.positions[pair]){
+    ST.pnl.positions[pair]={dir:dir,entry:price,sl:sig.sl,tp1:sig.tp1,qty:qty,t:Date.now(),pair:pair,quality:'MANUAL'};
+  }
+  _logOrder({symbol:pair,side:dir==='LONG'?'buy':'sell',qty:qty,notional:amt,status:'manual',t:Date.now(),price:price,source:'manual'});
+  toast('Manual '+dir+': '+getDisplaySym(pair)+' $'+amt,'info',3000);
+  if(ST.alpaca.connected)fireAlpacaOrder(pair,dir,amt,false);
+  renderRTab();
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1544,15 +1632,37 @@ function updateAlpacaPanel(){
     ST.pnl.equity=eq;
   }
   var posEl=$('alpPositions');if(!posEl)return;
-  var allPos=Object.entries(ST.pnl.positions).concat((alp.positions||[]).map(function(p){return[p.symbol,{dir:p.side==='long'?'LONG':'SHORT',entry:parseFloat(p.avg_entry_price)||0,qty:parseFloat(p.qty)||0,unrealized_pl:parseFloat(p.unrealized_pl)||0}];}));
-  if(!allPos.length){posEl.innerHTML='';return;}
-  posEl.innerHTML='<div style="font-size:5.5px;letter-spacing:2px;color:var(--c3);padding:4px 6px">OPEN POSITIONS</div>'
-    +allPos.slice(0,6).map(function(e){
-      var sym=e[0],pos=e[1],price=ST.prices[sym]||pos.entry;
-      var upnl=pos.unrealized_pl!==undefined?pos.unrealized_pl:(pos.dir==='LONG'?(price-pos.entry)*pos.qty:(pos.entry-price)*pos.qty);
-      return'<div class="alp-pos-item"><div class="alp-pos-row"><span style="color:'+(pos.dir==='LONG'?'var(--g)':'var(--r)')+';">'+getDisplaySym(sym)+' '+pos.dir+'</span>'
-        +'<span style="color:'+(upnl>=0?'var(--g)':'var(--r)')+'">$'+sf(upnl,2)+'</span></div>'
-        +'<div style="font-size:7px;color:var(--t3)">Entry: '+fmtPrice(pos.entry,sym)+' &middot; Qty: '+sf(parseFloat(pos.qty)||0,4)
+  // Proper reverse-mapping: Alpaca symbol → internal key
+  function _alpSymToInternal(s){
+    if(s.indexOf('/')>-1){s=s.split('/')[0]+'USD';}
+    var rev=Object.keys(INDEX_PROXY||{}).find(function(k){return(INDEX_PROXY[k])===s;});
+    return rev||s;
+  }
+  var realPos=(alp.positions||[]).map(function(p){
+    return{sym:_alpSymToInternal(p.symbol),dir:p.side==='long'?'LONG':'SHORT',
+      entry:parseFloat(p.avg_entry_price)||0,qty:parseFloat(p.qty)||0,
+      upnl:parseFloat(p.unrealized_pl)||0};
+  });
+  var simOnly=Object.entries(ST.pnl.positions).filter(function(e){
+    return!realPos.find(function(r){return r.sym===e[0];});
+  });
+  var total=realPos.length+simOnly.length;
+  if(!total){posEl.innerHTML='';return;}
+  posEl.innerHTML='<div style="font-size:5.5px;letter-spacing:2px;color:var(--c3);padding:4px 6px">OPEN POSITIONS ('+total+')</div>'
+    +realPos.slice(0,6).map(function(p){
+      return'<div class="alp-pos-item"><div class="alp-pos-row">'
+        +'<span style="color:'+(p.dir==='LONG'?'var(--g)':'var(--r)')+';">'+getDisplaySym(p.sym)+' '+p.dir+' <span style="font-size:5px;color:var(--g2)">LIVE</span></span>'
+        +'<span style="color:'+(p.upnl>=0?'var(--g)':'var(--r)')+'">$'+(p.upnl>=0?'+':'')+sf(p.upnl,2)+'</span></div>'
+        +'<div style="font-size:7px;color:var(--t3)">Entry: '+fmtPrice(p.entry,p.sym)+' &middot; Qty: '+sf(p.qty,p.qty<1?6:4)
+        +' <button onclick="closePosition(\''+p.sym+'\')" style="float:right;background:transparent;border:1px solid var(--r2);color:var(--r1);font-size:6px;padding:1px 4px;cursor:pointer">CLOSE</button></div></div>';
+    }).join('')
+    +simOnly.slice(0,4).map(function(e){
+      var sym=e[0],p=e[1],price=ST.prices[sym]||p.entry;
+      var upnl=p.dir==='LONG'?(price-p.entry)*p.qty:(p.entry-price)*p.qty;
+      return'<div class="alp-pos-item"><div class="alp-pos-row">'
+        +'<span style="color:'+(p.dir==='LONG'?'var(--g)':'var(--r)')+';">'+getDisplaySym(sym)+' '+p.dir+' <span style="font-size:5px;color:var(--y1)">SIM</span></span>'
+        +'<span style="color:'+(upnl>=0?'var(--g)':'var(--r)')+'">$'+(upnl>=0?'+':'')+sf(upnl,2)+'</span></div>'
+        +'<div style="font-size:7px;color:var(--t3)">Entry: '+fmtPrice(p.entry,sym)+' &middot; Qty: '+sf(p.qty,p.qty<1?6:4)
         +' <button onclick="closePosition(\''+sym+'\')" style="float:right;background:transparent;border:1px solid var(--r2);color:var(--r1);font-size:6px;padding:1px 4px;cursor:pointer">CLOSE</button></div></div>';
     }).join('');
 }
@@ -1589,39 +1699,141 @@ function renderRTab(){
 // TAB: ORDERS
 // ─────────────────────────────────────────────────────────────
 function renderOrders(){
-  var pos=ST.pnl.positions,curP=ST.prices[ST.pair]||0;
+  var curP=ST.prices[ST.pair]||0;
+  var canTrade=ALP_TRADEABLE.has(ST.pair)||CRYPTO_PAIRS.has(ST.pair);
+
+  // ── Quick Trade Panel ─────────────────────────────────────
   var h='<div class="qt-panel">'
-    +'<div class="qt-title">QUICK TRADE &mdash; '+getDisplaySym(ST.pair)+'</div>'
+    +'<div class="qt-title">QUICK TRADE &mdash; '+getDisplaySym(ST.pair)
+    +(ST.alpaca.connected?'<span style="color:var(--g);margin-left:6px;font-size:5px">&#9679; LIVE</span>':'<span style="color:var(--y1);margin-left:6px;font-size:5px">SIM</span>')
+    +'</div>'
     +'<div class="qt-row"><span class="qt-label">PRICE</span>'
-    +'<span style="font-family:var(--font-disp);font-size:11px;color:var(--t0)">'+fmtPrice(curP,ST.pair)+'</span></div>'
+    +'<span style="font-family:var(--font-disp);font-size:13px;color:var(--t0)">'+fmtPrice(curP,ST.pair)+'</span>'
+    +(ST.dataMode[ST.pair]==='binance-live'?'<span style="font-size:6px;color:#00aacc;margin-left:4px">BN&#9679;</span>':ST.dataMode[ST.pair]==='alpaca'?'<span style="font-size:6px;color:#00cc88;margin-left:4px">ALP&#9679;</span>':'')
+    +'</div>'
     +'<div class="qt-row"><span class="qt-label">SIZE $</span>'
     +'<input class="qt-input" id="qtAmt" type="number" min="1" step="10" value="100" placeholder="Notional $"></div>'
     +'<div class="qt-row" style="gap:3px">'
     +[50,100,500,1000].map(function(v){return'<button class="qt-preset" onclick="setQtAmt('+v+')">$'+v+'</button>';}).join('')
     +'</div>'
     +'<div class="qt-btns">'
-    +'<button class="qt-buy" onclick="qtExecute(\'LONG\')">&#9650; BUY / LONG</button>'
-    +'<button class="qt-sell" onclick="qtExecute(\'SHORT\')">&#9660; SELL / SHORT</button>'
+    +'<button class="qt-buy" onclick="qtExecute(\'LONG\')" '+(canTrade?'':' style="opacity:.4;cursor:not-allowed"')+'>&#9650; BUY / LONG</button>'
+    +'<button class="qt-sell" onclick="qtExecute(\'SHORT\')" '+(canTrade?'':' style="opacity:.4;cursor:not-allowed"')+'>&#9660; SELL / SHORT</button>'
     +'</div>';
   if(ST.pnl.positions[ST.pair]){
-    h+='<div style="margin-top:4px"><button onclick="closePosition(\''+ST.pair+'\')" style="width:100%;padding:5px;background:rgba(255,107,0,.1);border:1px solid rgba(255,107,0,.3);color:var(--or);font-size:8px;cursor:pointer;border-radius:2px">&#9632; CLOSE '+getDisplaySym(ST.pair)+'</button></div>';
+    var lpos=ST.pnl.positions[ST.pair],lpnl=(curP-lpos.entry)*(lpos.dir==='LONG'?1:-1)*lpos.qty;
+    h+='<div style="margin-top:4px;padding:4px 0">'
+      +'<div style="display:flex;justify-content:space-between;font-size:8px;margin-bottom:3px">'
+      +'<span style="color:'+(lpos.dir==='LONG'?'var(--g)':'var(--r)')+'">'+lpos.dir+' @ '+fmtPrice(lpos.entry,ST.pair)+'</span>'
+      +'<span style="color:'+(lpnl>=0?'var(--g)':'var(--r)')+'">$'+(lpnl>=0?'+':'')+sf(lpnl,2)+'</span>'
+      +'</div>'
+      +'<button onclick="closePosition(\''+ST.pair+'\')" style="width:100%;padding:5px;background:rgba(255,107,0,.1);border:1px solid rgba(255,107,0,.3);color:var(--or);font-size:8px;cursor:pointer;border-radius:2px">&#9632; CLOSE '+getDisplaySym(ST.pair)+'</button></div>';
   }
-  h+='</div><div style="padding:7px;font-size:11px">'+pTitle('ACTIVE POSITIONS');
-  var pe=Object.entries(pos);
-  if(!pe.length)h+='<div class="empty">NO OPEN POSITIONS</div>';
-  pe.forEach(function(e){
-    var sym=e[0],p=e[1],price=ST.prices[sym]||p.entry;
-    var upnl=p.dir==='LONG'?(price-p.entry)*p.qty:(p.entry-price)*p.qty;
-    h+=pBox('<div style="display:flex;justify-content:space-between;margin-bottom:5px">'
-      +'<span style="color:#00e5ff;font-weight:700">'+getDisplaySym(sym)+' <span style="color:'+(p.dir==='LONG'?'var(--g)':'var(--r)')+';">'+p.dir+'</span></span>'
-      +'<span style="color:'+(upnl>=0?'var(--g)':'var(--r)')+';">$'+sf(upnl,2)+' ('+(upnl>=0?'+':'')+sf((upnl/((p.entry*p.qty)||1))*100,2)+'%)</span></div>'
-      +pRow('Qty',sf(parseFloat(p.qty)||0,6))+pRow('Entry',fmtPrice(p.entry,sym))+pRow('SL',fmtPrice(p.sl||0,sym),'r')+pRow('TP1',fmtPrice(p.tp1||0,sym),'g')+pRow('Quality',p.quality||'--')
-      +'<button onclick="closePosition(\''+sym+'\')" style="width:100%;margin-top:5px;padding:4px;background:rgba(255,45,85,.08);border:1px solid rgba(255,45,85,.25);color:#ff2d55;font-size:9px;cursor:pointer;border-radius:2px">CLOSE POSITION</button>');
+  h+='</div>';
+
+  // ── Active Positions ──────────────────────────────────────
+  h+='<div style="padding:7px;font-size:11px">'+pTitle('OPEN POSITIONS');
+
+  // Merge: prefer real Alpaca positions, fill in sim for ones not yet on Alpaca
+  var realPos={};
+  (ST.alpaca.positions||[]).forEach(function(p){
+    // Map Alpaca's symbol back to our internal key
+    var sym=p.symbol;
+    // reverse-map: 'BTC/USD' → 'BTCUSD', 'SPY' → 'SPXUSD', etc.
+    if(sym.indexOf('/')>-1){var base=sym.split('/')[0];sym=base+'USD';}
+    var proxyRev=Object.keys(INDEX_PROXY||{}).find(function(k){return INDEX_PROXY[k]===p.symbol;});
+    if(proxyRev)sym=proxyRev;
+    realPos[sym]={
+      dir:p.side==='long'?'LONG':'SHORT',
+      entry:parseFloat(p.avg_entry_price)||0,
+      qty:parseFloat(p.qty)||0,
+      upnl:parseFloat(p.unrealized_pl)||0,
+      market_val:parseFloat(p.market_value)||0,
+      source:'alpaca',
+      raw:p
+    };
   });
-  h+=pTitle('RECENT ORDERS');
-  var orders=ST.alpaca.orders||[];
-  if(!orders.length)h+='<div class="empty">NO ORDERS YET</div>';
-  orders.slice(0,12).forEach(function(o){h+='<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #0d1520;font-size:9.5px"><span style="color:'+((o.side||o.type)==='buy'?'#00ff9d':'#ff2d55')+'">'+(o.side||'buy').toUpperCase()+'</span><span style="color:#99bbcc">'+(o.symbol||o.pair||'--')+'</span><span style="color:#556">'+(o.status||'FILLED')+'</span></div>';});
+
+  // Build combined display
+  var displayed={};
+  // Real positions first
+  Object.entries(realPos).forEach(function(e){
+    var sym=e[0],rp=e[1];displayed[sym]=true;
+    var price=ST.prices[sym]||rp.entry;
+    h+=pBox(
+      '<div style="display:flex;justify-content:space-between;margin-bottom:5px">'
+      +'<span style="color:#00e5ff;font-weight:700">'+getDisplaySym(sym)
+      +' <span style="color:'+(rp.dir==='LONG'?'var(--g)':'var(--r)')+'">'+rp.dir+'</span>'
+      +'<span style="font-size:6px;color:var(--g2);margin-left:4px">LIVE</span></span>'
+      +'<span style="color:'+(rp.upnl>=0?'var(--g)':'var(--r)')+'">$'+(rp.upnl>=0?'+':'')+sf(rp.upnl,2)+'</span></div>'
+      +pRow('Entry',fmtPrice(rp.entry,sym))
+      +pRow('Qty',sf(rp.qty,rp.qty<1?6:4))
+      +pRow('Mkt Val','$'+fmtNum(rp.market_val,0))
+      +pRow('Live P&L','$'+(rp.upnl>=0?'+':'')+sf(rp.upnl,2),rp.upnl>=0?'g':'r')
+      +(ST.pnl.positions[sym]?pRow('SL',fmtPrice(ST.pnl.positions[sym].sl||0,sym),'r')+''+pRow('TP',fmtPrice(ST.pnl.positions[sym].tp1||0,sym),'g'):'')
+      +'<button onclick="closePosition(\''+sym+'\')" style="width:100%;margin-top:5px;padding:4px;background:rgba(255,45,85,.08);border:1px solid rgba(255,45,85,.25);color:#ff2d55;font-size:9px;cursor:pointer;border-radius:2px">&#9632; CLOSE POSITION</button>'
+    );
+  });
+  // Sim-only positions (not yet on Alpaca)
+  Object.entries(ST.pnl.positions).forEach(function(e){
+    var sym=e[0],p=e[1];if(displayed[sym])return;
+    var price=ST.prices[sym]||p.entry;
+    var upnl=p.dir==='LONG'?(price-p.entry)*p.qty:(p.entry-price)*p.qty;
+    h+=pBox(
+      '<div style="display:flex;justify-content:space-between;margin-bottom:5px">'
+      +'<span style="color:#00e5ff;font-weight:700">'+getDisplaySym(sym)
+      +' <span style="color:'+(p.dir==='LONG'?'var(--g)':'var(--r)')+'">'+p.dir+'</span>'
+      +'<span style="font-size:6px;color:var(--y1);margin-left:4px">SIM</span></span>'
+      +'<span style="color:'+(upnl>=0?'var(--g)':'var(--r)')+'">$'+(upnl>=0?'+':'')+sf(upnl,2)+'</span></div>'
+      +pRow('Entry',fmtPrice(p.entry,sym))+pRow('Qty',sf(p.qty,p.qty<1?6:4))+pRow('SL',fmtPrice(p.sl||0,sym),'r')+pRow('TP',fmtPrice(p.tp1||0,sym),'g')
+      +'<button onclick="closePosition(\''+sym+'\')" style="width:100%;margin-top:5px;padding:4px;background:rgba(255,45,85,.08);border:1px solid rgba(255,45,85,.25);color:#ff2d55;font-size:9px;cursor:pointer;border-radius:2px">&#9632; CLOSE POSITION</button>'
+    );
+  });
+
+  if(!Object.keys(realPos).length&&!Object.keys(ST.pnl.positions).length){
+    h+='<div class="empty">NO OPEN POSITIONS</div>';
+  }
+
+  // ── Order History ──────────────────────────────────────────
+  h+=pTitle('ORDER HISTORY');
+  // Merge real Alpaca orders with local log, deduplicated by id
+  var seenIds={};
+  var allOrders=[];
+  (ST.alpaca.orders||[]).forEach(function(o){
+    if(o.id)seenIds[o.id]=true;
+    allOrders.push({
+      side:o.side,
+      sym:o.symbol,
+      qty:parseFloat(o.filled_qty||o.qty||0),
+      price:parseFloat(o.filled_avg_price||o.limit_price||0),
+      status:o.status||'--',
+      t:o.created_at?new Date(o.created_at).getTime():0,
+      source:'alpaca'
+    });
+  });
+  _localOrders.forEach(function(o){
+    allOrders.push({
+      side:o.side,sym:o.symbol,qty:o.qty||0,price:o.price||0,
+      status:o.status||'manual',t:o.t||0,source:o.source||'sim'
+    });
+  });
+  allOrders.sort(function(a,b){return b.t-a.t;});
+
+  if(!allOrders.length){h+='<div class="empty">NO ORDERS YET</div>';}
+  allOrders.slice(0,20).forEach(function(o){
+    var isBuy=o.side==='buy';
+    var symDisp=o.sym?getDisplaySym(o.sym):o.sym||'--';
+    var srcCol=o.source==='alpaca'?'var(--g2)':o.source==='manual'?'var(--y1)':'var(--t3)';
+    var statusCol=o.status==='filled'||o.status==='accepted'?'var(--g2)':o.status==='rejected'||o.status==='canceled'?'var(--r1)':'var(--y1)';
+    h+='<div style="display:grid;grid-template-columns:32px 1fr 54px 52px 40px;gap:2px;align-items:center;padding:4px 2px;border-bottom:1px solid #0a1420;font-size:8.5px">'
+      +'<span style="color:'+(isBuy?'var(--g)':'var(--r)')+';font-weight:700">'+(isBuy?'BUY':'SELL')+'</span>'
+      +'<span style="color:var(--t1)">'+symDisp+'</span>'
+      +'<span style="color:var(--t2)">'+(o.qty>=1?sf(o.qty,2):sf(o.qty,5))+' @'+(o.price>0?fmtPrice(o.price,o.sym):'mkt')+'</span>'
+      +'<span style="color:'+statusCol+'">'+o.status+'</span>'
+      +'<span style="color:'+srcCol+';font-size:6px">'+o.source+'</span>'
+      +'</div>';
+  });
+
   return h+'</div>';
 }
 
@@ -1910,20 +2122,6 @@ function checkAlerts(){
 function showModal(){var m=$('alpModal');if(m)m.classList.add('show');}
 function hideModal(){var m=$('alpModal');if(m)m.classList.remove('show');}
 function setQtAmt(v){var el=$('qtAmt');if(el)el.value=v;}
-function qtExecute(dir){
-  var amt=parseFloat((document.getElementById('qtAmt')||{}).value||100);
-  if(!amt||amt<1){toast('Enter a valid dollar amount','warn');return;}
-  var pair=ST.pair,price=ST.prices[pair]||PAIRS[pair].base||1,qty=amt/price;
-  var sig={dir:dir,entry:price,sl:dir==='LONG'?price*0.985:price*1.015,tp1:dir==='LONG'?price*1.03:price*0.97,quality:'MANUAL',score:0,rr:2};
-  if(!ST.pnl.positions[pair]){
-    ST.pnl.positions[pair]={dir:dir,entry:price,sl:sig.sl,tp1:sig.tp1,qty:qty,t:Date.now(),pair:pair,quality:'MANUAL'};
-    ST.alpaca.orders.unshift({symbol:pair,side:dir==='LONG'?'buy':'sell',qty:sf(qty,6),status:'manual',t:Date.now(),price:price});
-    toast('Manual '+dir+': '+getDisplaySym(pair)+' $'+amt,'info',3000);
-  }
-  if(ST.alpaca.connected)fireAlpacaOrder(pair,sig,qty);
-  renderRTab();
-}
-
 // ─────────────────────────────────────────────────────────────
 // EVENT HANDLERS
 // ─────────────────────────────────────────────────────────────

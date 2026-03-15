@@ -757,21 +757,24 @@ function findSessionOpen(bars){
 
 async function fetchRealCandles(pair,tf){
   if(!ST.alpaca.connected)return null;
+  // Never pull Alpaca bars for crypto that Binance is already streaming live —
+  // doing so overwrites dataMode, corrupts sessionOpen, and freezes %change.
+  if(CRYPTO_PAIRS.has(pair)&&ST.dataMode[pair]==='binance-live')return null;
+  // Only fetch for stocks; crypto gets prices from Binance (or Alpaca poll for non-live).
+  if(!STOCK_PAIRS.has(pair))return null;
   try{
-    var bars=null;
-    if(CRYPTO_PAIRS.has(pair))bars=await fetchAlpacaCryptoBars(pair,tf);
-    else if(STOCK_PAIRS.has(pair))bars=await fetchAlpacaStockBars(pair,tf);
+    var bars=await fetchAlpacaStockBars(pair,tf);
     if(!bars||bars.length<20)return null;
     var valid=bars.every(function(b){return b.o>0&&b.h>0&&b.l>0&&b.c>0&&b.h>=b.l&&b.h/b.l<1.5;});
     if(!valid)return null;
     ST.candles[pair]=bars;
     ST.prices[pair]=bars[bars.length-1].c;
-    ST.sessionOpen[pair]=findSessionOpen(bars); // ← today's open, not 300 bars ago
+    ST.sessionOpen[pair]=findSessionOpen(bars);
     ST.dataMode[pair]='alpaca';
     if(!ST.priceHistory[pair])ST.priceHistory[pair]=[];
     ST.priceHistory[pair].push(bars[bars.length-1].c);
     return bars;
-  }catch(e){console.log('[Alpaca]',pair,e.message);}
+  }catch(e){console.log('[Alpaca bars]',pair,e.message);}
   return null;
 }
 async function fetchAlpacaCryptoBars(pair,tf){
@@ -896,7 +899,8 @@ async function connectAlpaca(key,secret,mode){
       var acct=await r.json();
       ST.alpaca=Object.assign({},ST.alpaca,{key:key,secret:secret,mode:modes[i],base:bases[i],connected:true,account:acct});
       try{var pr=await fetch(bases[i]+'/v2/positions',{headers:{'APCA-API-KEY-ID':key,'APCA-API-SECRET-KEY':secret}});ST.alpaca.positions=(await pr.json())||[];}catch(_){}
-      // Fetch bars for ALL stock/index pairs in background, staggered to avoid rate limits
+      // Fetch bars for ALL stock pairs in background, staggered to avoid rate limits.
+      // Never touch crypto pairs — Binance is the authoritative source for those.
       var allTradeable=PAIR_KEYS.filter(function(s){return STOCK_PAIRS.has(s);});
       allTradeable.forEach(function(sym,idx){
         setTimeout(function(){
@@ -905,10 +909,12 @@ async function connectAlpaca(key,secret,mode){
           });
         }, idx*400);
       });
-      // Also fetch active pair immediately
-      fetchRealCandles(ST.pair,ST.tf).then(function(bars){
-        if(bars&&bars.length>20){calcIndicators(ST.pair);ST.sig[ST.pair]=evalSignal(ST.pair);}
-      });
+      // Also fetch active pair if it's a stock
+      if(STOCK_PAIRS.has(ST.pair)){
+        fetchRealCandles(ST.pair,ST.tf).then(function(bars){
+          if(bars&&bars.length>20){calcIndicators(ST.pair);ST.sig[ST.pair]=evalSignal(ST.pair);}
+        });
+      }
       // Start live price polling
       startAlpacaPolling();
       return{ok:true,account:acct,detectedMode:modes[i]};
@@ -1744,11 +1750,11 @@ function switchPair(sym){
   if(!PAIRS[sym])return;
   ST.pair=sym;
   if(ST.candles[sym]&&ST.candles[sym].length>10){calcIndicators(sym);ST.sig[sym]=evalSignal(sym);}
-  if(ST.alpaca.connected){
+  if(ST.alpaca.connected&&STOCK_PAIRS.has(sym)){
+    // Only pull Alpaca bars for stocks — never for crypto (Binance owns those)
     fetchRealCandles(sym,ST.tf).then(function(bars){
       if(bars&&bars.length>20){calcIndicators(sym);ST.sig[sym]=evalSignal(sym);}
     });
-    // Immediately poll for latest price on pair switch
     pollAlpacaSnapshots();
   } else if(CRYPTO_PAIRS.has(sym)&&_bnWS){
     var bSym=BINANCE_SYM[sym];
@@ -1773,7 +1779,9 @@ function switchTF(tf){
   PAIR_KEYS.forEach(function(sym){if(ST.dataMode[sym]!=='binance-live'&&ST.dataMode[sym]!=='alpaca')ST.candles[sym]=generateFallback(sym,300);});
   reconnectWSForTF();
   if(_bnWS)setTimeout(seedBinanceKlines,500);
-  if(ST.alpaca.connected)fetchRealCandles(ST.pair,tf).then(function(bars){if(bars&&bars.length>20){calcIndicators(ST.pair);ST.sig[ST.pair]=evalSignal(ST.pair);}});
+  if(ST.alpaca.connected&&STOCK_PAIRS.has(ST.pair)){
+    fetchRealCandles(ST.pair,tf).then(function(bars){if(bars&&bars.length>20){calcIndicators(ST.pair);ST.sig[ST.pair]=evalSignal(ST.pair);}});
+  }
 }
 function toggleOvr(ovr){
   ST.overlays[ovr]=!ST.overlays[ovr];

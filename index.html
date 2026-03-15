@@ -664,83 +664,127 @@ var ST={
 // ─────────────────────────────────────────────────────────────
 // BINANCE WS & REST
 // ─────────────────────────────────────────────────────────────
-var _bnWS=null,_bnWSPending=false;
+var _bnWS=null,_bnWSPending=false,_bnPingTimer=null,_bnRetryDelay=2000;
 
+// Reverse symbol lookup: O(1) instead of O(n) find() on every WS message
+var _bnSymMap={};
+(function(){Object.keys(BINANCE_SYM).forEach(function(k){_bnSymMap[BINANCE_SYM[k]]=k;});})();
+
+// Multiple REST clusters for resilience
+var BN_REST=['https://api.binance.com','https://api1.binance.com','https://api2.binance.com','https://api3.binance.com'];
+
+// ─── BINANCE REST: seed historical klines ────────────────────
 async function seedBinanceKlines(){
   var interval=TF_BINANCE[ST.tf]||'15m';
-  var entries=Object.entries(BINANCE_SYM);
-  await Promise.all(entries.map(async function(e){
+  await Promise.all(Object.entries(BINANCE_SYM).map(async function(e){
     var pair=e[0],bsym=e[1];
-    try{
-      var r=await fetch('https://api.binance.com/api/v3/klines?symbol='+bsym+'&interval='+interval+'&limit=300');
-      if(!r.ok)return;
-      var data=await r.json();
-      if(!Array.isArray(data)||data.length<10)return;
-      var bars=data.map(function(k){return{t:k[0],o:parseFloat(k[1]),h:parseFloat(k[2]),l:parseFloat(k[3]),c:parseFloat(k[4]),v:parseFloat(k[5])};});
-      var valid=bars.every(function(b){return b.o>0&&b.h>=b.l&&b.h>=b.c&&b.l<=b.c;});
-      if(!valid)return;
-      ST.candles[pair]=bars;ST.prices[pair]=bars[bars.length-1].c;
-      ST.sessionOpen[pair]=findSessionOpen(bars); // today's open
-      ST.dataMode[pair]='binance-live';
-      if(!ST.priceHistory[pair])ST.priceHistory[pair]=[];
-      ST.priceHistory[pair].push(bars[bars.length-1].c);
-    }catch(ex){console.warn('[BN REST]',pair,ex.message);}
+    for(var ri=0;ri<BN_REST.length;ri++){
+      try{
+        var url=BN_REST[ri]+'/api/v3/klines?symbol='+bsym+'&interval='+interval+'&limit=500';
+        var r=await fetch(url);
+        if(!r.ok)continue;
+        var data=await r.json();
+        if(!Array.isArray(data)||data.length<10)continue;
+        var bars=data.map(function(k){return{t:k[0],o:parseFloat(k[1]),h:parseFloat(k[2]),l:parseFloat(k[3]),c:parseFloat(k[4]),v:parseFloat(k[5])};});
+        if(!bars.every(function(b){return b.o>0&&b.h>=b.l&&b.h>=b.c&&b.l<=b.c;}))continue;
+        ST.candles[pair]=bars;ST.prices[pair]=bars[bars.length-1].c;
+        ST.sessionOpen[pair]=findSessionOpen(bars);
+        ST.dataMode[pair]='binance-live';
+        if(!ST.priceHistory[pair])ST.priceHistory[pair]=[];
+        ST.priceHistory[pair].push(bars[bars.length-1].c);
+        break; // success — skip remaining clusters
+      }catch(ex){console.warn('[BN REST]',pair,'cluster',ri,ex.message);}
+    }
   }));
 }
 
+// ─── BINANCE WEBSOCKET ────────────────────────────────────────
+// Streams: aggTrade (tick-level price), kline (OHLCV candles)
+// aggTrade fires on every single trade — far more responsive than miniTicker (1s).
 function connectBinanceWS(){
   if(_bnWS||_bnWSPending)return;_bnWSPending=true;
   var interval=TF_BINANCE[ST.tf]||'15m';
-  var kS=Object.values(BINANCE_SYM).map(function(s){return s.toLowerCase()+'@kline_'+interval;}).join('/');
-  var tS=Object.values(BINANCE_SYM).map(function(s){return s.toLowerCase()+'@miniTicker';}).join('/');
-  var urls=[
-    'wss://stream.binance.com:9443/stream?streams='+tS+'/'+kS,
-    'wss://stream.binance.com:443/stream?streams='+tS+'/'+kS,
-    'wss://data-stream.binance.com/stream?streams='+tS+'/'+kS
-  ];
+  // Build combined stream: aggTrade + kline for every symbol
+  var streams=[];
+  Object.values(BINANCE_SYM).forEach(function(s){
+    var sl=s.toLowerCase();
+    streams.push(sl+'@aggTrade');
+    streams.push(sl+'@kline_'+interval);
+  });
+  var streamStr=streams.join('/');
+  var hosts=['wss://stream.binance.com:9443','wss://stream.binance.com:443','wss://stream1.binance.com:9443','wss://stream2.binance.com:9443','wss://data-stream.binance.com'];
   var ui=0;
   function tryConnect(){
-    if(ui>=urls.length){_bnWSPending=false;setDataBanner();return;}
+    if(ui>=hosts.length){
+      _bnWSPending=false;_bnRetryDelay=Math.min(_bnRetryDelay*2,60000);
+      setTimeout(connectBinanceWS,_bnRetryDelay);setDataBanner();return;
+    }
     try{
-      var ws=new WebSocket(urls[ui]);var opened=false;
-      var timer=setTimeout(function(){if(!opened){try{ws.close();}catch(_){}ui++;tryConnect();}},5000);
+      var ws=new WebSocket(hosts[ui]+'/stream?streams='+streamStr);
+      var opened=false;
+      var openTimer=setTimeout(function(){if(!opened){try{ws.close();}catch(_){}ui++;tryConnect();}},6000);
       ws.onopen=function(){
-        opened=true;clearTimeout(timer);_bnWS=ws;_bnWSPending=false;setDataBanner();
-        toast('Binance live — fetching history...','info',3000);
-        seedBinanceKlines().then(function(){toast('Binance history loaded','info',2500);});
+        opened=true;clearTimeout(openTimer);_bnWS=ws;_bnWSPending=false;_bnRetryDelay=2000;
+        setDataBanner();
+        toast('Binance connected — loading history...','info',3000);
+        seedBinanceKlines().then(function(){toast('Binance: '+Object.keys(BINANCE_SYM).length+' pairs live','bull',3000);setDataBanner();});
+        // Ping every 20s to keep WS alive
+        if(_bnPingTimer)clearInterval(_bnPingTimer);
+        _bnPingTimer=setInterval(function(){
+          if(_bnWS&&_bnWS.readyState===WebSocket.OPEN){try{_bnWS.send('{"method":"LIST_SUBSCRIPTIONS","id":1}');}catch(_){}}
+        },20000);
       };
       ws.onmessage=function(ev){
         try{
-          var msg=JSON.parse(ev.data);var d=msg.data;if(!d)return;
-          if(d.e==='24hrMiniTicker'){
-            var p1=Object.keys(BINANCE_SYM).find(function(k){return BINANCE_SYM[k]===d.s;});
-            if(!p1)return;var price=parseFloat(d.c);if(!price||price<=0)return;
-            ST.prices[p1]=price;
-            if(!ST.priceHistory[p1])ST.priceHistory[p1]=[];
-            ST.priceHistory[p1].push(price);if(ST.priceHistory[p1].length>500)ST.priceHistory[p1].shift();
-            var cs1=ST.candles[p1];if(cs1&&cs1.length){var lc1=cs1[cs1.length-1];lc1.c=price;lc1.h=Math.max(lc1.h,price);lc1.l=Math.min(lc1.l,price);}
-            ST.dataMode[p1]='binance-live';
+          var msg=JSON.parse(ev.data);var d=msg.data;
+          if(!d||!d.e)return;
+          var pair=_bnSymMap[d.s];if(!pair)return;
+
+          // ── aggTrade: real-time trade price ──
+          if(d.e==='aggTrade'){
+            var price=parseFloat(d.p);if(!price||price<=0)return;
+            ST.prices[pair]=price;ST.dataMode[pair]='binance-live';
+            var cs=ST.candles[pair];
+            if(cs&&cs.length){var lc=cs[cs.length-1];lc.c=price;lc.h=Math.max(lc.h,price);lc.l=Math.min(lc.l,price);}
+            if(!ST.priceHistory[pair])ST.priceHistory[pair]=[];
+            ST.priceHistory[pair].push(price);if(ST.priceHistory[pair].length>500)ST.priceHistory[pair].shift();
           }
+
+          // ── kline: candle OHLCV ──
           if(d.e==='kline'){
             var k=d.k;if(!k)return;
-            var p2=Object.keys(BINANCE_SYM).find(function(x){return BINANCE_SYM[x]===k.s;});if(!p2)return;
-            var bar={t:k.t,o:parseFloat(k.o),h:parseFloat(k.H||k.h),l:parseFloat(k.L||k.l),c:parseFloat(k.c),v:parseFloat(k.v)};
-            var cs2=ST.candles[p2];if(!cs2||!cs2.length)return;
+            var bar={t:k.t,o:parseFloat(k.o),h:parseFloat(k.h),l:parseFloat(k.l),c:parseFloat(k.c),v:parseFloat(k.v)};
+            var cs2=ST.candles[pair];if(!cs2||!cs2.length)return;
             var lc2=cs2[cs2.length-1];
-            if(lc2.t===bar.t){lc2.h=Math.max(lc2.h,bar.h);lc2.l=Math.min(lc2.l,bar.l);lc2.c=bar.c;lc2.v=bar.v;}
-            else if(bar.t>lc2.t&&k.x){cs2.push(Object.assign({},bar));if(cs2.length>500)cs2.shift();}
-            ST.prices[p2]=bar.c;ST.dataMode[p2]='binance-live';
+            if(lc2.t===bar.t){
+              // Update current candle in-place
+              lc2.h=Math.max(lc2.h,bar.h);lc2.l=Math.min(lc2.l,bar.l);lc2.c=bar.c;lc2.v=bar.v;
+            } else if(bar.t>lc2.t){
+              // New candle opened — push immediately (old code wrongly required k.x=true/closed)
+              cs2.push({t:bar.t,o:bar.o,h:bar.h,l:bar.l,c:bar.c,v:bar.v});
+              if(cs2.length>600)cs2.shift();
+              // Refresh sessionOpen if we crossed midnight
+              ST.sessionOpen[pair]=findSessionOpen(cs2);
+            }
+            ST.prices[pair]=bar.c;ST.dataMode[pair]='binance-live';
           }
         }catch(_){}
       };
-      ws.onerror=function(){clearTimeout(timer);if(!opened){ui++;setTimeout(tryConnect,600);}};
-      ws.onclose=function(){clearTimeout(timer);_bnWS=null;if(!opened){ui++;setTimeout(tryConnect,600);}else{_bnWSPending=false;setTimeout(connectBinanceWS,12000);}};
-    }catch(ex){ui++;setTimeout(tryConnect,600);}
+      ws.onerror=function(){clearTimeout(openTimer);if(!opened){ui++;setTimeout(tryConnect,800);}};
+      ws.onclose=function(e){
+        clearTimeout(openTimer);if(_bnPingTimer){clearInterval(_bnPingTimer);_bnPingTimer=null;}
+        _bnWS=null;
+        if(!opened){ui++;setTimeout(tryConnect,800);}
+        else{_bnWSPending=false;setDataBanner();setTimeout(connectBinanceWS,_bnRetryDelay);}
+      };
+    }catch(ex){ui++;setTimeout(tryConnect,800);}
   }
   tryConnect();
 }
-function reconnectWSForTF(){if(_bnWS){try{_bnWS.close();}catch(_){}}_bnWS=null;_bnWSPending=false;setTimeout(connectBinanceWS,300);}
-
+function reconnectWSForTF(){
+  if(_bnPingTimer){clearInterval(_bnPingTimer);_bnPingTimer=null;}
+  if(_bnWS){try{_bnWS.close();}catch(_){}}_bnWS=null;_bnWSPending=false;setTimeout(connectBinanceWS,300);
+}
 // ─────────────────────────────────────────────────────────────
 // ALPACA DATA
 // ─────────────────────────────────────────────────────────────

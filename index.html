@@ -818,19 +818,21 @@ var _alpFeed='iex';
 // yesterday's close so %change shows realistic after-hours move.
 function getSessionOpen(bars){
   if(!bars||!bars.length)return 0;
-  var now=new Date(),todayStr=now.toDateString();
-  // Walk back from newest bar to find first bar from today
+  var nowStr=new Date().toDateString();
+  // Walk back from newest to find the first bar from today (market open bar)
   for(var i=bars.length-1;i>=0;i--){
-    var d=new Date(bars[i].t);
-    if(d.toDateString()===todayStr){
-      // Found a today bar — find the FIRST today bar (market open)
+    if(new Date(bars[i].t).toDateString()===nowStr){
+      // Found today — now find the earliest today bar = open
       for(var j=i;j>=0;j--){
-        if(new Date(bars[j].t).toDateString()!==todayStr)return bars[j+1].o;
+        if(new Date(bars[j].t).toDateString()!==nowStr){
+          return bars[j+1].o; // first bar of today
+        }
       }
       return bars[0].o; // all bars are today
     }
   }
-  // No bars from today — market closed, use last bar's close as baseline
+  // No bars from today (weekend / holiday / premarket) — use last close
+  // so %change shows overnight/weekend move, not garbage from cfg.base
   return bars[bars.length-1].c;
 }
 
@@ -1030,7 +1032,10 @@ function generateFallback(pair,n){
     candles.push({t:now-i*ms,o:o,h:h,l:l,c:c,v:Math.floor((3e4+Math.random()*7e4)*(1+Math.abs(body)/cv)),sim:true});
     price=Math.max(c,cfg.base*0.001);
   }
-  ST.prices[pair]=price;ST.dataMode[pair]='sim';ST.sessionOpen[pair]=candles[0]?candles[0].o:price;
+  ST.prices[pair]=price;ST.dataMode[pair]='sim';
+  // Use current sim price as session open — NOT candles[0].o which is cfg.base (500 bars ago)
+  // That caused -13% on BTC because cfg.base=82000 vs real price ~71000
+  ST.sessionOpen[pair]=price;
   return candles;
 }
 function tickCandle(pair){
@@ -1398,7 +1403,7 @@ function renderHeatmap(){
   var bar=$('hmBar');if(!bar)return;bar.innerHTML='';
   PAIR_KEYS.forEach(function(sym){
     var cfg=PAIRS[sym],price=ST.prices[sym]||cfg.base;
-    var open24h=ST.sessionOpen[sym]||(ST.candles[sym]&&ST.candles[sym][0]?ST.candles[sym][0].o:cfg.base);
+    var open24h=ST.sessionOpen[sym]||ST.prices[sym]||cfg.base;
     var chg=(price-open24h)/(open24h||1)*100,inten=clamp(Math.abs(chg)/5,0,1),bull=chg>=0;
     var sig=ST.sig[sym],src=ST.dataMode[sym]||'sim';
     var bg=bull?'rgba(0,'+(Math.floor(180*inten+55))+','+(Math.floor(80*inten+20))+','+(0.12+inten*.2)+')'
@@ -1455,7 +1460,7 @@ function updateWatchlist(){
     html+='<div class="wl-cat">'+cat.toUpperCase()+'</div>';
     cp.forEach(function(e){
       var sym=e[0],cfg=e[1],price=ST.prices[sym]||cfg.base;
-      var _o=ST.sessionOpen[sym]||(ST.candles[sym]&&ST.candles[sym][0]?ST.candles[sym][0].o:cfg.base);
+      var _o=ST.sessionOpen[sym]||ST.prices[sym]||cfg.base;
       var chg=(price-_o)/(_o||1)*100;
       var sig=ST.sig[sym],sigDir=sig?sig.dir:'FLAT';
       var sigH=sigDir!=='FLAT'?'<span class="wl-sig '+(sigDir==='LONG'?'buy':'sell')+'">'+(sigDir==='LONG'?'&#9650;':'&#9660;')+'</span>':'<span class="wl-sig none">&#8212;</span>';
@@ -1557,7 +1562,7 @@ function buildHeaderPairs(){
   el.innerHTML=featured.map(function(sym){
     var cfg=PAIRS[sym];if(!cfg)return'';
     var price=ST.prices[sym]||cfg.base;
-    var _o=ST.sessionOpen[sym]||(ST.candles[sym]&&ST.candles[sym][0]?ST.candles[sym][0].o:cfg.base);
+    var _o=ST.sessionOpen[sym]||ST.prices[sym]||cfg.base;
     var chg=(price-_o)/(_o||1)*100,sig=ST.sig[sym];
     var live=ST.dataMode[sym]==='binance-live'?'<span style="color:#00aacc;font-size:6px">&#9679;</span> ':'';
     return'<button class="pair-btn'+(sym===ST.pair?' active':'')+'" onclick="switchPair(\''+sym+'\')">'
@@ -1838,7 +1843,7 @@ function switchPair(sym){
           if(!Array.isArray(data)||data.length<10)return;
           var bars=data.map(function(k){return{t:k[0],o:parseFloat(k[1]),h:parseFloat(k[2]),l:parseFloat(k[3]),c:parseFloat(k[4]),v:parseFloat(k[5])};});
           if(!bars.every(function(b){return b.o>0&&b.h>=b.l&&b.h>=b.c&&b.l<=b.c;}))return;
-          ST.candles[sym]=bars;ST.prices[sym]=bars[bars.length-1].c;ST.sessionOpen[sym]=bars[0].o;ST.dataMode[sym]='binance-live';
+          ST.candles[sym]=bars;ST.prices[sym]=bars[bars.length-1].c;ST.sessionOpen[sym]=getSessionOpen(bars);ST.dataMode[sym]='binance-live';
           calcIndicators(sym);ST.sig[sym]=evalSignal(sym);
         }).catch(function(){});
     }

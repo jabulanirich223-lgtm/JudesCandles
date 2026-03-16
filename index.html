@@ -702,9 +702,11 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
       <div class="modal-hint">Find your keys at alpaca.markets → Paper Trading or Live Trading</div>
       <div class="modal-fl">SECRET KEY</div>
       <input id="modalSec" class="modal-inp" type="password" placeholder="your secret key" autocomplete="new-password">
+      <div class="modal-fl" style="margin-top:10px">FMP API KEY (OPTIONAL)</div>
+      <input id="modalFmpKey" class="modal-inp" type="text" placeholder="Real stock quotes when Alpaca disconnected — free at financialmodelingprep.com" autocomplete="off">
       <div class="modal-status" id="modalStatus"></div>
       <button class="modal-conn" id="modalConnBtn">▶ CONNECT TO ALPACA</button>
-      <button class="modal-skip" id="modalSkip">SKIP — BINANCE CRYPTO DATA ONLY (FREE)</button>
+      <button class="modal-skip" id="modalSkip">SKIP — REAL CRYPTO (BINANCE) + OPTIONAL FMP STOCKS</button>
     </div>
   </div>
 </div>
@@ -813,8 +815,62 @@ const ST={
   sniper:{active:true,cooldowns:{},log:[],signals:[],omniSignals:{}},
   pnl:{equity:100000,startEq:100000,positions:{},trades:[],wins:0,losses:0,streak:0},
   prices:{},priceHistory:{},dataMode:{},sessionOpen:{},alerts:[],
-  marketRegion:'USA'
+  marketRegion:'USA',
+  fmpKey:''  // optional: Financial Modeling Prep API key for real stock quotes when Alpaca not connected
 };
+
+// ── BINANCE REST (real crypto prices: initial load + fallback when WS down) ───
+async function fetchBinancePricesREST(){
+  try{
+    const r=await fetch('https://api.binance.com/api/v3/ticker/price',{headers:{accept:'application/json'}});
+    if(!r.ok)return;
+    const arr=await r.json();
+    if(!Array.isArray(arr))return;
+    const bySym={};
+    arr.forEach(x=>{if(x&&x.symbol&&x.price!=null)bySym[x.symbol]=parseFloat(x.price);});
+    let updated=0;
+    Object.entries(BINANCE_SYM).forEach(([pair,sym])=>{
+      const p=bySym[sym];
+      if(p&&p>0&&isFinite(p)){
+        ST.prices[pair]=p;
+        if(!ST.priceHistory[pair])ST.priceHistory[pair]=[];
+        ST.priceHistory[pair].push(p);
+        if(ST.priceHistory[pair].length>500)ST.priceHistory[pair].shift();
+        if(ST.dataMode[pair]!=='binance-live')ST.dataMode[pair]='binance';
+        updated++;
+      }
+    });
+    if(updated>0)setDataBanner();
+  }catch(e){console.warn('[Binance REST]',e.message);}
+}
+
+// ── FMP REAL STOCK QUOTES (when Alpaca not connected) ─────────────────────────
+async function fetchFMPQuotes(){
+  const key=(ST.fmpKey||'').trim();
+  if(!key||ST.alpaca.connected)return;
+  const syms=Array.from(STOCK_PAIRS);
+  if(!syms.length)return;
+  try{
+    const url='https://financialmodelingprep.com/api/v3/quote/'+syms.join(',')+'?apikey='+encodeURIComponent(key);
+    const r=await fetch(url,{headers:{accept:'application/json'}});
+    if(!r.ok)return;
+    const data=await r.json();
+    if(!Array.isArray(data))return;
+    data.forEach(q=>{
+      if(!q||q.symbol==null)return;
+      const sym=q.symbol;
+      if(!STOCK_PAIRS.has(sym))return;
+      const price=parseFloat(q.price);
+      if(!price||!isFinite(price)||price<=0)return;
+      ST.prices[sym]=price;
+      ST.dataMode[sym]='fmp';
+      if(!ST.priceHistory[sym])ST.priceHistory[sym]=[];
+      ST.priceHistory[sym].push(price);
+      if(ST.priceHistory[sym].length>500)ST.priceHistory[sym].shift();
+    });
+    setDataBanner();
+  }catch(e){console.warn('[FMP]',e.message);}
+}
 
 // ── BINANCE WS ────────────────────────────────────────────────────────────────
 let _bnWS=null,_bnWSPending=false;
@@ -937,10 +993,13 @@ async function fetchAlpacaStockBars(pair,tf){
 }
 function setDataBanner(){
   const el=$('dataBanner');if(!el)return;
-  const bn=Object.values(ST.dataMode).filter(v=>v==='binance-live').length;
+  const bnLive=Object.values(ST.dataMode).filter(v=>v==='binance-live').length;
+  const bnRest=Object.values(ST.dataMode).filter(v=>v==='binance').length;
+  const fmpN=Object.values(ST.dataMode).filter(v=>v==='fmp').length;
   el.style.display='block';
-  if(ST.alpaca.connected&&bn>0){el.style.cssText='background:rgba(0,40,20,.95);border-bottom:1px solid #00ff9d;color:#00ff9d;padding:5px 14px;font-family:monospace;font-size:10px;position:fixed;top:0;left:0;right:0;z-index:10000;';el.innerHTML='🟢 LIVE — Binance WebSocket ('+bn+' crypto) + Alpaca connected.';}
-  else if(bn>0){el.style.cssText='background:rgba(0,25,35,.95);border-bottom:1px solid #00ccff;color:#00ccff;padding:5px 14px;font-family:monospace;font-size:10px;position:fixed;top:0;left:0;right:0;z-index:10000;';el.innerHTML='📡 BINANCE LIVE — '+bn+' pairs streaming. <button onclick="showModal()" style="background:#00aacc;border:none;color:#000;padding:2px 10px;cursor:pointer;font-family:monospace;font-size:10px;font-weight:700;border-radius:2px;margin-left:10px">+ ALPACA</button>';}
+  if(ST.alpaca.connected&&(bnLive||bnRest>0)){el.style.cssText='background:rgba(0,40,20,.95);border-bottom:1px solid #00ff9d;color:#00ff9d;padding:5px 14px;font-family:monospace;font-size:10px;position:fixed;top:0;left:0;right:0;z-index:10000;';el.innerHTML='🟢 LIVE — Binance '+(bnLive?bnLive+' WS':'REST')+' crypto + Alpaca connected.';}
+  else if(bnLive>0){el.style.cssText='background:rgba(0,25,35,.95);border-bottom:1px solid #00ccff;color:#00ccff;padding:5px 14px;font-family:monospace;font-size:10px;position:fixed;top:0;left:0;right:0;z-index:10000;';el.innerHTML='📡 BINANCE LIVE — '+bnLive+' pairs streaming.'+(fmpN>0?' + FMP '+fmpN+' stocks.':'')+' <button onclick="showModal()" style="background:#00aacc;border:none;color:#000;padding:2px 10px;cursor:pointer;font-family:monospace;font-size:10px;font-weight:700;border-radius:2px;margin-left:10px">+ ALPACA</button>';}
+  else if(bnRest>0||fmpN>0){el.style.cssText='background:rgba(0,25,35,.95);border-bottom:1px solid #00ccff;color:#00ccff;padding:5px 14px;font-family:monospace;font-size:10px;position:fixed;top:0;left:0;right:0;z-index:10000;';const parts=[];if(bnRest>0)parts.push('Binance REST '+bnRest+' crypto');if(fmpN>0)parts.push('FMP '+fmpN+' stocks');el.innerHTML='📡 REAL DATA — '+parts.join(' · ')+'. <button onclick="showModal()" style="background:#00aacc;border:none;color:#000;padding:2px 10px;cursor:pointer;font-family:monospace;font-size:10px;font-weight:700;border-radius:2px;margin-left:10px">+ ALPACA</button>';}
   else{el.style.cssText='background:rgba(40,20,0,.95);border-bottom:1px solid #ff6600;color:#ff9900;padding:5px 14px;font-family:monospace;font-size:10px;position:fixed;top:0;left:0;right:0;z-index:10000;';el.innerHTML='⏳ Connecting to data sources...';}
 }
 function generateFallback(pair,n=300){
@@ -1690,7 +1749,7 @@ function renderChart(){
   if(ind.vwap&&ind.vwap.length)setTxt('cfVwap',fmtPrice(lx(ind.vwap),ST.pair));
   if(ind.adx&&ind.adx.adx&&ind.adx.adx.length)setTxt('cfAdx',sf(lx(ind.adx.adx),1));
   const src=ST.dataMode[ST.pair]||'sim';
-  setTxt('cfSrc',src==='binance-live'?'BN●':src==='alpaca'?'ALP':'SIM');
+  setTxt('cfSrc',src==='binance-live'?'BN●':src==='binance'?'BN◎':src==='alpaca'?'ALP':src==='fmp'?'FMP':'SIM');
 }
 
 function renderOsc(){
@@ -1747,13 +1806,13 @@ function renderHeatmap(){
     const sig=ST.sig[sym];
     const bg=bull?'rgba(0,'+(Math.floor(180*inten+55))+','+(Math.floor(80*inten+20))+','+(0.12+inten*.2)+')'
       :'rgba('+(Math.floor(200*inten+55))+','+(Math.floor(30*inten+10))+','+(Math.floor(40*inten+10))+','+(0.12+inten*.2)+')';
-    const srcDot=ST.dataMode[sym]==='binance-live'?'●':ST.dataMode[sym]==='binance'?'◎':'○';
+    const srcDot=ST.dataMode[sym]==='binance-live'?'●':ST.dataMode[sym]==='binance'?'◎':ST.dataMode[sym]==='fmp'?'F':'○';
     const div=document.createElement('div');div.className='hm-cell'+(sym===ST.pair?' active':'');
     div.style.cssText='background:'+bg+';border:1px solid '+(sym===ST.pair?'rgba(0,229,255,.5)':'transparent')+';';
     const atrPct=ST.ind[sym]&&ST.ind[sym].atr14?sf(lx(ST.ind[sym].atr14)/price*100,1)+'%':'';
     div.innerHTML='<span class="hm-sym">'+getDisplaySym(sym)+'</span>'
       +'<span class="hm-chg" style="color:'+(bull?'#00ff9d':'#ff2d55')+'">'+(chg>=0?'+':'')+sf(chg,1)+'%</span>'
-      +'<span class="hm-vol" style="color:'+(ST.dataMode[sym]==='binance-live'?'#00aacc':ST.dataMode[sym]==='alpaca'?'#00cc88':'#334455')+'">'+srcDot+' '+(sig&&sig.dir!=='FLAT'?(sig.dir==='LONG'?'▲':'▼')+sf(sig.score,0)+'%':atrPct||cfg.cat)+'</span>';
+      +'<span class="hm-vol" style="color:'+(ST.dataMode[sym]==='binance-live'?'#00aacc':ST.dataMode[sym]==='alpaca'?'#00cc88':ST.dataMode[sym]==='fmp'?'#00aa88':'#334455')+'">'+srcDot+' '+(sig&&sig.dir!=='FLAT'?(sig.dir==='LONG'?'▲':'▼')+sf(sig.score,0)+'%':atrPct||cfg.cat)+'</span>';
     div.onclick=()=>switchPair(sym);bar.appendChild(div);
   });
 }
@@ -1809,7 +1868,7 @@ function wlItem(sym,cfg){
   const sig=ST.sig[sym],sigDir=sig?sig.dir:'FLAT';
   const sigH=sigDir!=='FLAT'?'<span class="wl-sig '+(sigDir==='LONG'?'buy':'sell')+'">'+(sigDir==='LONG'?'▲':'▼')+'</span>':'<span class="wl-sig none">—</span>';
   const hw=clamp(Math.abs(chg)/5*100,5,100);
-  const liveTag=ST.dataMode[sym]==='binance-live'?'<span style="color:#00aacc;font-size:5.5px;margin-left:2px">●</span>':'';
+    const liveTag=(ST.dataMode[sym]==='binance-live'||ST.dataMode[sym]==='binance'||ST.dataMode[sym]==='fmp')?'<span style="color:#00aacc;font-size:5.5px;margin-left:2px">●</span>':'';
   return '<div class="wl-item'+(sym===ST.pair?' active':'')+'" onclick="switchPair(\''+sym+'\')">'
     +'<div class="wl-row1"><span class="wl-icon '+cfg.cat+'">'+cfg.cat[0].toUpperCase()+'</span>'
     +'<span class="wl-name">'+getDisplaySym(sym)+'</span>'+liveTag+sigH+'</div>'
@@ -1961,7 +2020,7 @@ function buildHeaderPairs(){
     const _o=ST.sessionOpen[sym]||ST.candles[sym]?.[0]?.o||cfg.base;
     const chg=(price-_o)/(_o||1)*100;
     const sig=ST.sig[sym];
-    const liveTag=ST.dataMode[sym]==='binance-live'?'<span style="color:#00aacc;font-size:6px">●</span> ':'';
+    const liveTag=(ST.dataMode[sym]==='binance-live'||ST.dataMode[sym]==='binance'||ST.dataMode[sym]==='fmp')?'<span style="color:#00aacc;font-size:6px">●</span> ':'';
     const dsym=getDisplaySym(sym);
     return '<button class="pair-btn'+(sym===ST.pair?' active':'')+'" onclick="switchPair(\''+sym+'\')">'
       +liveTag+dsym+' '+fmtPrice(price,sym)
@@ -2045,7 +2104,7 @@ function renderOmniTab(){
   sigs.sort((a,b)=>b[1].score-a[1].score).forEach(([pair,sig])=>{
     const bull=sig.dir==='LONG',bear=sig.dir==='SHORT';
     const src=ST.dataMode[pair]||'sim';
-    const srcDot=src==='binance-live'?'<span style="color:#00aacc;font-size:8px">●</span>':src==='binance'?'<span style="color:#006688;font-size:7px">◎</span>':'';
+    const srcDot=src==='binance-live'?'<span style="color:#00aacc;font-size:8px">●</span>':src==='binance'?'<span style="color:#006688;font-size:7px">◎</span>':src==='fmp'?'<span style="color:#00aa88;font-size:7px">F</span>':'';
     h+='<div style="background:'+(bull?'rgba(0,255,100,.07)':bear?'rgba(255,45,85,.07)':'rgba(10,16,28,.5)')
       +';border:1px solid '+(bull?'rgba(0,255,100,.2)':bear?'rgba(255,45,85,.2)':'rgba(0,180,220,.04)')
       +';border-radius:3px;padding:4px 6px;cursor:pointer" onclick="switchPair(\''+pair+'\')">'
@@ -2343,8 +2402,14 @@ function checkAlerts(){
 }
 
 // ── MODAL ─────────────────────────────────────────────────────────────────────
-function showModal(){const m=$('alpModal');if(m)m.classList.add('show');}
-function hideModal(){const m=$('alpModal');if(m)m.classList.remove('show');}
+function showModal(){
+  const m=$('alpModal');if(m)m.classList.add('show');
+  const fmpIn=$('modalFmpKey');if(fmpIn)fmpIn.value=ST.fmpKey||'';
+}
+function hideModal(){
+  const fmpIn=$('modalFmpKey');if(fmpIn){ST.fmpKey=(fmpIn.value||'').trim();if(ST.fmpKey)fetchFMPQuotes();}
+  const m=$('alpModal');if(m)m.classList.remove('show');
+}
 
 let _alpMode='paper';
 
@@ -2398,7 +2463,7 @@ function initHandlers(){
     setTxt('modalStatus','Connecting...');$('modalConnBtn').disabled=true;
     try{
       const r=await connectAlpaca(key,sec,_alpMode);
-      if(r.ok){setTxt('modalStatus','✓ Connected!');setTimeout(()=>{hideModal();updateAlpacaPanel();setDataBanner();toast('Alpaca '+r.detectedMode.toUpperCase()+' connected!','bull');syncAlpaca();},700);}
+      if(r.ok){const fmpIn=$('modalFmpKey');if(fmpIn)ST.fmpKey=(fmpIn.value||'').trim();setTxt('modalStatus','✓ Connected!');setTimeout(()=>{hideModal();updateAlpacaPanel();setDataBanner();toast('Alpaca '+r.detectedMode.toUpperCase()+' connected!','bull');syncAlpaca();},700);}
     }catch(e){setTxt('modalStatus','Error: '+e.message);$('modalConnBtn').disabled=false;}
   });
   $('connectBtn')?.addEventListener('click',showModal);
@@ -2610,6 +2675,10 @@ function mainLoop(){
     if(_frame%18000===0&&ST.alpaca.connected)
       PAIR_KEYS.filter(s=>!CRYPTO_PAIRS.has(s)&&STOCK_PAIRS.has(s))
                .forEach((sym,i)=>setTimeout(()=>fetchRealCandles(sym,ST.tf),i*600));
+    // Binance REST fallback when WebSocket down — keep crypto prices real
+    if(!_bnWS&&_frame%900===0&&_frame>0)fetchBinancePricesREST();
+    // FMP real stock quotes when Alpaca not connected (every ~30s)
+    if(ST.fmpKey&&!ST.alpaca.connected&&_frame%1800===0)fetchFMPQuotes();
   }catch(e){console.warn('Loop:',e);}
   requestAnimationFrame(mainLoop);
 }
@@ -2629,7 +2698,9 @@ document.addEventListener('DOMContentLoaded',()=>{
   setDataBanner();
   renderRTab();
 
-  runLoader(()=>{
+  runLoader(async ()=>{
+    // Real crypto prices from Binance REST immediately (before WS)
+    await fetchBinancePricesREST();
     connectBinanceWS();
     mainLoop();
     setTimeout(()=>{if(!ST.alpaca.connected)showModal();},2000);

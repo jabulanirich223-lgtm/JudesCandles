@@ -207,8 +207,8 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9998;b
 .strat-btn:hover{color:var(--t2)}.strat-btn.active{color:var(--c);border-color:var(--c3);background:rgba(0,229,255,.09)}
 .thresh-row{display:flex;align-items:center;gap:4px;margin-bottom:4px;position:relative}
 .thresh-l{font-size:5.5px;letter-spacing:.8px;color:var(--t3)}
-input[type=range]{-webkit-appearance:none;height:2px;background:var(--bg5);outline:none;cursor:pointer;width:45px;flex-shrink:0}
-input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:8px;height:8px;background:var(--c);cursor:pointer;border-radius:50%}
+input[type=range]{-webkit-appearance:none;appearance:none;height:2px;background:var(--bg5);outline:none;cursor:pointer;width:45px;flex-shrink:0}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:8px;height:8px;background:var(--c);cursor:pointer;border-radius:50%}
 .thresh-v{font-size:10px;color:var(--c);font-weight:700;min-width:26px;text-align:right}
 .sn-kpis{display:flex;border:1px solid var(--b1);position:relative;flex-wrap:wrap}
 .kpi{flex:1;min-width:36px;display:flex;flex-direction:column;align-items:center;padding:3px 2px;border-right:1px solid var(--b0)}
@@ -2000,8 +2000,8 @@ function renderOrders(){
       ['50','100','500','1000'].map(v=>'<button class="qt-preset" onclick="setQtAmt('+v+')">$'+v+'</button>').join('')+
     '</div>'+
     '<div class="qt-btns">'+
-      '<button class="qt-buy" onclick="qtExecute('LONG')">▲ BUY / LONG</button>'+
-      '<button class="qt-sell" onclick="qtExecute('SHORT')">▼ SELL / SHORT</button>'+
+      '<button class="qt-buy" onclick="qtExecute(\'LONG\')">▲ BUY / LONG</button>'+
+      '<button class="qt-sell" onclick="qtExecute(\'SHORT\')">▼ SELL / SHORT</button>'+
     '</div>'+
     (ST.pnl.positions[ST.pair]?
       '<div style="margin-top:4px"><button onclick="closePosition(\''+ST.pair+'\')" style="width:100%;padding:5px;background:rgba(255,107,0,.1);border:1px solid rgba(255,107,0,.3);color:var(--or);font-size:8px;cursor:pointer;border-radius:2px">■ CLOSE '+getDisplaySym(ST.pair)+'</button></div>':'')

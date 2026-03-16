@@ -95,6 +95,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9998;b
 @keyframes liveBlink{0%,100%{box-shadow:none}50%{box-shadow:0 0 10px rgba(255,45,85,.5)}}
 .connect-btn{font-size:7px;letter-spacing:1px;padding:3px 8px;background:rgba(0,229,255,.08);border:1px solid rgba(0,229,255,.3);color:var(--c);cursor:pointer;border-radius:2px;font-family:var(--font-mono);transition:all .15s}
 .connect-btn:hover{background:rgba(0,229,255,.18)}
+.connect-btn:focus-visible,.qt-buy:focus-visible,.qt-sell:focus-visible{outline:2px solid var(--c);outline-offset:2px}
 .sniper-badge{display:flex;align-items:center;gap:3px;font-size:6px;letter-spacing:1.5px;padding:2px 7px;cursor:pointer;transition:all .15s;border:1px solid}
 .sniper-badge.armed{background:rgba(0,255,157,.06);border-color:rgba(0,255,157,.3);color:var(--g)}
 .sniper-badge.paused{background:rgba(0,0,0,.2);border-color:var(--b1);color:var(--t3)}
@@ -413,7 +414,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
 <div id="loader">
   <div class="ld-logo">APEX ULTRA</div>
   <div class="ld-sub">OMNI SNIPER — REAL DATA</div>
-  <div class="ld-tag">50+ INDICATORS · 25 GATES · SMART MONEY · HARMONICS · OMNI SCAN ALL PAIRS<br>BINANCE LIVE · ML REGIME · ORDER FLOW · ALPACA LIVE TRADING · REAL-TIME P&L</div>
+  <div class="ld-tag">30+ PAIRS · MEME · CRYPTO · STOCKS · 50+ INDICATORS · 25 GATES · BINANCE LIVE · ALPACA · REAL-TIME P&L</div>
   <div class="ld-bar-w"><div class="ld-bar-fill" id="ldBar"></div></div>
   <div class="ld-pct" id="ldPct">0%</div>
   <div class="ld-stats">
@@ -465,7 +466,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
   </div>
   <div class="hdr-right">
     <span class="regime-pill trending" id="regimePill">RANGING</span>
-    <select id="marketRegionSel" style="font-size:6px;letter-spacing:1px;padding:1px 4px;margin-left:4px;background:rgba(0,0,0,.4);border:1px solid rgba(0,229,255,.25);color:var(--t2);outline:none;">
+    <select id="marketRegionSel" aria-label="Market region" title="Session times by region" style="font-size:6px;letter-spacing:1px;padding:1px 4px;margin-left:4px;background:rgba(0,0,0,.4);border:1px solid rgba(0,229,255,.25);color:var(--t2);outline:none;">
       <option value="USA" selected>USA</option>
       <option value="EU">EU</option>
       <option value="ASIA">ASIA</option>
@@ -474,7 +475,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
     <span class="live-price" id="livePriceEl">--</span>
     <span class="price-chg up" id="priceChgEl">+0.00%</span>
     <span class="mode-pill demo" id="modePill">DEMO</span>
-    <button class="connect-btn" id="connectBtn">⚡ CONNECT</button>
+    <button class="connect-btn" id="connectBtn" aria-label="Connect to Alpaca" title="Open Alpaca connection (optional)">⚡ CONNECT</button>
     <div class="sniper-badge armed" id="sniperBadge">
       <span class="sdot on" id="sniperDot"></span>
       <span id="sniperTxt">OMNI ARMED</span>
@@ -709,10 +710,9 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
 </div>
 
 <script>
-// APEX ULTRA — app.js
-// ═══════════════════════════════════════════════════════════════════════════
-// Part 1: Utilities, Pairs, State, Data, Binance WS, Alpaca
-// ═══════════════════════════════════════════════════════════════════════════
+'use strict';
+// APEX ULTRA — Trading Terminal
+// Real data: Binance WS (crypto) · Alpaca (stocks) · Meme coins · Market region · Scale-in/flip
 
 const $=id=>document.getElementById(id);
 const _clean=v=>{const s=String(v??'--');return(s==='Infinity'||s==='-Infinity'||s==='NaN')?'--':s;};
@@ -1202,8 +1202,10 @@ function executeTrade(pair,sig){
   const sl=sig.sl||price*(sig.dir==='LONG'?0.985:1.015),tp1=sig.tp1||price*(sig.dir==='LONG'?1.03:0.97);
   ST.pnl.positions[pair]={dir:sig.dir,entry:price,sl,tp1,qty,t:Date.now(),pair,quality:sig.quality};
   const qd=qty>=1?sf(parseFloat(qty),2):sf(parseFloat(qty),6);
-  ST.alpaca.orders.unshift({symbol:pair,side:sig.dir==='LONG'?'buy':'sell',qty:qd,status:'sim',t:Date.now(),price});
-  if(ST.alpaca.orders.length>50)ST.alpaca.orders.pop();
+  const orders=ST.alpaca.orders||[];
+  orders.unshift({symbol:pair,side:sig.dir==='LONG'?'buy':'sell',qty:qd,status:'sim',t:Date.now(),price});
+  if(orders.length>50)orders.pop();
+  ST.alpaca.orders=orders;
   if(ST.alpaca.connected&&ST.autoExec)fireAlpacaOrder(pair,sig,qty);
 }
 
@@ -1271,7 +1273,7 @@ async function alpFetch(path,method='GET',body=null){
 }
 async function syncAlpaca(){
   if(!ST.alpaca.connected)return;
-  try{const [ar,pr,or]=await Promise.all([alpFetch('/v2/account'),alpFetch('/v2/positions'),alpFetch('/v2/orders?status=all&limit=20')]);if(ar)ST.alpaca.account=ar;if(pr)ST.alpaca.positions=pr;if(or)ST.alpaca.orders=or;updateAlpacaPanel();}catch(e){console.warn('Alpaca sync:',e);}
+  try{const [ar,pr,or]=await Promise.all([alpFetch('/v2/account'),alpFetch('/v2/positions'),alpFetch('/v2/orders?status=all&limit=20')]);if(ar)ST.alpaca.account=ar;if(pr)ST.alpaca.positions=Array.isArray(pr)?pr:[];ST.alpaca.orders=Array.isArray(or)?or:[];updateAlpacaPanel();}catch(e){console.warn('Alpaca sync:',e);}
 }
 async function connectAlpaca(key,secret,mode){
   const PAPER='https://paper-api.alpaca.markets',LIVE='https://api.alpaca.markets';
@@ -2007,7 +2009,7 @@ function renderOrders(){
       '<div style="margin-top:4px"><button onclick="closePosition(\''+ST.pair+'\')" style="width:100%;padding:5px;background:rgba(255,107,0,.1);border:1px solid rgba(255,107,0,.3);color:var(--or);font-size:8px;cursor:pointer;border-radius:2px">■ CLOSE '+getDisplaySym(ST.pair)+'</button></div>':'')
     +'</div>';
   h+='<div style="padding:7px;font-size:11px">'+pTitle('ACTIVE POSITIONS');
-  const pe=Object.entries(pos);
+  const pe=Object.entries(pos||{});
   if(!pe.length)h+='<div class="empty">NO OPEN POSITIONS</div>';
   pe.forEach(([sym,p])=>{
     const price=ST.prices[sym]||p.entry,upnl=p.dir==='LONG'?(price-p.entry)*p.qty:(p.entry-price)*p.qty;
@@ -2351,9 +2353,12 @@ function setQtAmt(v){const el=$('qtAmt');if(el)el.value=v;}
 function qtExecute(dir){
   const amt=parseFloat(document.getElementById('qtAmt')?.value||100);
   if(!amt||amt<1){toast('Enter a valid dollar amount','warn');return;}
-  const pair=ST.pair;const price=ST.prices[pair]||PAIRS[pair]?.base||1;
+  const pair=ST.pair;
+  const price=ST.prices[pair]||(PAIRS[pair]&&PAIRS[pair].base)||0;
+  if(!price||price<=0){toast('No price for '+getDisplaySym(pair)+' — wait for data','warn');return;}
   const qty=amt/price;
   const sig={dir,entry:price,sl:dir==='LONG'?price*0.985:price*1.015,tp1:dir==='LONG'?price*1.03:price*0.97,quality:'MANUAL',score:0,rr:2};
+  const orders=ST.alpaca.orders||[];
   const existing=ST.pnl.positions[pair];
   if(existing){
     if(existing.dir===dir){
@@ -2361,17 +2366,20 @@ function qtExecute(dir){
       const totalQty=existing.qty+qty;
       existing.entry=(oldNotional+newNotional)/totalQty;
       existing.qty=totalQty;
-      ST.alpaca.orders.unshift({symbol:pair,side:dir==='LONG'?'buy':'sell',qty:sf(qty,6),status:'scaled',t:Date.now(),price});
+      orders.unshift({symbol:pair,side:dir==='LONG'?'buy':'sell',qty:sf(qty,6),status:'scaled',t:Date.now(),price});
+      ST.alpaca.orders=orders;
       toast('Added to '+dir+' on '+getDisplaySym(pair)+' $'+amt,'info',3000);
     } else {
       closePosition(pair,'FLIP');
       ST.pnl.positions[pair]={dir,entry:price,sl:sig.sl,tp1:sig.tp1,qty,t:Date.now(),pair,quality:'MANUAL'};
-      ST.alpaca.orders.unshift({symbol:pair,side:dir==='LONG'?'buy':'sell',qty:sf(qty,6),status:'flip',t:Date.now(),price});
+      orders.unshift({symbol:pair,side:dir==='LONG'?'buy':'sell',qty:sf(qty,6),status:'flip',t:Date.now(),price});
+      ST.alpaca.orders=orders;
       toast('Flipped to '+dir+' on '+getDisplaySym(pair)+' $'+amt,'warn',3500);
     }
   } else {
     ST.pnl.positions[pair]={dir,entry:price,sl:sig.sl,tp1:sig.tp1,qty,t:Date.now(),pair,quality:'MANUAL'};
-    ST.alpaca.orders.unshift({symbol:pair,side:dir==='LONG'?'buy':'sell',qty:sf(qty,6),status:'manual',t:Date.now(),price});
+    orders.unshift({symbol:pair,side:dir==='LONG'?'buy':'sell',qty:sf(qty,6),status:'manual',t:Date.now(),price});
+    ST.alpaca.orders=orders;
     toast('Manual '+dir+': '+getDisplaySym(pair)+' $'+amt,'info',3000);
   }
   if(ST.alpaca.connected)fireAlpacaOrder(pair,sig,qty);

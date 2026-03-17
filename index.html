@@ -724,7 +724,8 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
       <div class="modal-fl">SECRET KEY</div>
       <input id="modalSec" class="modal-inp" type="password" placeholder="your secret key" autocomplete="new-password">
       <div class="modal-fl" style="margin-top:10px">FMP API KEY (OPTIONAL)</div>
-      <input id="modalFmpKey" class="modal-inp" type="text" placeholder="Real stock quotes when Alpaca disconnected — free at financialmodelingprep.com" autocomplete="off">
+      <input id="modalFmpKey" class="modal-inp" type="text" placeholder="Free at financialmodelingprep.com — real stock quotes" autocomplete="off">
+      <div class="modal-hint" style="margin-top:-6px">Free tier: 250 req/day. Quotes ~every 5 min. Session % from today’s open; prices validated vs day high/low.</div>
       <div class="modal-status" id="modalStatus"></div>
       <button class="modal-conn" id="modalConnBtn">▶ CONNECT TO ALPACA</button>
       <button class="modal-skip" id="modalSkip">SKIP — REAL CRYPTO (BINANCE) + OPTIONAL FMP STOCKS</button>
@@ -837,7 +838,9 @@ const ST={
   pnl:{equity:100000,startEq:100000,positions:{},trades:[],wins:0,losses:0,streak:0},
   prices:{},priceHistory:{},dataMode:{},sessionOpen:{},alerts:[],
   marketRegion:'USA',
-  fmpKey:''  // optional: Financial Modeling Prep API key for real stock quotes when Alpaca not connected
+  fmpKey:'',
+  dataLastUpdate:{},   // symbol -> timestamp (ms) for data freshness
+  fmpBackoffUntil:0    // skip FMP until this timestamp (rate limit)
 };
 
 // ── BINANCE REST (real crypto prices: initial load + fallback when WS down) ───
@@ -858,6 +861,7 @@ async function fetchBinancePricesREST(){
         ST.priceHistory[pair].push(p);
         if(ST.priceHistory[pair].length>500)ST.priceHistory[pair].shift();
         if(ST.dataMode[pair]!=='binance-live')ST.dataMode[pair]='binance';
+        ST.dataLastUpdate[pair]=Date.now();
         updated++;
       }
     });
@@ -865,32 +869,66 @@ async function fetchBinancePricesREST(){
   }catch(e){console.warn('[Binance REST]',e.message);}
 }
 
+function dataFreshnessText(sym){
+  const t=ST.dataLastUpdate[sym];
+  if(!t)return'';
+  const s=Math.floor((Date.now()-t)/1000);
+  if(s<60)return s+'s ago';
+  if(s<3600)return Math.floor(s/60)+'m ago';
+  return Math.floor(s/3600)+'h ago';
+}
+
 // ── FMP REAL STOCK QUOTES (when Alpaca not connected) ─────────────────────────
+// Uses open/dayLow/dayHigh for accuracy; validates price; tracks freshness. Free tier ~250 req/day → poll ~every 5 min.
 async function fetchFMPQuotes(){
   const key=(ST.fmpKey||'').trim();
   if(!key||ST.alpaca.connected)return;
+  if(Date.now()<ST.fmpBackoffUntil)return;
   const syms=Array.from(STOCK_PAIRS);
   if(!syms.length)return;
   try{
     const url='https://financialmodelingprep.com/api/v3/quote/'+syms.join(',')+'?apikey='+encodeURIComponent(key);
     const r=await fetch(url,{headers:{accept:'application/json'}});
-    if(!r.ok)return;
+    if(r.status===429){
+      ST.fmpBackoffUntil=Date.now()+300000;
+      toast('FMP rate limit — retrying in 5 min. Free tier: 250 req/day.','warn',6000);
+      setDataBanner();
+      return;
+    }
+    if(!r.ok){console.warn('[FMP] HTTP',r.status);return;}
     const data=await r.json();
-    if(!Array.isArray(data))return;
+    if(!Array.isArray(data)){
+      const errMsg=data&&(data['Error Message']||data.error||data.message);
+      if(errMsg){toast('FMP: '+errMsg,'warn',5000);}
+      return;
+    }
+    const now=Date.now();
     data.forEach(q=>{
       if(!q||q.symbol==null)return;
       const sym=q.symbol;
       if(!STOCK_PAIRS.has(sym))return;
       const price=parseFloat(q.price);
       if(!price||!isFinite(price)||price<=0)return;
+      const dayLow=parseFloat(q.dayLow);
+      const dayHigh=parseFloat(q.dayHigh);
+      const open=parseFloat(q.open);
+      if(dayLow>0&&dayHigh>0){
+        const tol=0.02;
+        if(price<dayLow*(1-tol)||price>dayHigh*(1+tol))return;
+      }
       ST.prices[sym]=price;
+      if(open>0&&isFinite(open))ST.sessionOpen[sym]=open;
       ST.dataMode[sym]='fmp';
+      ST.dataLastUpdate[sym]=now;
       if(!ST.priceHistory[sym])ST.priceHistory[sym]=[];
       ST.priceHistory[sym].push(price);
       if(ST.priceHistory[sym].length>500)ST.priceHistory[sym].shift();
     });
     setDataBanner();
-  }catch(e){console.warn('[FMP]',e.message);}
+  }catch(e){
+    console.warn('[FMP]',e.message);
+    if(e.message&&e.message.includes('fetch'))toast('FMP: check connection or API key','warn',4000);
+  }
 }
 
 // ── BINANCE WS ────────────────────────────────────────────────────────────────
@@ -952,8 +990,8 @@ function connectBinanceWS(){
       ws.onopen=()=>{opened=true;clearTimeout(timer);_bnWS=ws;_bnWSPending=false;setDataBanner();toast('Binance live — fetching history...','info',3000);seedBinanceKlines().then(()=>toast('Binance history loaded','info',2500));};
       ws.onmessage=e=>{
         try{const msg=JSON.parse(e.data);const d=msg.data;if(!d)return;
-          if(d.e==='24hrMiniTicker'){const pair=Object.keys(BINANCE_SYM).find(k=>BINANCE_SYM[k]===d.s);if(!pair)return;const price=parseFloat(d.c);if(!price||price<=0)return;ST.prices[pair]=price;if(!ST.priceHistory[pair])ST.priceHistory[pair]=[];ST.priceHistory[pair].push(price);if(ST.priceHistory[pair].length>500)ST.priceHistory[pair].shift();const cs=ST.candles[pair];if(cs&&cs.length){const lc=cs[cs.length-1];lc.c=price;lc.h=Math.max(lc.h,price);lc.l=Math.min(lc.l,price);}ST.dataMode[pair]='binance-live';}
-          if(d.e==='kline'){const k=d.k;if(!k)return;const pair=Object.keys(BINANCE_SYM).find(p=>BINANCE_SYM[p]===k.s);if(!pair)return;const bar={t:k.t,o:parseFloat(k.o),h:parseFloat(k.H||k.h),l:parseFloat(k.L||k.l),c:parseFloat(k.c),v:parseFloat(k.v)};const cs=ST.candles[pair];if(!cs||!cs.length)return;const lc=cs[cs.length-1];if(lc.t===bar.t){lc.h=Math.max(lc.h,bar.h);lc.l=Math.min(lc.l,bar.l);lc.c=bar.c;lc.v=bar.v;}else if(bar.t>lc.t&&k.x){cs.push({...bar});if(cs.length>500)cs.shift();}ST.prices[pair]=bar.c;ST.dataMode[pair]='binance-live';}
+          if(d.e==='24hrMiniTicker'){const pair=Object.keys(BINANCE_SYM).find(k=>BINANCE_SYM[k]===d.s);if(!pair)return;const price=parseFloat(d.c);if(!price||price<=0)return;ST.prices[pair]=price;ST.dataLastUpdate[pair]=Date.now();if(!ST.priceHistory[pair])ST.priceHistory[pair]=[];ST.priceHistory[pair].push(price);if(ST.priceHistory[pair].length>500)ST.priceHistory[pair].shift();const cs=ST.candles[pair];if(cs&&cs.length){const lc=cs[cs.length-1];lc.c=price;lc.h=Math.max(lc.h,price);lc.l=Math.min(lc.l,price);}ST.dataMode[pair]='binance-live';}
+          if(d.e==='kline'){const k=d.k;if(!k)return;const pair=Object.keys(BINANCE_SYM).find(p=>BINANCE_SYM[p]===k.s);if(!pair)return;const bar={t:k.t,o:parseFloat(k.o),h:parseFloat(k.H||k.h),l:parseFloat(k.L||k.l),c:parseFloat(k.c),v:parseFloat(k.v)};const cs=ST.candles[pair];if(!cs||!cs.length)return;const lc=cs[cs.length-1];if(lc.t===bar.t){lc.h=Math.max(lc.h,bar.h);lc.l=Math.min(lc.l,bar.l);lc.c=bar.c;lc.v=bar.v;}else if(bar.t>lc.t&&k.x){cs.push({...bar});if(cs.length>500)cs.shift();}ST.prices[pair]=bar.c;ST.dataLastUpdate[pair]=Date.now();ST.dataMode[pair]='binance-live';}
         }catch(_){}
       };
       ws.onerror=()=>{clearTimeout(timer);if(!opened){ui++;setTimeout(tryConnect,600);}};
@@ -1016,11 +1054,14 @@ function setDataBanner(){
   const el=$('dataBanner');if(!el)return;
   const bnLive=Object.values(ST.dataMode).filter(v=>v==='binance-live').length;
   const bnRest=Object.values(ST.dataMode).filter(v=>v==='binance').length;
-  const fmpN=Object.values(ST.dataMode).filter(v=>v==='fmp').length;
+  const fmpSyms=Object.entries(ST.dataMode).filter(([,v])=>v==='fmp').map(([s])=>s);
+  const fmpN=fmpSyms.length;
+  const fmpFresh=fmpN?dataFreshnessText(fmpSyms[0]):'';
+  const fmpStr=fmpN>0?('FMP '+fmpN+' stocks'+(fmpFresh?' · '+fmpFresh:'')):'';
   el.style.display='block';
-  if(ST.alpaca.connected&&(bnLive||bnRest>0)){el.style.cssText='background:rgba(0,40,20,.95);border-bottom:1px solid #00ff9d;color:#00ff9d;padding:5px 14px;font-family:monospace;font-size:10px;position:fixed;top:0;left:0;right:0;z-index:10000;';el.innerHTML='🟢 LIVE — Binance '+(bnLive?bnLive+' WS':'REST')+' crypto + Alpaca connected.';}
-  else if(bnLive>0){el.style.cssText='background:rgba(0,25,35,.95);border-bottom:1px solid #00ccff;color:#00ccff;padding:5px 14px;font-family:monospace;font-size:10px;position:fixed;top:0;left:0;right:0;z-index:10000;';el.innerHTML='📡 BINANCE LIVE — '+bnLive+' pairs streaming.'+(fmpN>0?' + FMP '+fmpN+' stocks.':'')+' <button onclick="showModal()" style="background:#00aacc;border:none;color:#000;padding:2px 10px;cursor:pointer;font-family:monospace;font-size:10px;font-weight:700;border-radius:2px;margin-left:10px">+ ALPACA</button>';}
-  else if(bnRest>0||fmpN>0){el.style.cssText='background:rgba(0,25,35,.95);border-bottom:1px solid #00ccff;color:#00ccff;padding:5px 14px;font-family:monospace;font-size:10px;position:fixed;top:0;left:0;right:0;z-index:10000;';const parts=[];if(bnRest>0)parts.push('Binance REST '+bnRest+' crypto');if(fmpN>0)parts.push('FMP '+fmpN+' stocks');el.innerHTML='📡 REAL DATA — '+parts.join(' · ')+'. <button onclick="showModal()" style="background:#00aacc;border:none;color:#000;padding:2px 10px;cursor:pointer;font-family:monospace;font-size:10px;font-weight:700;border-radius:2px;margin-left:10px">+ ALPACA</button>';}
+  if(ST.alpaca.connected&&(bnLive||bnRest>0)){el.style.cssText='background:rgba(0,40,20,.95);border-bottom:1px solid #00ff9d;color:#00ff9d;padding:5px 14px;font-family:monospace;font-size:10px;position:fixed;top:0;left:0;right:0;z-index:10000;';el.innerHTML='🟢 LIVE — Binance '+(bnLive?bnLive+' WS':'REST')+' crypto + Alpaca connected.'+(fmpStr?' '+fmpStr:'')+' <button onclick="showModal()" style="background:#00aacc;border:none;color:#000;padding:2px 10px;cursor:pointer;font-family:monospace;font-size:10px;font-weight:700;border-radius:2px;margin-left:10px">+ ALPACA</button>';}
+  else if(bnLive>0){el.style.cssText='background:rgba(0,25,35,.95);border-bottom:1px solid #00ccff;color:#00ccff;padding:5px 14px;font-family:monospace;font-size:10px;position:fixed;top:0;left:0;right:0;z-index:10000;';el.innerHTML='📡 BINANCE LIVE — '+bnLive+' pairs streaming.'+(fmpStr?' '+fmpStr+'.':'')+' <button onclick="showModal()" style="background:#00aacc;border:none;color:#000;padding:2px 10px;cursor:pointer;font-family:monospace;font-size:10px;font-weight:700;border-radius:2px;margin-left:10px">+ ALPACA</button>';}
+  else if(bnRest>0||fmpN>0){el.style.cssText='background:rgba(0,25,35,.95);border-bottom:1px solid #00ccff;color:#00ccff;padding:5px 14px;font-family:monospace;font-size:10px;position:fixed;top:0;left:0;right:0;z-index:10000;';const parts=[];if(bnRest>0)parts.push('Binance REST '+bnRest+' crypto');if(fmpStr)parts.push(fmpStr);el.innerHTML='📡 REAL DATA — '+parts.join(' · ')+'. <button onclick="showModal()" style="background:#00aacc;border:none;color:#000;padding:2px 10px;cursor:pointer;font-family:monospace;font-size:10px;font-weight:700;border-radius:2px;margin-left:10px">+ ALPACA</button>';}
   else{el.style.cssText='background:rgba(40,20,0,.95);border-bottom:1px solid #ff6600;color:#ff9900;padding:5px 14px;font-family:monospace;font-size:10px;position:fixed;top:0;left:0;right:0;z-index:10000;';el.innerHTML='⏳ Connecting to data sources...';}
 }
 function generateFallback(pair,n=300){
@@ -1770,7 +1811,10 @@ function renderChart(){
   if(ind.vwap&&ind.vwap.length)setTxt('cfVwap',fmtPrice(lx(ind.vwap),ST.pair));
   if(ind.adx&&ind.adx.adx&&ind.adx.adx.length)setTxt('cfAdx',sf(lx(ind.adx.adx),1));
   const src=ST.dataMode[ST.pair]||'sim';
-  setTxt('cfSrc',src==='binance-live'?'BN●':src==='binance'?'BN◎':src==='alpaca'?'ALP':src==='fmp'?'FMP':'SIM');
+  const fresh=src==='fmp'&&dataFreshnessText(ST.pair)?' · '+dataFreshnessText(ST.pair):'';
+  setTxt('cfSrc',(src==='binance-live'?'BN●':src==='binance'?'BN◎':src==='alpaca'?'ALP':src==='fmp'?'FMP':'SIM')+fresh);
+  const srcSeg=$('cfSrc')?.parentElement;
+  if(srcSeg)srcSeg.title=src==='fmp'?'FMP: price validated vs day high/low, session % from open'+(dataFreshnessText(ST.pair)?'. Updated '+dataFreshnessText(ST.pair):''):src==='binance-live'?'Binance WebSocket live':src==='binance'?'Binance REST':src==='alpaca'?'Alpaca':'Simulated';
 }
 
 function renderOsc(){
@@ -1868,10 +1912,16 @@ function updateLiveClock(){
 
 function updateHeader(){
   const price=ST.prices[ST.pair]||(PAIRS[ST.pair]?.base)||0;
-  const cs=ST.candles[ST.pair];if(!cs||!cs.length)return;
-  const lookback=Math.min(cs.length-1,Math.max(1,Math.floor(cs.length/8)));
-  const prev=cs[cs.length-1-lookback]?.c||cs[cs.length-2]?.c||price;
-  const chg=((price-prev)/(prev||1))*100;
+  const cs=ST.candles[ST.pair];
+  let chg=0;
+  if(cs&&cs.length){
+    const lookback=Math.min(cs.length-1,Math.max(1,Math.floor(cs.length/8)));
+    const prev=cs[cs.length-1-lookback]?.c||cs[cs.length-2]?.c||price;
+    chg=((price-prev)/(prev||1))*100;
+  } else {
+    const open=ST.sessionOpen[ST.pair]||(PAIRS[ST.pair]?.base);
+    if(open&&price)chg=((price-open)/(open||1))*100;
+  }
   const pe=$('livePriceEl'),ce=$('priceChgEl');
   if(pe){pe.textContent=fmtPrice(price,ST.pair);pe.className='live-price '+(chg>=0?'up':'dn');}
   if(ce){ce.textContent=fmtP(chg,3);ce.className='price-chg '+(chg>=0?'up':'dn');}
@@ -2725,8 +2775,8 @@ function mainLoop(){
                .forEach((sym,i)=>setTimeout(()=>fetchRealCandles(sym,ST.tf),i*600));
     // Binance REST fallback when WebSocket down — keep crypto prices real
     if(!_bnWS&&_frame%900===0&&_frame>0)fetchBinancePricesREST();
-    // FMP real stock quotes when Alpaca not connected (every ~30s)
-    if(ST.fmpKey&&!ST.alpaca.connected&&_frame%1800===0)fetchFMPQuotes();
+    // FMP real stock quotes when Alpaca not connected (~every 5 min to stay under 250 req/day free tier)
+    if(ST.fmpKey&&!ST.alpaca.connected&&_frame%18000===0&&_frame>0)fetchFMPQuotes();
   }catch(e){console.warn('Loop:',e);}
   requestAnimationFrame(mainLoop);
 }

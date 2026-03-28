@@ -316,7 +316,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:8px;height
 <div id="loader">
   <div class="ld-logo">APEX ULTRA</div>
   <div class="ld-sub">OMNI SNIPER &mdash; SIM ENGINE</div>
-  <div class="ld-tag">50+ INDICATORS &middot; 25 GATES &middot; SMART MONEY &middot; HARMONICS &middot; OMNI SCAN ALL PAIRS<br>REALISTIC SIM &middot; ML REGIME &middot; ORDER FLOW &middot; ALPACA LIVE TRADING &middot; REAL-TIME P&amp;L</div>
+  <div class="ld-tag">50+ INDICATORS &middot; 25 GATES &middot; SMART MONEY &middot; HARMONICS &middot; OMNI SCAN ALL PAIRS<br>REALISTIC SIM &middot; ML REGIME &middot; ORDER FLOW &middot; ROBINHOOD LIVE TRADING &middot; REAL-TIME P&amp;L</div>
   <div class="ld-bar-w"><div class="ld-bar-fill" id="ldBar"></div></div>
   <div class="ld-pct" id="ldPct">0%</div>
   <div class="ld-stats">
@@ -392,7 +392,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:8px;height
     </div>
     <div class="sec-grow">
       <div class="sh" style="color:var(--c);border-color:rgba(0,229,255,.12)">
-        &#9889; ALPACA CONNECT
+        🍃 ROBINHOOD
         <span class="sh-r" id="alpModeLbl" style="font-size:5.5px;padding:1px 4px;background:rgba(255,214,10,.08);color:var(--y1)">DEMO</span>
       </div>
       <div class="alp-hub">
@@ -402,20 +402,20 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:8px;height
           <div class="alp-mb demo" id="alpMbadge">DEMO</div>
         </div>
         <div class="alp-creds">
-          <div><div class="alp-fl">API KEY</div><input class="alp-inp" type="text" id="apiKey" placeholder="Your Alpaca API Key ID" autocomplete="off" spellcheck="false"></div>
+          <div><div class="alp-fl">API KEY</div><input class="alp-inp" type="text" id="apiKey" placeholder="your@email.com" autocomplete="off" spellcheck="false"></div>
           <div><div class="alp-fl">SECRET KEY</div><input class="alp-inp" type="password" id="apiSec" placeholder="secret key..." autocomplete="new-password"></div>
         </div>
         <div class="alp-mr">
           <button class="alp-mb2 ap" id="btnPaper">PAPER</button>
           <button class="alp-mb2" id="btnLive">&#9889; LIVE</button>
         </div>
-        <button class="alp-cb" id="alpConnBtn">&#9654; CONNECT TO ALPACA</button>
+        <button class="alp-cb" id="alpConnBtn">🍃 CONNECT ROBINHOOD</button>
         <div class="alp-btns">
           <button class="alp-sm-btn y" id="btnTest">TEST KEYS</button>
           <button class="alp-sm-btn c" id="btnSync">SYNC ACCT</button>
           <button class="alp-sm-btn r" id="btnDisconn" style="display:none">DISCONNECT</button>
         </div>
-        <div class="alp-api-st info" id="alpApiSt">SIM MODE &mdash; CONNECT ALPACA FOR LIVE DATA</div>
+        <div class="alp-api-st info" id="alpApiSt">Live crypto via Binance + CoinGecko (free)</div>
         <div class="alp-acct" id="alpAcct">
           <div class="alp-ag">
             <div class="alp-stat"><div class="alp-sl">EQUITY</div><div class="alp-sv neu" id="acctEq">--</div></div>
@@ -425,7 +425,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:8px;height
           </div>
         </div>
         <div class="alp-ae-row" id="aeRow">
-          <div><div class="ae-lbl">AUTO-EXECUTE SIGNALS</div><div class="ae-sub">Fire real orders on Alpaca</div></div>
+          <div><div class="ae-lbl">AUTO-EXECUTE SIGNALS</div><div class="ae-sub">Paper trade on signal fire</div></div>
           <div class="alp-tog on" id="aeToggle"></div>
         </div>
         <div class="alp-positions" id="alpPositions"></div>
@@ -579,7 +579,7 @@ var safeMax=function(a,fb){fb=fb==null?0:fb;var f=a.filter(function(v){return is
 var safeMin=function(a,fb){fb=fb==null?0:fb;var f=a.filter(function(v){return isFinite(v)&&!isNaN(v);});return f.length?Math.min.apply(null,f):fb;};
 function fmtPrice(v,pair){if(v==null||!isFinite(v)||isNaN(v))return'--';var p=PAIRS[pair||ST.pair];return v.toFixed(p?p.dec:2);}
 function getDisplaySym(sym){var cfg=PAIRS[sym];if(!cfg)return sym;if(cfg.cat==='forex'){if(sym.length===6)return sym.slice(0,3)+'/'+sym.slice(3);return sym;}if(sym.endsWith('USD'))return sym.slice(0,-3);return sym;}
-function alpacaSymbol(sym){if(INDEX_PROXY&&INDEX_PROXY[sym])return INDEX_PROXY[sym];if(CRYPTO_PAIRS&&CRYPTO_PAIRS.has(sym)&&sym.endsWith('USD'))return sym.slice(0,-3)+'/USD';return sym;}
+function getRHSymbol(sym){if(INDEX_PROXY&&INDEX_PROXY[sym])return INDEX_PROXY[sym];if(CRYPTO_PAIRS&&CRYPTO_PAIRS.has(sym)&&sym.endsWith('USD'))return sym.slice(0,-3)+'/USD';return sym;}
 function toast(msg,type,dur){type=type||'info';dur=dur||3500;var tc=$('toasts');if(!tc)return;var d=document.createElement('div');d.className='toast '+type;d.textContent=msg;tc.appendChild(d);setTimeout(function(){d.style.opacity='0';d.style.transition='opacity .3s';setTimeout(function(){if(d.parentNode)d.remove();},300);},dur);}
 function beep(freq,dur,vol){try{var ctx=new(window.AudioContext||window.webkitAudioContext)();var o=ctx.createOscillator(),g=ctx.createGain();o.connect(g);g.connect(ctx.destination);o.frequency.value=freq||880;g.gain.value=vol||0.22;o.start();g.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+(dur||0.15));o.stop(ctx.currentTime+(dur||0.15));}catch(e){}}
 
@@ -1343,16 +1343,7 @@ function executeTrade(pair,sig){
   var qty=clamp(riskAmt/slDist,0.0001,(ST.pnl.equity*0.20)/price);
   ST.pnl.positions[pair]={dir:sig.dir,entry:price,sl:sig.sl||price*(sig.dir==='LONG'?0.985:1.015),tp1:sig.tp1||price*(sig.dir==='LONG'?1.03:0.97),qty:qty,t:Date.now(),pair:pair,quality:sig.quality};
   _logOrder({symbol:pair,side:sig.dir==='LONG'?'buy':'sell',qty:qty,notional:qty*price,status:'pending',t:Date.now(),price:price,source:'auto'});
-  if(ST.rh.connected&&ST.autoExec)fireAlpacaOrder(pair,sig.dir,qty*price,false);
-}
-function fireAlpacaOrder(pair,dir,notionalUSD,closeOnly){
-  // Replaced: now routes to Robinhood
-  var side=closeOnly?(dir==='LONG'?'sell':'buy'):(dir==='LONG'?'buy':'sell');
-  var price=ST.prices[pair]||PAIRS[pair].base||1;
-  var amount=notionalUSD||100;
-  if(ST.rh.connected&&RH_CRYPTO[pair]){
-    placeRobinhoodOrder(pair,side,amount);
-  }
+  if(ST.rh.connected&&ST.autoExec&&RH_CRYPTO[pair])placeRobinhoodOrder(pair,sig.dir==='LONG'?'buy':'sell',qty*price);
 }
 function closePosition(pair,reason){
   reason=reason||'MANUAL';var pos=ST.pnl.positions[pair];if(!pos)return;
@@ -1362,7 +1353,7 @@ function closePosition(pair,reason){
   ST.sniper.log.push({type:'CLOSE',pair:pair,price:price,pnl:pnl,qual:reason,entry:pos.entry});
   delete ST.pnl.positions[pair];
   toast(reason+': '+getDisplaySym(pair)+' P&L $'+(pnl>=0?'+':'')+sf(pnl,2),pnl>=0?'bull':'bear',4000);
-  if(ST.rh.connected&&ST.autoExec)fireAlpacaOrder(pair,pos.dir,pos.qty*price,true);
+  if(ST.rh.connected&&RH_CRYPTO[pair])placeRobinhoodOrder(pair,pos.dir==='LONG'?'sell':'buy',pos.qty*price);
 }
 var _localOrders=[];
 function _logOrder(o){_localOrders.unshift(o);if(_localOrders.length>50)_localOrders.pop();}
@@ -1372,7 +1363,7 @@ function qtExecute(dir){
   if(!ST.pnl.positions[pair])ST.pnl.positions[pair]={dir:dir,entry:price,sl:dir==='LONG'?price*0.985:price*1.015,tp1:dir==='LONG'?price*1.03:price*0.97,qty:qty,t:Date.now(),pair:pair,quality:'MANUAL'};
   _logOrder({symbol:pair,side:dir==='LONG'?'buy':'sell',qty:qty,notional:amt,status:'manual',t:Date.now(),price:price,source:'manual'});
   toast('Manual '+dir+': '+getDisplaySym(pair)+' $'+amt,'info',3000);
-  if(ST.rh.connected)fireAlpacaOrder(pair,dir,amt,false);renderRTab();
+  if(ST.rh.connected&&RH_CRYPTO[pair])placeRobinhoodOrder(pair,dir==='LONG'?'buy':'sell',amt);renderRTab();
 }
 
 // ─── CHART RENDERING ──────────────────────────────────────────

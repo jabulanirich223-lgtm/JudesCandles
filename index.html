@@ -7,778 +7,588 @@
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Orbitron:wght@500;700;900&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
---bg0:#010306;--bg1:#030810;--bg2:#050c18;--bg3:#081222;--bg4:#0c1830;--bg5:#101e38;
---c:#00e5ff;--c1:#00c8e0;--c2:#0099aa;--c3:#006677;--c4:#003344;
---g:#00ff9d;--g1:#00e088;--g2:#00b86e;--g3:#007748;
---r:#ff2d55;--r1:#dd1144;--r2:#990033;
---y:#ffd60a;--y1:#e0b800;--y2:#aa8800;
---or:#ff6b00;--pu:#bf40ff;
---t0:#ddeeff;--t1:#99bbcc;--t2:#558899;--t3:#2a4455;--t4:#142233;
---b0:rgba(0,180,220,.04);--b1:rgba(0,180,220,.09);--b2:rgba(0,180,220,.17);
---font-mono:'JetBrains Mono',monospace;
---font-disp:'Orbitron',sans-serif;
---font-data:'Rajdhani',sans-serif;
+  --bg0:#010306;--bg1:#030810;--bg2:#050c18;--bg3:#081222;--bg4:#0c1830;--bg5:#101e38;
+  --c:#00e5ff;--c1:#00c8e0;--c2:#0099aa;--c3:#006677;--c4:#003344;
+  --g:#00ff9d;--g1:#00e088;--g2:#00b86e;--g3:#007748;
+  --r:#ff2d55;--r1:#dd1144;--r2:#990033;
+  --y:#ffd60a;--y1:#e0b800;--y2:#aa8800;
+  --or:#ff6b00;--pu:#bf40ff;
+  --t0:#ddeeff;--t1:#99bbcc;--t2:#558899;--t3:#2a4455;--t4:#142233;
+  --b0:rgba(0,180,220,.04);--b1:rgba(0,180,220,.09);--b2:rgba(0,180,220,.17);
+  --font-mono:'JetBrains Mono',monospace;
+  --font-disp:'Orbitron',sans-serif;
+  --font-data:'Rajdhani',sans-serif;
 }
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
 html,body{height:100%;overflow:hidden;background:var(--bg0)}
 body{font-family:var(--font-mono);font-size:11px;color:var(--t0);display:flex;flex-direction:column;user-select:none}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;background:repeating-linear-gradient(0deg,transparent,transparent 1px,rgba(0,0,0,.02) 1px,rgba(0,0,0,.02) 2px);opacity:.5}
 
-#banner{position:fixed;top:0;left:0;right:0;z-index:10000;padding:6px 16px;font-size:10px;font-family:monospace;display:flex;align-items:center;gap:8px;transition:all .3s}
-#banner.live{background:rgba(0,30,20,.97);border-bottom:1px solid #00ff9d;color:#00ff9d}
-#banner.polling{background:rgba(0,20,35,.97);border-bottom:1px solid #00aaff;color:#00aaff}
-#banner.sim{background:rgba(15,10,5,.97);border-bottom:1px solid #664400;color:#cc8800}
-#banner .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
-#banner .dot.green{background:#00ff88;box-shadow:0 0 6px #00ff88;animation:pulse 2s infinite}
-#banner .dot.yellow{background:#ffcc00;box-shadow:0 0 6px #ffcc00}
-#banner .dot.red{background:#ff4444}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+/* Banner */
+#banner{position:fixed;top:0;left:0;right:0;z-index:10000;padding:5px 14px;font-size:10px;font-family:monospace;display:flex;align-items:center;gap:8px}
+.bn-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.bn-dot.live{background:#00ff88;box-shadow:0 0 8px #00ff88;animation:bpulse 2s infinite}
+.bn-dot.poll{background:#00aaff;box-shadow:0 0 6px #00aaff}
+.bn-dot.off{background:#ff4444}
+@keyframes bpulse{0%,100%{opacity:1}50%{opacity:.35}}
 
-#hdr{height:50px;min-height:50px;background:linear-gradient(180deg,rgba(1,3,8,.99),rgba(3,7,16,.98));border-bottom:1px solid var(--b2);display:flex;align-items:center;z-index:200;margin-top:28px}
-.logo-zone{display:flex;align-items:center;padding:0 14px;border-right:1px solid var(--b1);height:100%;min-width:140px}
+/* Header */
+#hdr{height:52px;min-height:52px;background:linear-gradient(180deg,rgba(1,3,8,.99),rgba(3,7,16,.98));border-bottom:1px solid var(--b2);display:flex;align-items:center;margin-top:26px;position:relative;z-index:200}
+.logo{display:flex;align-items:center;padding:0 14px;border-right:1px solid var(--b1);height:100%;min-width:130px}
 .logo-txt{font-family:var(--font-disp);font-size:16px;font-weight:900;letter-spacing:4px;background:linear-gradient(135deg,#00ffff,#6644ff,#ff44bb);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.logo-ver{font-size:5px;color:var(--c3);letter-spacing:2px;margin-top:2px}
 
-.hdr-prices{display:flex;height:100%;overflow-x:auto;flex:1;border-right:1px solid var(--b1)}
-.hdr-prices::-webkit-scrollbar{height:0}
-.hp-item{padding:0 10px;display:flex;flex-direction:column;justify-content:center;cursor:pointer;border-right:1px solid var(--b0);white-space:nowrap;transition:background .1s}
-.hp-item:hover{background:rgba(0,229,255,.04)}
-.hp-item.active{background:rgba(0,229,255,.08);border-bottom:2px solid var(--c)}
-.hp-sym{font-family:var(--font-data);font-size:9px;font-weight:700;color:var(--t1)}
-.hp-price{font-size:10px;font-weight:700;color:var(--t0)}
-.hp-chg{font-size:7px;font-weight:600}
-.hp-chg.up{color:var(--g2)}.hp-chg.dn{color:var(--r1)}
-.hp-src{font-size:5px;margin-left:3px}
-.hp-src.live{color:#00ff88}.hp-src.cg{color:#00aaff}.hp-src.sim{color:#664400}
+/* Pair tabs */
+.pair-tabs{display:flex;height:100%;overflow-x:auto;flex:1;border-right:1px solid var(--b1)}
+.pair-tabs::-webkit-scrollbar{height:0}
+.pt{padding:0 10px;display:flex;flex-direction:column;justify-content:center;cursor:pointer;border-right:1px solid var(--b0);white-space:nowrap;transition:all .1s;border-bottom:2px solid transparent}
+.pt:hover{background:rgba(0,229,255,.04)}
+.pt.active{background:rgba(0,229,255,.07);border-bottom-color:var(--c)}
+.pt-sym{font-family:var(--font-data);font-size:9.5px;font-weight:700;display:flex;align-items:center;gap:3px}
+.pt-price{font-size:10px;font-weight:700;color:var(--t0)}
+.pt-chg{font-size:7px;font-weight:600}
+.pt-chg.up{color:var(--g2)}.pt-chg.dn{color:var(--r1)}
+.src-dot{width:4px;height:4px;border-radius:50%;display:inline-block}
+.src-dot.live{background:#00ff88}.src-dot.poll{background:#00aaff}.src-dot.sim{background:#555}
 
-.hdr-right{display:flex;align-items:center;gap:6px;padding:0 12px;flex-shrink:0}
-.live-price{font-family:var(--font-disp);font-size:18px;font-weight:700;letter-spacing:1px;min-width:100px;text-align:right}
-.live-price.up{color:var(--g)}.live-price.dn{color:var(--r)}
+/* Right header */
+.hdr-r{display:flex;align-items:center;gap:8px;padding:0 14px;flex-shrink:0}
+.main-price{font-family:var(--font-disp);font-size:20px;font-weight:700;letter-spacing:1px;min-width:110px;text-align:right}
+.main-price.up{color:var(--g)}.main-price.dn{color:var(--r)}
+.api-btn{font-size:7px;letter-spacing:1px;padding:5px 12px;cursor:pointer;border-radius:3px;font-family:var(--font-mono);transition:all .15s;font-weight:700}
+.api-btn.disconnected{background:rgba(0,229,255,.1);border:1px solid rgba(0,229,255,.3);color:var(--c)}
+.api-btn.connected{background:rgba(0,255,157,.1);border:1px solid rgba(0,255,157,.3);color:var(--g)}
+.api-btn:hover{filter:brightness(1.3)}
 
-.rh-btn{font-size:7px;padding:4px 10px;background:rgba(0,229,255,.1);border:1px solid rgba(0,229,255,.3);color:var(--c);cursor:pointer;border-radius:3px;font-family:var(--font-mono);transition:all .15s;letter-spacing:1px}
-.rh-btn:hover{background:rgba(0,229,255,.2)}
-.rh-btn.connected{background:rgba(0,255,157,.1);border-color:rgba(0,255,157,.3);color:var(--g)}
-
+/* Main layout */
 #main{display:flex;flex:1;overflow:hidden;min-height:0}
-#chartArea{flex:1;display:flex;flex-direction:column;min-width:0}
+#chartCol{flex:1;display:flex;flex-direction:column;min-width:0}
 #cwrap{flex:1;position:relative;overflow:hidden;background:var(--bg0)}
-#mainChart{position:absolute;inset:0;cursor:crosshair}
-
-#sidebar{width:280px;background:var(--bg1);border-left:1px solid var(--b1);display:flex;flex-direction:column;overflow:hidden}
-.side-section{border-bottom:1px solid var(--b0);padding:8px}
-.side-title{font-size:6px;letter-spacing:2px;color:var(--c2);margin-bottom:6px}
-.side-scroll{flex:1;overflow-y:auto;min-height:0}
-.side-scroll::-webkit-scrollbar{width:2px}
-.side-scroll::-webkit-scrollbar-thumb{background:var(--c4)}
-
-#toasts{position:fixed;top:80px;right:10px;z-index:99990;display:flex;flex-direction:column;gap:3px;pointer-events:none}
-.toast{font-size:9px;padding:8px 12px;line-height:1.5;pointer-events:auto;max-width:280px;backdrop-filter:blur(12px);border-radius:4px;animation:tIn .2s ease}
-.toast.success{background:rgba(1,6,2,.96);border:1px solid rgba(0,255,157,.3);color:var(--g1)}
-.toast.error{background:rgba(8,1,2,.96);border:1px solid rgba(255,45,85,.3);color:var(--r1)}
-.toast.info{background:rgba(1,4,12,.96);border:1px solid rgba(0,229,255,.22);color:var(--c1)}
-.toast.warn{background:rgba(10,7,0,.96);border:1px solid rgba(255,107,0,.38);color:var(--or)}
-@keyframes tIn{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:none}}
-
-/* RH Modal */
-#rhModal{position:fixed;inset:0;z-index:9997;background:rgba(0,0,0,.92);display:none;align-items:center;justify-content:center;backdrop-filter:blur(8px)}
-#rhModal.show{display:flex}
-.modal-box{width:440px;max-width:95vw;background:linear-gradient(155deg,#060e1a,#030810);border:1px solid rgba(0,229,255,.25);border-radius:10px;overflow:hidden}
-.modal-hdr{padding:16px 20px;background:linear-gradient(135deg,rgba(0,229,255,.07),rgba(119,68,255,.04));border-bottom:1px solid rgba(0,229,255,.1);display:flex;justify-content:space-between;align-items:center}
-.modal-title{font-size:14px;font-weight:700;letter-spacing:.1em;color:var(--c);font-family:var(--font-disp)}
-.modal-close{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:rgba(255,255,255,.4);width:26px;height:26px;border-radius:4px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center}
-.modal-body{padding:18px 20px}
-.modal-label{font-size:8px;letter-spacing:.1em;color:rgba(255,255,255,.35);margin-bottom:5px}
-.modal-input{width:100%;background:rgba(0,0,0,.4);border:1px solid rgba(0,229,255,.16);border-radius:5px;color:#e0e0e0;padding:10px 13px;font-family:monospace;font-size:11px;outline:none;margin-bottom:12px;transition:border-color .15s}
-.modal-input:focus{border-color:rgba(0,229,255,.5)}
-.modal-status{min-height:22px;font-size:9px;text-align:center;margin-bottom:12px;font-family:monospace}
-.modal-connect{width:100%;padding:13px;border-radius:6px;cursor:pointer;font-family:monospace;font-size:11px;letter-spacing:.15em;font-weight:700;background:linear-gradient(90deg,rgba(0,229,255,.2),rgba(0,255,157,.12));border:1px solid rgba(0,229,255,.4);color:var(--c);transition:all .15s}
-.modal-connect:hover{background:linear-gradient(90deg,rgba(0,229,255,.3),rgba(0,255,157,.2))}
-.modal-connect:disabled{opacity:.5;cursor:not-allowed}
-.modal-skip{background:none;border:none;color:rgba(255,255,255,.2);font-size:8px;cursor:pointer;margin-top:12px;width:100%;text-align:center;font-family:monospace}
-.modal-note{font-size:7px;color:rgba(255,255,255,.2);padding:10px;background:rgba(0,229,255,.03);border:1px solid rgba(0,229,255,.08);border-radius:4px;margin-bottom:14px;line-height:1.8}
+#chartCv{position:absolute;inset:0;cursor:crosshair}
 
 /* Chart footer */
-#chartFoot{height:20px;background:rgba(1,3,8,.99);border-top:1px solid var(--b0);display:flex;align-items:center;padding:0 8px;font-size:8px;gap:12px;color:var(--t2)}
-#chartFoot .lbl{color:var(--t3);font-size:6px;margin-right:2px}
+#cfoot{height:22px;background:rgba(1,3,8,.99);border-top:1px solid var(--b0);display:flex;align-items:center;padding:0 10px;font-size:8px;gap:14px;color:var(--t2);flex-shrink:0}
+.cf-l{color:var(--t3);font-size:6px;letter-spacing:.5px;margin-right:2px}
 
-/* Account panel */
-.acct-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:6px}
+/* Sidebar */
+#sidebar{width:290px;min-width:290px;background:var(--bg1);border-left:1px solid var(--b1);display:flex;flex-direction:column;overflow:hidden;flex-shrink:0}
+.s-hdr{font-size:5.5px;letter-spacing:2px;color:var(--t3);padding:5px 8px;border-bottom:1px solid var(--b0);display:flex;align-items:center;gap:4px;background:rgba(0,0,0,.25);flex-shrink:0}
+.s-hdr::before{content:'';width:2px;height:8px;background:var(--c);box-shadow:0 0 5px var(--c)}
+.s-hdr .r{margin-left:auto;font-size:5.5px}
+.s-hdr .r.g{color:var(--g2)}.s-hdr .r.y{color:var(--y1)}.s-hdr .r.r{color:var(--r1)}
+
+.s-sec{border-bottom:1px solid var(--b0);flex-shrink:0}
+.s-scroll{flex:1;overflow-y:auto;min-height:0}
+.s-scroll::-webkit-scrollbar{width:2px}
+.s-scroll::-webkit-scrollbar-thumb{background:var(--c4)}
+
+/* API Hub */
+.api-hub{background:linear-gradient(145deg,rgba(0,229,255,.04),transparent 70%);border:1px solid rgba(0,229,255,.12);border-radius:5px;margin:6px;overflow:hidden}
+.api-status-bar{display:flex;align-items:center;gap:6px;padding:6px 8px;background:rgba(0,0,0,.3);border-bottom:1px solid rgba(0,229,255,.06)}
+.api-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;transition:all .3s}
+.api-dot.on{background:var(--g);box-shadow:0 0 8px var(--g);animation:bpulse 2s infinite}
+.api-dot.off{background:var(--r);box-shadow:0 0 4px var(--r)}
+.api-st-text{font-size:7.5px;color:var(--t2);flex:1}
+.api-badge{font-size:6px;letter-spacing:.8px;padding:2px 5px;font-weight:700;border-radius:2px}
+.api-badge.ok{background:rgba(0,255,157,.1);color:var(--g);border:1px solid rgba(0,255,157,.25)}
+.api-badge.off{background:rgba(255,214,10,.08);color:var(--y1);border:1px solid rgba(255,214,10,.2)}
+.api-body{padding:6px}
+.api-label{font-size:5.5px;letter-spacing:.8px;color:var(--t3);margin-bottom:3px}
+.api-inp{width:100%;background:rgba(0,0,0,.4);border:1px solid rgba(0,229,255,.12);border-radius:3px;color:var(--t1);padding:5px 7px;font-family:var(--font-mono);font-size:9px;outline:none;margin-bottom:6px;transition:border-color .12s}
+.api-inp:focus{border-color:rgba(0,229,255,.4)}
+.api-inp.has-val{border-color:rgba(0,255,157,.2)}
+.api-select{width:100%;background:rgba(0,0,0,.4);border:1px solid rgba(0,229,255,.12);border-radius:3px;color:var(--t1);padding:5px 7px;font-family:var(--font-mono);font-size:9px;outline:none;margin-bottom:6px}
+.api-connect-btn{width:100%;padding:7px;cursor:pointer;font-family:var(--font-mono);font-size:8px;letter-spacing:1px;border-radius:3px;border:1px solid rgba(0,229,255,.35);background:linear-gradient(90deg,rgba(0,229,255,.12),rgba(0,255,157,.08));color:var(--c);font-weight:700;transition:all .15s}
+.api-connect-btn:hover{background:linear-gradient(90deg,rgba(0,229,255,.22),rgba(0,255,157,.15))}
+.api-connect-btn:disabled{opacity:.4;cursor:not-allowed}
+.api-msg{font-size:7px;padding:4px 6px;text-align:center;letter-spacing:.3px}
+.api-msg.ok{color:var(--g2)}.api-msg.err{color:var(--r1)}.api-msg.info{color:var(--y1)}
+
+/* Account cards */
+.acct-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin:6px}
 .acct-card{background:rgba(0,0,0,.3);border:1px solid rgba(255,255,255,.04);border-radius:3px;padding:5px 7px}
-.acct-card .label{font-size:5.5px;letter-spacing:.8px;color:var(--t3)}
-.acct-card .value{font-size:10px;font-weight:700;color:var(--t1);margin-top:2px}
-.acct-card .value.pos{color:var(--g)}.acct-card .value.neg{color:var(--r)}
+.acct-card .lbl{font-size:5px;letter-spacing:.8px;color:var(--t3)}
+.acct-card .val{font-size:10px;font-weight:700;color:var(--t1);margin-top:1px}
+.acct-card .val.pos{color:var(--g)}.acct-card .val.neg{color:var(--r)}
 
-.pos-item{background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.04);border-radius:3px;padding:5px 7px;margin-bottom:3px}
-.pos-row{display:flex;justify-content:space-between;font-size:8px}
+/* Watchlist items */
+.wl-item{display:flex;align-items:center;padding:4px 8px;border-bottom:1px solid var(--b0);cursor:pointer;transition:background .1s;gap:6px}
+.wl-item:hover{background:rgba(0,229,255,.04)}
+.wl-item.active{background:rgba(0,229,255,.07);border-left:2px solid var(--c)}
+.wl-sym{font-family:var(--font-data);font-size:10px;font-weight:700;min-width:42px}
+.wl-name{font-size:6.5px;color:var(--t3);flex:1;overflow:hidden;text-overflow:ellipsis}
+.wl-right{text-align:right}
+.wl-pr{font-size:9px;color:var(--t1)}
+.wl-ch{font-size:7px}.wl-ch.up{color:var(--g2)}.wl-ch.dn{color:var(--r1)}
+
+/* Quick trade */
+.qt{padding:8px;border-bottom:1px solid var(--b0)}
+.qt-title{font-size:6px;letter-spacing:2px;color:var(--c2);margin-bottom:6px}
+.qt-price-row{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+.qt-price{font-family:var(--font-disp);font-size:14px;font-weight:700}
+.qt-src{font-size:6px;padding:1px 4px;border-radius:2px}
+.qt-src.live{background:rgba(0,255,157,.1);color:var(--g2);border:1px solid rgba(0,255,157,.2)}
+.qt-src.poll{background:rgba(0,170,255,.1);color:#00aaff;border:1px solid rgba(0,170,255,.2)}
+.qt-src.sim{background:rgba(100,68,0,.15);color:#aa8800;border:1px solid rgba(100,68,0,.25)}
+.qt-row{display:flex;gap:4px;margin-bottom:5px;align-items:center}
+.qt-lbl{font-size:6px;letter-spacing:.8px;color:var(--t3);min-width:36px}
+.qt-inp{flex:1;background:rgba(0,0,0,.4);border:1px solid var(--b2);color:var(--t1);padding:5px 7px;font-family:var(--font-mono);font-size:10px;outline:none;border-radius:2px}
+.qt-inp:focus{border-color:var(--c2)}
+.qt-presets{display:flex;gap:3px;margin-bottom:6px}
+.qt-preset{font-size:6px;padding:3px 6px;background:rgba(0,0,0,.3);border:1px solid var(--b1);color:var(--t3);cursor:pointer;border-radius:2px;font-family:var(--font-mono)}
+.qt-preset:hover{color:var(--t1);border-color:var(--c3)}
+.qt-btns{display:flex;gap:4px}
+.qt-buy,.qt-sell{flex:1;padding:8px;cursor:pointer;font-family:var(--font-mono);font-size:10px;font-weight:700;letter-spacing:1px;border-radius:3px;transition:all .12s}
+.qt-buy{border:1px solid rgba(0,255,157,.4);background:rgba(0,255,157,.1);color:var(--g)}
+.qt-buy:hover{background:rgba(0,255,157,.2);box-shadow:0 0 12px rgba(0,255,157,.2)}
+.qt-sell{border:1px solid rgba(255,45,85,.4);background:rgba(255,45,85,.1);color:var(--r)}
+.qt-sell:hover{background:rgba(255,45,85,.2);box-shadow:0 0 12px rgba(255,45,85,.2)}
+.qt-buy:disabled,.qt-sell:disabled{opacity:.4;cursor:not-allowed}
+
+/* Positions */
+.pos-item{background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.04);border-radius:3px;padding:5px 7px;margin:0 6px 3px}
+.pos-row{display:flex;justify-content:space-between;font-size:8px;margin-bottom:1px}
+.pos-close{font-size:6px;padding:2px 5px;background:rgba(255,45,85,.08);border:1px solid rgba(255,45,85,.2);color:var(--r1);cursor:pointer;border-radius:2px;margin-top:3px}
+
+/* Toasts */
+#toasts{position:fixed;top:80px;right:10px;z-index:99990;display:flex;flex-direction:column;gap:4px;pointer-events:none}
+.toast{font-size:9px;padding:8px 13px;line-height:1.5;pointer-events:auto;max-width:300px;backdrop-filter:blur(12px);border-radius:4px;animation:tIn .2s ease,tOut .25s ease 4.5s forwards}
+.toast.success{background:rgba(1,8,3,.96);border:1px solid rgba(0,255,157,.3);color:var(--g1)}
+.toast.error{background:rgba(10,1,2,.96);border:1px solid rgba(255,45,85,.3);color:var(--r1)}
+.toast.info{background:rgba(1,4,14,.96);border:1px solid rgba(0,229,255,.22);color:var(--c1)}
+.toast.warn{background:rgba(12,8,0,.96);border:1px solid rgba(255,107,0,.35);color:var(--or)}
+@keyframes tIn{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:none}}
+@keyframes tOut{to{opacity:0;transform:translateX(14px)}}
+
+/* Keyboard hints */
+#kbhints{position:fixed;bottom:4px;left:8px;font-size:6px;color:var(--t4);z-index:200;pointer-events:none;letter-spacing:.5px}
+
+::-webkit-scrollbar{width:3px;height:3px}
+::-webkit-scrollbar-track{background:var(--bg1)}
+::-webkit-scrollbar-thumb{background:var(--c4);border-radius:2px}
 </style>
 </head>
 <body>
 
-<div id="banner" class="sim">
-  <span class="dot red"></span>
-  <span id="bannerText">Connecting to live data...</span>
+<!-- Data Banner -->
+<div id="banner" style="background:rgba(15,10,5,.97);border-bottom:1px solid #664400;color:#cc8800">
+  <span class="bn-dot off"></span>
+  <span id="bannerTxt">Connecting to live data...</span>
 </div>
 
 <div id="toasts"></div>
+<div id="kbhints">TAB: cycle pairs · ←→: scroll · +−: zoom · ESC: close</div>
 
+<!-- Header -->
 <div id="hdr">
-  <div class="logo-zone">
-    <span class="logo-txt">APEX ULTRA</span>
-  </div>
-  <div class="hdr-prices" id="hdrPrices"></div>
-  <div class="hdr-right">
-    <span class="live-price" id="livePrice">--</span>
-    <button class="rh-btn" id="rhBtn" onclick="showRHModal()">⚡ ROBINHOOD</button>
+  <div class="logo"><div><div class="logo-txt">APEX ULTRA</div><div class="logo-ver">LIVE DATA · API KEY AUTH</div></div></div>
+  <div class="pair-tabs" id="pairTabs"></div>
+  <div class="hdr-r">
+    <span class="main-price" id="mainPrice">--</span>
+    <button class="api-btn disconnected" id="apiBtn" onclick="toggleApiPanel()">🔑 CONNECT API</button>
   </div>
 </div>
 
+<!-- Main -->
 <div id="main">
-  <div id="chartArea">
-    <div id="cwrap"><canvas id="mainChart"></canvas></div>
-    <div id="chartFoot">
-      <span><span class="lbl">PAIR</span> <span id="cfPair">--</span></span>
-      <span><span class="lbl">O</span> <span id="cfO">--</span></span>
-      <span><span class="lbl">H</span> <span id="cfH">--</span></span>
-      <span><span class="lbl">L</span> <span id="cfL">--</span></span>
-      <span><span class="lbl">C</span> <span id="cfC">--</span></span>
-      <span><span class="lbl">VOL</span> <span id="cfVol">--</span></span>
-      <span style="margin-left:auto"><span class="lbl">SRC</span> <span id="cfSrc" style="color:var(--c2)">--</span></span>
-      <span><span class="lbl">LIVE</span> <span id="cfLive" style="color:var(--g2)">0</span> pairs</span>
+  <div id="chartCol">
+    <div id="cwrap"><canvas id="chartCv"></canvas></div>
+    <div id="cfoot">
+      <span><span class="cf-l">PAIR</span><span id="fPair">--</span></span>
+      <span><span class="cf-l">O</span><span id="fO">--</span></span>
+      <span><span class="cf-l">H</span><span id="fH">--</span></span>
+      <span><span class="cf-l">L</span><span id="fL">--</span></span>
+      <span><span class="cf-l">C</span><span id="fC">--</span></span>
+      <span><span class="cf-l">VOL</span><span id="fVol">--</span></span>
+      <span style="margin-left:auto"><span class="cf-l">SOURCE</span><span id="fSrc">--</span></span>
+      <span><span class="cf-l">LIVE</span><span id="fLive" style="color:var(--g2)">0</span></span>
     </div>
   </div>
 
   <div id="sidebar">
-    <div class="side-section">
-      <div class="side-title">ROBINHOOD ACCOUNT</div>
-      <div id="rhAcctPanel">
-        <div style="font-size:8px;color:var(--t3);text-align:center;padding:8px">Not connected<br><span style="font-size:7px;color:var(--t4)">Click ⚡ ROBINHOOD above</span></div>
+    <!-- API Connection Hub -->
+    <div class="s-sec" id="apiSection">
+      <div class="s-hdr">API CONNECTION <span class="r y" id="apiHdrStatus">NOT CONNECTED</span></div>
+      <div class="api-hub">
+        <div class="api-status-bar">
+          <div class="api-dot off" id="apiDot"></div>
+          <div class="api-st-text" id="apiStatusText">No exchange connected</div>
+          <div class="api-badge off" id="apiBadge">OFFLINE</div>
+        </div>
+        <div class="api-body" id="apiBody">
+          <div class="api-label">EXCHANGE</div>
+          <select class="api-select" id="exchangeSelect">
+            <option value="coinbase">Coinbase Advanced Trade</option>
+            <option value="binance">Binance</option>
+          </select>
+          <div class="api-label">API KEY</div>
+          <input class="api-inp" id="apiKeyInput" type="text" placeholder="Paste your API key" autocomplete="off">
+          <div class="api-label">API SECRET</div>
+          <input class="api-inp" id="apiSecretInput" type="password" placeholder="Paste your API secret" autocomplete="off">
+          <div class="api-msg info" id="apiMsg">Keys are used ONLY via your local proxy (localhost:3001)</div>
+          <button class="api-connect-btn" id="apiConnectBtn" onclick="connectExchange()">🔑 CONNECT</button>
+        </div>
+        <!-- Account info (shown when connected) -->
+        <div id="acctInfo" style="display:none"></div>
       </div>
     </div>
-    <div class="side-section">
-      <div class="side-title">POSITIONS</div>
-      <div id="rhPositions">
-        <div style="font-size:7px;color:var(--t3);text-align:center;padding:8px">No positions</div>
-      </div>
+
+    <!-- Quick Trade -->
+    <div class="s-sec">
+      <div class="s-hdr">QUICK TRADE <span class="r" id="qtSrcLabel">SIM</span></div>
+      <div class="qt" id="qtPanel"></div>
     </div>
-    <div class="side-section" style="flex:1;min-height:0;display:flex;flex-direction:column">
-      <div class="side-title">ALL PRICES <span id="liveCount" style="color:var(--g2)">0 live</span></div>
-      <div class="side-scroll" id="priceList"></div>
+
+    <!-- Positions -->
+    <div class="s-sec">
+      <div class="s-hdr">POSITIONS <span class="r" id="posCount">0</span></div>
+      <div id="posPanel" style="max-height:120px;overflow-y:auto"></div>
     </div>
-  </div>
-</div>
 
-<!-- Robinhood Modal -->
-<div id="rhModal">
-  <div class="modal-box">
-    <div class="modal-hdr">
-      <span class="modal-title">🍃 ROBINHOOD</span>
-      <button class="modal-close" onclick="hideRHModal()">✕</button>
-    </div>
-    <div class="modal-body">
-      <div class="modal-note">
-        <strong style="color:var(--c)">Requirements:</strong><br>
-        1. Run the proxy: <code style="color:#00ff88">node proxy.js</code> (localhost:3001)<br>
-        2. Enter your Robinhood email + password below<br>
-        3. If you have 2FA, you'll be prompted for the code<br><br>
-        <strong style="color:var(--y1)">Security:</strong> Credentials go ONLY to api.robinhood.com via your local proxy. Nothing is stored on any server.
-      </div>
-
-      <div class="modal-label">EMAIL / USERNAME</div>
-      <input id="rhUser" class="modal-input" type="text" placeholder="your@email.com" autocomplete="off">
-
-      <div class="modal-label">PASSWORD</div>
-      <input id="rhPass" class="modal-input" type="password" placeholder="your password" autocomplete="new-password">
-
-      <div id="mfaRow" style="display:none">
-        <div class="modal-label">2FA CODE</div>
-        <input id="rhMfa" class="modal-input" type="text" placeholder="6-digit code" maxlength="6">
-        <div style="font-size:7px;color:rgba(255,255,255,.2);margin-top:-8px;margin-bottom:12px">From your authenticator app or SMS</div>
-      </div>
-
-      <div class="modal-status" id="rhStatus"></div>
-
-      <button class="modal-connect" id="rhConnectBtn" onclick="connectRobinhood()">
-        🍃 CONNECT TO ROBINHOOD
-      </button>
-
-      <button class="modal-skip" onclick="hideRHModal()">
-        SKIP — USE FREE BINANCE + COINGECKO DATA
-      </button>
+    <!-- Watchlist -->
+    <div style="flex:1;display:flex;flex-direction:column;min-height:0">
+      <div class="s-hdr">WATCHLIST <span class="r g" id="wlLiveCount">0 live</span></div>
+      <div class="s-scroll" id="watchlist"></div>
     </div>
   </div>
 </div>
 
 <script>
 // ═══════════════════════════════════════════════════════════
-// APEX ULTRA — FIXED DATA ENGINE + ROBINHOOD
+// APEX ULTRA — LIVE DATA + API KEY TRADING
 // ═══════════════════════════════════════════════════════════
 
-// ─── CONFIG ─────────────────────────────────────────────────
-const PROXY = 'http://localhost:3001'; // Local RH proxy
-const RH_BASE = 'https://api.robinhood.com';
-const RH_CLIENT_ID = 'c82SH0WZOsabOXGP2sxqcj34FxkvfnWRZBKlBjFS';
-const BN_REST = ['https://api.binance.com','https://api1.binance.com','https://api2.binance.com'];
-const BN_WS_HOSTS = [
-  'wss://stream.binance.com:9443',
-  'wss://stream.binance.com:443',
-  'wss://data-stream.binance.com'
-];
+const PROXY = 'http://localhost:3001';
 
+// ─── PAIRS CONFIG ────────────────────────────────────────
 const PAIRS = {
-  BTCUSD:{base:104000,vol:.018,dec:0,cat:'crypto',name:'Bitcoin',bn:'BTCUSDT',cg:'bitcoin'},
-  ETHUSD:{base:2500,vol:.022,dec:1,cat:'crypto',name:'Ethereum',bn:'ETHUSDT',cg:'ethereum'},
-  SOLUSD:{base:170,vol:.028,dec:2,cat:'crypto',name:'Solana',bn:'SOLUSDT',cg:'solana'},
-  BNBUSD:{base:680,vol:.019,dec:2,cat:'crypto',name:'BNB',bn:'BNBUSDT',cg:'binancecoin'},
-  XRPUSD:{base:2.40,vol:.031,dec:4,cat:'crypto',name:'XRP',bn:'XRPUSDT',cg:'ripple'},
-  ADAUSD:{base:0.75,vol:.033,dec:4,cat:'crypto',name:'Cardano',bn:'ADAUSDT',cg:'cardano'},
-  AVAXUSD:{base:28,vol:.027,dec:3,cat:'crypto',name:'Avalanche',bn:'AVAXUSDT',cg:'avalanche-2'},
-  DOTUSD:{base:5.5,vol:.029,dec:3,cat:'crypto',name:'Polkadot',bn:'DOTUSDT',cg:'polkadot'},
-  LINKUSD:{base:16,vol:.026,dec:3,cat:'crypto',name:'Chainlink',bn:'LINKUSDT',cg:'chainlink'},
-  LTCUSD:{base:100,vol:.021,dec:2,cat:'crypto',name:'Litecoin',bn:'LTCUSDT',cg:'litecoin'},
-  DOGEUSD:{base:0.24,vol:.035,dec:5,cat:'crypto',name:'Dogecoin',bn:'DOGEUSDT',cg:'dogecoin'},
-  MATICUSD:{base:0.28,vol:.032,dec:4,cat:'crypto',name:'Polygon',bn:'MATICUSDT',cg:'matic-network'},
+  BTCUSD:{base:104500,vol:.018,dec:0,cat:'crypto',name:'Bitcoin',bn:'BTCUSDT',cg:'bitcoin',cb:'BTC-USD'},
+  ETHUSD:{base:2520,vol:.022,dec:1,cat:'crypto',name:'Ethereum',bn:'ETHUSDT',cg:'ethereum',cb:'ETH-USD'},
+  SOLUSD:{base:172,vol:.028,dec:2,cat:'crypto',name:'Solana',bn:'SOLUSDT',cg:'solana',cb:'SOL-USD'},
+  BNBUSD:{base:690,vol:.019,dec:2,cat:'crypto',name:'BNB',bn:'BNBUSDT',cg:'binancecoin',cb:'BNB-USD'},
+  XRPUSD:{base:2.45,vol:.031,dec:4,cat:'crypto',name:'XRP',bn:'XRPUSDT',cg:'ripple',cb:'XRP-USD'},
+  ADAUSD:{base:0.78,vol:.033,dec:4,cat:'crypto',name:'Cardano',bn:'ADAUSDT',cg:'cardano',cb:'ADA-USD'},
+  AVAXUSD:{base:29,vol:.027,dec:2,cat:'crypto',name:'Avalanche',bn:'AVAXUSDT',cg:'avalanche-2',cb:'AVAX-USD'},
+  DOTUSD:{base:5.6,vol:.029,dec:3,cat:'crypto',name:'Polkadot',bn:'DOTUSDT',cg:'polkadot',cb:'DOT-USD'},
+  LINKUSD:{base:16.5,vol:.026,dec:2,cat:'crypto',name:'Chainlink',bn:'LINKUSDT',cg:'chainlink',cb:'LINK-USD'},
+  DOGEUSD:{base:0.25,vol:.035,dec:5,cat:'crypto',name:'Dogecoin',bn:'DOGEUSDT',cg:'dogecoin',cb:'DOGE-USD'},
+  LTCUSD:{base:105,vol:.021,dec:2,cat:'crypto',name:'Litecoin',bn:'LTCUSDT',cg:'litecoin',cb:'LTC-USD'},
+  MATICUSD:{base:0.29,vol:.032,dec:4,cat:'crypto',name:'Polygon',bn:'MATICUSDT',cg:'matic-network',cb:'MATIC-USD'},
 };
 
 // Build reverse maps
-const BN_REV = {};
-const CG_REV = {};
-Object.entries(PAIRS).forEach(([k,v]) => {
-  if (v.bn) BN_REV[v.bn] = k;
-  if (v.cg) CG_REV[v.cg] = k;
-});
-const PAIR_KEYS = Object.keys(PAIRS);
+const BN_REV = {}, CG_REV = {};
+Object.entries(PAIRS).forEach(([k,v]) => { if(v.bn) BN_REV[v.bn]=k; if(v.cg) CG_REV[v.cg]=k; });
+const KEYS = Object.keys(PAIRS);
 
-// ─── STATE ──────────────────────────────────────────────────
+// ─── STATE ──────────────────────────────────────────────
 const ST = {
   pair: 'BTCUSD',
-  prices: {},       // Current prices per pair
-  candles: {},      // OHLCV bars per pair
-  dataMode: {},     // 'binance' | 'coingecko' | 'sim'
-  sessionOpen: {},  // Day open price
-  rh: {
+  prices: {},
+  candles: {},
+  dataMode: {},
+  sessionOpen: {},
+  chart: { offset:0, barW:8 },
+  exchange: {
+    name: null,       // 'coinbase' | 'binance'
+    apiKey: '',
+    apiSecret: '',
     connected: false,
-    token: null,
     account: null,
-    portfolio: null,
-    positions: [],
-    holdings: [],
+    balances: [],
     orders: []
-  },
-  chart: { offset: 0, barW: 8, crosshair: {x:-1, y:-1} }
+  }
 };
 
-const DATA = {
-  binanceWS: false,
-  coingecko: false,
-  liveCount: 0,
-  wsLatency: 0,
-  lastWSMsg: 0
-};
+const DATA = { binanceWS:false, coingecko:false, liveCount:0 };
 
-// ─── UTILITIES ──────────────────────────────────────────────
+// ─── HELPERS ────────────────────────────────────────────
 const $ = id => document.getElementById(id);
-const sf = (v, d=2) => (isFinite(v) && !isNaN(v)) ? v.toFixed(d) : '--';
-const fmtPrice = (v, pair) => {
-  if (!isFinite(v)) return '--';
-  const p = PAIRS[pair || ST.pair];
-  return v.toFixed(p ? p.dec : 2);
-};
-const fmtNum = (v, d=2) => {
-  if (!isFinite(v)) return '--';
-  const a = Math.abs(v);
-  if (a >= 1e9) return (v/1e9).toFixed(1)+'B';
-  if (a >= 1e6) return (v/1e6).toFixed(1)+'M';
-  if (a >= 1e3) return (v/1e3).toFixed(1)+'K';
-  return v.toFixed(d);
-};
-const getDisplaySym = sym => {
-  const cfg = PAIRS[sym];
-  if (!cfg) return sym;
-  if (sym.endsWith('USD') && cfg.cat === 'crypto') return sym.slice(0,-3);
-  return sym;
-};
+const sf = (v,d=2) => (isFinite(v)&&!isNaN(v)) ? v.toFixed(d) : '--';
+const fP = (v,pair) => { if(!isFinite(v))return'--'; return v.toFixed(PAIRS[pair||ST.pair]?.dec??2); };
+const fN = (v,d=2) => { if(!isFinite(v))return'--'; const a=Math.abs(v); if(a>=1e9)return(v/1e9).toFixed(1)+'B'; if(a>=1e6)return(v/1e6).toFixed(1)+'M'; if(a>=1e3)return(v/1e3).toFixed(1)+'K'; return v.toFixed(d); };
+const dSym = sym => { const c=PAIRS[sym]; return c&&sym.endsWith('USD')&&c.cat==='crypto'?sym.slice(0,-3):sym; };
 
-function toast(msg, type='info', dur=3500) {
-  const tc = $('toasts'); if (!tc) return;
-  const d = document.createElement('div');
-  d.className = 'toast ' + type;
-  d.textContent = msg;
+function toast(msg, type='info', dur=4000) {
+  const tc=$('toasts'); if(!tc) return;
+  const d=document.createElement('div');
+  d.className='toast '+type; d.textContent=msg;
   tc.appendChild(d);
-  setTimeout(() => { d.style.opacity = '0'; d.style.transition = 'opacity .3s'; setTimeout(() => d.remove(), 300); }, dur);
+  setTimeout(()=>{d.remove();}, dur+500);
+}
+
+// ─── LOCAL STORAGE ──────────────────────────────────────
+function saveKeys() {
+  try {
+    if (ST.exchange.apiKey) {
+      localStorage.setItem('apex_exchange', ST.exchange.name);
+      localStorage.setItem('apex_apikey', ST.exchange.apiKey);
+      localStorage.setItem('apex_apisecret', ST.exchange.apiSecret);
+    }
+  } catch(e){}
+}
+
+function loadKeys() {
+  try {
+    const ex = localStorage.getItem('apex_exchange');
+    const key = localStorage.getItem('apex_apikey');
+    const sec = localStorage.getItem('apex_apisecret');
+    if (ex && key && sec) {
+      ST.exchange.name = ex;
+      ST.exchange.apiKey = key;
+      ST.exchange.apiSecret = sec;
+      $('exchangeSelect').value = ex;
+      $('apiKeyInput').value = key;
+      $('apiSecretInput').value = '••••••••••••';
+      return true;
+    }
+  } catch(e){}
+  return false;
 }
 
 // ═══════════════════════════════════════════════════════════
-// BINANCE DATA — PRIMARY LIVE SOURCE
+// 1. BINANCE WEBSOCKET — FREE, NO AUTH, REAL-TIME
 // ═══════════════════════════════════════════════════════════
 
 let _bnWS = null, _bnRetries = 0;
 
-// Load 500 historical klines from Binance REST
-async function loadBinanceKlines(pair) {
-  const cfg = PAIRS[pair];
-  if (!cfg || !cfg.bn) return null;
-  
-  for (const host of BN_REST) {
+function connectBinanceWS() {
+  if (_bnWS || _bnRetries >= 5) return;
+
+  const syms = KEYS.filter(k=>PAIRS[k].bn).map(k=>PAIRS[k].bn.toLowerCase());
+  const streams = syms.map(s => s+'@aggTrade').join('/');
+  const hosts = ['wss://stream.binance.com:9443','wss://stream.binance.com:443','wss://data-stream.binance.com'];
+  let hi = 0;
+
+  function tryHost() {
+    if (hi >= hosts.length) { _bnRetries++; hi=0; setTimeout(connectBinanceWS, 3000*_bnRetries); return; }
+    let ws;
+    try { ws = new WebSocket(hosts[hi]+'/stream?streams='+streams); } catch(e) { hi++; tryHost(); return; }
+    const timer = setTimeout(()=>{try{ws.close();}catch(_){}}, 8000);
+
+    ws.onopen = () => {
+      clearTimeout(timer); _bnWS=ws; _bnRetries=0; DATA.binanceWS=true;
+      console.log('✓ Binance WebSocket connected');
+      toast('Binance WebSocket live — real-time prices','success',3000);
+      updateBanner();
+      // Keepalive
+      const ka=setInterval(()=>{if(!_bnWS||_bnWS.readyState!==1){clearInterval(ka);return;}try{_bnWS.send('{"method":"LIST_SUBSCRIPTIONS","id":1}');}catch(_){}},25000);
+    };
+
+    ws.onmessage = ev => {
+      try {
+        const d = JSON.parse(ev.data).data;
+        if (!d||d.e!=='aggTrade') return;
+        const pair = BN_REV[d.s]; if(!pair) return;
+        const p = parseFloat(d.p); if(!p||p<=0) return;
+        ST.prices[pair] = p;
+        ST.dataMode[pair] = 'binance';
+        PAIRS[pair].base = p;
+        const cs = ST.candles[pair];
+        if (cs&&cs.length) { const lc=cs[cs.length-1]; lc.c=p; lc.h=Math.max(lc.h,p); lc.l=Math.min(lc.l,p); }
+      } catch(_){}
+    };
+
+    ws.onclose = () => { clearTimeout(timer); _bnWS=null; DATA.binanceWS=false; updateBanner(); setTimeout(()=>connectBinanceWS(), 4000); };
+    ws.onerror = () => { clearTimeout(timer); try{ws.close();}catch(_){} hi++; setTimeout(tryHost,300); };
+  }
+  tryHost();
+}
+
+// ═══════════════════════════════════════════════════════════
+// 2. BINANCE REST — FREE KLINES (HISTORY)
+// ═══════════════════════════════════════════════════════════
+
+const BN_HOSTS = ['https://api.binance.com','https://api1.binance.com'];
+
+async function loadKlines(pair) {
+  const cfg = PAIRS[pair]; if(!cfg||!cfg.bn) return null;
+  for (const host of BN_HOSTS) {
     try {
-      const url = `${host}/api/v3/klines?symbol=${cfg.bn}&interval=15m&limit=500`;
-      const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      const r = await fetch(`${host}/api/v3/klines?symbol=${cfg.bn}&interval=15m&limit=500`,{signal:AbortSignal.timeout(8000)});
       if (!r.ok) continue;
       const data = await r.json();
-      if (!Array.isArray(data) || data.length < 10) continue;
-      
-      const bars = data.map(k => ({
-        t: +k[0], o: +k[1], h: +k[2], l: +k[3], c: +k[4], v: +k[5]
-      })).filter(b => b.o > 0 && b.h >= b.l && b.c > 0);
-      
-      if (bars.length < 10) continue;
-      
-      ST.candles[pair] = bars;
-      ST.prices[pair] = bars[bars.length-1].c;
-      ST.sessionOpen[pair] = bars[0].o;
-      ST.dataMode[pair] = 'binance';
-      PAIRS[pair].base = ST.prices[pair];
-      
-      console.log(`✓ Binance klines: ${pair} = $${ST.prices[pair]}`);
+      if (!Array.isArray(data)||data.length<10) continue;
+      const bars = data.map(k=>({t:+k[0],o:+k[1],h:+k[2],l:+k[3],c:+k[4],v:+k[5]})).filter(b=>b.o>0&&b.h>=b.l);
+      if (bars.length<10) continue;
+      ST.candles[pair]=bars; ST.prices[pair]=bars[bars.length-1].c;
+      ST.sessionOpen[pair]=bars[0].o; ST.dataMode[pair]='binance'; PAIRS[pair].base=ST.prices[pair];
       return bars;
-    } catch(e) { continue; }
+    } catch(e){ continue; }
   }
   return null;
 }
 
-// Load klines for ALL crypto pairs
-async function loadAllBinanceKlines() {
-  const cryptoPairs = PAIR_KEYS.filter(k => PAIRS[k].bn);
-  let loaded = 0;
-  
-  for (const pair of cryptoPairs) {
-    const bars = await loadBinanceKlines(pair);
-    if (bars) loaded++;
-    // Small delay to avoid rate limits
-    await new Promise(r => setTimeout(r, 100));
+async function loadAllKlines() {
+  let loaded=0;
+  for (const pair of KEYS) {
+    if (PAIRS[pair].bn) { const b=await loadKlines(pair); if(b) loaded++; await new Promise(r=>setTimeout(r,80)); }
   }
-  
-  console.log(`Binance REST: ${loaded}/${cryptoPairs.length} loaded`);
+  console.log(`Binance REST: ${loaded}/${KEYS.filter(k=>PAIRS[k].bn).length} loaded`);
   updateBanner();
-  return loaded;
-}
-
-// Binance WebSocket for real-time prices
-function connectBinanceWS() {
-  if (_bnWS) return;
-  if (_bnRetries >= 4) {
-    console.log('Binance WS: max retries, using polling');
-    return;
-  }
-  
-  const syms = PAIR_KEYS.filter(k => PAIRS[k].bn).map(k => PAIRS[k].bn.toLowerCase());
-  const streams = syms.map(s => `${s}@aggTrade`).join('/');
-  
-  let hostIdx = 0;
-  
-  function tryNext() {
-    if (hostIdx >= BN_WS_HOSTS.length) {
-      _bnRetries++;
-      hostIdx = 0;
-      setTimeout(connectBinanceWS, 3000 * _bnRetries);
-      return;
-    }
-    
-    const wsUrl = `${BN_WS_HOSTS[hostIdx]}/stream?streams=${streams}`;
-    let ws;
-    try { ws = new WebSocket(wsUrl); } catch(e) { hostIdx++; tryNext(); return; }
-    
-    const timeout = setTimeout(() => { try { ws.close(); } catch(_){} }, 8000);
-    
-    ws.onopen = () => {
-      clearTimeout(timeout);
-      _bnWS = ws;
-      _bnRetries = 0;
-      DATA.binanceWS = true;
-      console.log('✓ Binance WebSocket connected');
-      toast('Binance WebSocket live!', 'success', 3000);
-      updateBanner();
-      
-      // Keepalive
-      const ping = setInterval(() => {
-        if (!_bnWS || _bnWS.readyState !== 1) { clearInterval(ping); return; }
-        try { _bnWS.send(JSON.stringify({method:'LIST_SUBSCRIPTIONS',id:1})); } catch(_){}
-      }, 25000);
-    };
-    
-    ws.onmessage = ev => {
-      try {
-        const msg = JSON.parse(ev.data);
-        const d = msg.data;
-        if (!d || d.e !== 'aggTrade') return;
-        
-        const pair = BN_REV[d.s];
-        if (!pair) return;
-        
-        const price = parseFloat(d.p);
-        if (!price || price <= 0) return;
-        
-        DATA.lastWSMsg = Date.now();
-        
-        // Update price
-        ST.prices[pair] = price;
-        ST.dataMode[pair] = 'binance';
-        PAIRS[pair].base = price;
-        
-        // Update last candle
-        const cs = ST.candles[pair];
-        if (cs && cs.length) {
-          const lc = cs[cs.length-1];
-          lc.c = price;
-          lc.h = Math.max(lc.h, price);
-          lc.l = Math.min(lc.l, price);
-        }
-      } catch(_) {}
-    };
-    
-    ws.onclose = () => {
-      clearTimeout(timeout);
-      _bnWS = null;
-      DATA.binanceWS = false;
-      updateBanner();
-      // Reconnect
-      setTimeout(() => { connectBinanceWS(); }, 3000);
-    };
-    
-    ws.onerror = () => {
-      clearTimeout(timeout);
-      try { ws.close(); } catch(_){}
-      hostIdx++;
-      setTimeout(tryNext, 300);
-    };
-  }
-  
-  tryNext();
 }
 
 // ═══════════════════════════════════════════════════════════
-// COINGECKO — FALLBACK POLLING (every 15s)
+// 3. COINGECKO — FREE FALLBACK (15s poll)
 // ═══════════════════════════════════════════════════════════
 
-async function fetchCoinGeckoPrices() {
-  if (DATA.binanceWS) return; // WS handles it
-  
-  const ids = PAIR_KEYS.filter(k => PAIRS[k].cg).map(k => PAIRS[k].cg).join(',');
-  
+async function fetchCoinGecko() {
+  const ids = KEYS.filter(k=>PAIRS[k].cg).map(k=>PAIRS[k].cg).join(',');
   try {
-    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true`;
-    const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
-    if (!r.ok) return false;
+    const r = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`,{signal:AbortSignal.timeout(10000)});
+    if (!r.ok) return;
     const data = await r.json();
-    
-    let updated = 0;
-    Object.entries(data).forEach(([cgId, info]) => {
-      const pair = CG_REV[cgId];
-      if (!pair || !info.usd || info.usd <= 0) return;
-      
-      // Don't overwrite Binance WS prices
-      if (ST.dataMode[pair] === 'binance' && DATA.binanceWS) return;
-      
-      ST.prices[pair] = info.usd;
-      ST.dataMode[pair] = 'coingecko';
-      PAIRS[pair].base = info.usd;
-      
-      // Update last candle
-      const cs = ST.candles[pair];
-      if (cs && cs.length) {
-        const lc = cs[cs.length-1];
-        lc.c = info.usd;
-        lc.h = Math.max(lc.h, info.usd);
-        lc.l = Math.min(lc.l, info.usd);
-      }
-      
-      updated++;
+    let n=0;
+    Object.entries(data).forEach(([cgId,info])=>{
+      const pair=CG_REV[cgId]; if(!pair||!info.usd) return;
+      if(ST.dataMode[pair]==='binance'&&DATA.binanceWS) return; // don't overwrite live WS
+      ST.prices[pair]=info.usd; ST.dataMode[pair]='coingecko'; PAIRS[pair].base=info.usd;
+      const cs=ST.candles[pair]; if(cs&&cs.length){const lc=cs[cs.length-1];lc.c=info.usd;lc.h=Math.max(lc.h,info.usd);lc.l=Math.min(lc.l,info.usd);}
+      n++;
     });
-    
-    if (updated > 0) {
-      DATA.coingecko = true;
-      console.log(`CoinGecko: ${updated} prices updated`);
-      updateBanner();
-    }
-    return updated > 0;
-  } catch(e) {
-    console.log('CoinGecko fetch failed:', e.message);
-    return false;
-  }
+    if(n>0){DATA.coingecko=true; updateBanner();}
+  } catch(e){}
 }
 
 // ═══════════════════════════════════════════════════════════
-// SIMULATION — fills gaps when no live data
+// 4. SIM FALLBACK (fills gaps)
 // ═══════════════════════════════════════════════════════════
 
-function generateSimCandles(pair, n = 300) {
-  const cfg = PAIRS[pair];
-  if (!cfg) return [];
-  
-  let price = cfg.base;
-  const candles = [];
-  const now = Date.now();
-  const ms = 15 * 60000; // 15min bars
-  
-  for (let i = n; i >= 0; i--) {
-    const cv = cfg.vol / Math.sqrt(96); // daily vol / sqrt(bars per day)
-    const body = (Math.random() - 0.48) * cv;
-    const o = price;
-    const c = Math.max(o * (1 + body), cfg.base * 0.01);
-    const wf = 0.15 + Math.random() * 0.35;
-    const h = Math.max(o, c) * (1 + Math.abs(Math.random() * cv * wf));
-    const l = Math.min(o, c) * (1 - Math.abs(Math.random() * cv * wf));
-    
-    candles.push({
-      t: now - i * ms, o, h, l, c,
-      v: Math.floor(30000 + Math.random() * 70000)
-    });
-    price = c;
+function genSim(pair, n=300) {
+  const cfg=PAIRS[pair]; if(!cfg) return [];
+  let p=cfg.base; const cs=[],now=Date.now(),ms=15*60000;
+  for(let i=n;i>=0;i--){
+    const cv=cfg.vol/Math.sqrt(96),body=(Math.random()-.48)*cv;
+    const o=p,c=Math.max(o*(1+body),cfg.base*.01);
+    const wf=.15+Math.random()*.35;
+    cs.push({t:now-i*ms,o,h:Math.max(o,c)*(1+Math.random()*cv*wf),l:Math.min(o,c)*(1-Math.random()*cv*wf),c,v:Math.floor(3e4+Math.random()*7e4)});
+    p=c;
   }
-  
-  ST.prices[pair] = price;
-  ST.dataMode[pair] = 'sim';
-  ST.sessionOpen[pair] = candles[0].o;
-  return candles;
+  ST.prices[pair]=p; ST.dataMode[pair]='sim'; ST.sessionOpen[pair]=cs[0].o;
+  return cs;
 }
 
-// Tick simulation for pairs without live data
 function tickSim(pair) {
-  if (ST.dataMode[pair] !== 'sim') return;
-  
-  const cs = ST.candles[pair];
-  if (!cs || cs.length < 2) return;
-  
-  const cfg = PAIRS[pair];
-  const last = cs[cs.length - 1];
-  const cv = cfg.vol / Math.sqrt(96);
-  const noise = cv / Math.sqrt(60 * 7.5);
-  
-  last.c = Math.max(last.c * (1 + (Math.random() - 0.5) * 2 * noise), cfg.base * 0.001);
-  last.h = Math.max(last.h, last.c);
-  last.l = Math.min(last.l, last.c);
-  ST.prices[pair] = last.c;
+  if(ST.dataMode[pair]!=='sim') return;
+  const cs=ST.candles[pair]; if(!cs||cs.length<2) return;
+  const cfg=PAIRS[pair],lc=cs[cs.length-1];
+  const noise=cfg.vol/Math.sqrt(96)/Math.sqrt(450);
+  lc.c=Math.max(lc.c*(1+(Math.random()-.5)*2*noise),cfg.base*.001);
+  lc.h=Math.max(lc.h,lc.c); lc.l=Math.min(lc.l,lc.c);
+  ST.prices[pair]=lc.c;
 }
 
 // ═══════════════════════════════════════════════════════════
-// ROBINHOOD API — Through local proxy
+// 5. EXCHANGE API — KEY + SECRET AUTH VIA PROXY
 // ═══════════════════════════════════════════════════════════
 
-// Proxy-wrapped fetch for Robinhood
-async function rhFetch(path, method = 'GET', body = null) {
-  const targetUrl = RH_BASE + path;
-  const proxyUrl = `${PROXY}?url=${encodeURIComponent(targetUrl)}`;
-  
+async function checkProxy() {
+  try { const r=await fetch(PROXY+'/health',{signal:AbortSignal.timeout(2000)}); return true; }
+  catch(e) { try { const r=await fetch(PROXY+'/?test=1',{signal:AbortSignal.timeout(2000)}); return true; } catch(_){} }
+  return false;
+}
+
+async function exchangeFetch(path, method='GET', body=null) {
   const opts = {
     method,
-    headers: { 'Content-Type': 'application/json' },
-    signal: AbortSignal.timeout(15000)
+    headers: {
+      'Content-Type':'application/json',
+      'X-Exchange': ST.exchange.name,
+      'X-API-Key': ST.exchange.apiKey,
+      'X-API-Secret': ST.exchange.apiSecret
+    },
+    signal: AbortSignal.timeout(12000)
   };
-  
-  if (ST.rh.token) {
-    opts.headers['Authorization'] = 'Bearer ' + ST.rh.token;
-  }
-  
   if (body) opts.body = JSON.stringify(body);
-  
-  const r = await fetch(proxyUrl, opts);
-  if (!r.ok) {
-    const err = await r.json().catch(() => null);
-    throw new Error((err && err.detail) || `HTTP ${r.status}`);
-  }
+  const r = await fetch(PROXY + path, opts);
+  if (!r.ok) { const e=await r.json().catch(()=>null); throw new Error(e?.error||e?.message||'HTTP '+r.status); }
   return r.json();
 }
 
-// Check if proxy is running
-async function checkProxy() {
-  try {
-    const r = await fetch(`${PROXY}?url=${encodeURIComponent('https://api.robinhood.com/')}`, {
-      signal: AbortSignal.timeout(3000)
-    });
-    return r.ok || r.status === 400; // proxy responds even if RH returns error
-  } catch(e) {
-    return false;
-  }
-}
+async function connectExchange() {
+  const exchange = $('exchangeSelect').value;
+  const key = $('apiKeyInput').value.trim();
+  const secret = $('apiSecretInput').value.trim();
+  const msg = $('apiMsg');
+  const btn = $('apiConnectBtn');
 
-// Login to Robinhood
-async function loginRobinhood(username, password, mfaCode) {
-  let deviceToken;
-  try { deviceToken = crypto.randomUUID().replace(/-/g, ''); }
-  catch(_) { deviceToken = Math.random().toString(36).substr(2, 32); }
-  
-  const body = {
-    client_id: RH_CLIENT_ID,
-    expires_in: 86400,
-    grant_type: 'password',
-    password: password,
-    scope: 'internal',
-    username: username,
-    device_token: deviceToken,
-    challenge_type: 'sms'
-  };
-  
-  if (mfaCode) body.mfa_code = mfaCode;
-  
-  const data = await rhFetch('/oauth2/token/', 'POST', body);
-  
-  if (data.mfa_required) return { mfaRequired: true };
-  if (data.access_token) {
-    ST.rh.token = data.access_token;
-    return { ok: true };
-  }
-  
-  throw new Error(data.detail || data.error_description || 'Login failed');
-}
-
-// Sync account data
-async function syncRobinhoodAccount() {
-  if (!ST.rh.token) return;
-  
-  try {
-    // Account info
-    const acct = await rhFetch('/accounts/?default_to_all_accounts=true').catch(() => null);
-    if (acct && acct.results && acct.results[0]) {
-      ST.rh.account = acct.results[0];
-    }
-    
-    // Portfolio
-    const port = await rhFetch('/portfolios/').catch(() => null);
-    if (port && port.results && port.results[0]) {
-      ST.rh.portfolio = port.results[0];
-    }
-    
-    // Crypto holdings
-    const holdings = await rhFetch('/holdings/crypto/').catch(() => null);
-    if (holdings && holdings.results) {
-      ST.rh.holdings = holdings.results.filter(h => parseFloat(h.quantity) > 0);
-    }
-    
-    // Recent orders
-    const orders = await rhFetch('/orders/crypto/?page_size=10').catch(() => null);
-    if (orders && orders.results) {
-      ST.rh.orders = orders.results;
-    }
-    
-    ST.rh.connected = true;
-    updateRHPanel();
-    updateBanner();
-    
-    console.log('✓ Robinhood synced');
-  } catch(e) {
-    console.log('RH sync error:', e.message);
-  }
-}
-
-// Place crypto order
-async function placeRHOrder(pair, side, dollarAmount) {
-  if (!ST.rh.token) { toast('Connect Robinhood first', 'warn'); return; }
-  
-  // Map pair to RH crypto symbol
-  const rhSymMap = {
-    BTCUSD:'BTC-USD', ETHUSD:'ETH-USD', SOLUSD:'SOL-USD', BNBUSD:'BNB-USD',
-    XRPUSD:'XRP-USD', ADAUSD:'ADA-USD', AVAXUSD:'AVAX-USD', DOTUSD:'DOT-USD',
-    LINKUSD:'LINK-USD', LTCUSD:'LTC-USD', DOGEUSD:'DOGE-USD', MATICUSD:'MATIC-USD'
-  };
-  
-  const rhSym = rhSymMap[pair];
-  if (!rhSym) { toast(getDisplaySym(pair) + ' not available on RH Crypto', 'warn'); return; }
-  
-  try {
-    const data = await rhFetch('/orders/crypto/', 'POST', {
-      account_id: ST.rh.account ? ST.rh.account.id : '',
-      currency_pair_id: rhSym.replace('-', ''),
-      side: side,
-      type: 'market',
-      time_in_force: 'gtc',
-      dollar_amount: dollarAmount.toFixed(2)
-    });
-    
-    if (data && data.id) {
-      toast(`${side === 'buy' ? '▲ BUY' : '▼ SELL'} ${getDisplaySym(pair)} $${dollarAmount.toFixed(2)} — Order placed!`, 'success', 4000);
-      setTimeout(syncRobinhoodAccount, 2000);
-    }
-  } catch(e) {
-    toast('Order failed: ' + e.message, 'error', 5000);
-  }
-}
-
-// ─── RH MODAL HANDLERS ─────────────────────────────────────
-function showRHModal() {
-  $('rhModal').classList.add('show');
-}
-
-function hideRHModal() {
-  $('rhModal').classList.remove('show');
-}
-
-async function connectRobinhood() {
-  const user = $('rhUser').value.trim();
-  const pass = $('rhPass').value.trim();
-  const mfa = $('rhMfa').value.trim();
-  const status = $('rhStatus');
-  const btn = $('rhConnectBtn');
-  
-  if (!user || !pass) {
-    status.style.color = '#ff6b00';
-    status.textContent = 'Enter email and password';
+  if (!key || !secret || secret === '••••••••••••') {
+    msg.className='api-msg err'; msg.textContent='Enter both API Key and Secret';
     return;
   }
-  
+
   btn.disabled = true;
-  status.style.color = '#e0b800';
-  status.textContent = 'Checking proxy...';
-  
-  // Check proxy first
+  msg.className='api-msg info'; msg.textContent='Checking proxy server...';
+
   const proxyOk = await checkProxy();
   if (!proxyOk) {
-    status.style.color = '#ff2d55';
-    status.innerHTML = '✗ Proxy not running!<br><span style="font-size:7px">Run: node proxy.js</span>';
-    btn.disabled = false;
-    return;
+    msg.className='api-msg err'; msg.innerHTML='Proxy not running! Run: node proxy.js';
+    btn.disabled=false; return;
   }
-  
-  status.textContent = 'Connecting to Robinhood...';
-  
+
+  msg.textContent = 'Connecting to ' + exchange + '...';
+  ST.exchange.name = exchange;
+  ST.exchange.apiKey = key;
+  ST.exchange.apiSecret = secret;
+
   try {
-    const res = await loginRobinhood(user, pass, mfa || null);
-    
-    if (res.mfaRequired) {
-      $('mfaRow').style.display = 'block';
-      status.style.color = '#e0b800';
-      status.textContent = 'Enter your 2FA code and click Connect again';
-      btn.disabled = false;
-      return;
+    if (exchange === 'coinbase') {
+      const acct = await exchangeFetch('/api/v3/brokerage/accounts');
+      ST.exchange.account = acct;
+      ST.exchange.balances = (acct.accounts||[]).filter(a => parseFloat(a.available_balance?.value||0) > 0);
+      ST.exchange.connected = true;
+    } else if (exchange === 'binance') {
+      const acct = await exchangeFetch('/api/v3/account');
+      ST.exchange.account = acct;
+      ST.exchange.balances = (acct.balances||[]).filter(b => parseFloat(b.free||0) > 0 || parseFloat(b.locked||0) > 0);
+      ST.exchange.connected = true;
     }
-    
-    if (res.ok) {
-      status.style.color = '#00ff9d';
-      status.textContent = '✓ Connected! Loading account...';
-      
-      await syncRobinhoodAccount();
-      
-      toast('🍃 Robinhood connected!', 'success', 4000);
-      
-      // Update UI
-      const rhBtn = $('rhBtn');
-      if (rhBtn) { rhBtn.textContent = '✓ CONNECTED'; rhBtn.classList.add('connected'); }
-      
-      hideRHModal();
-      
-      // Start polling account every 30s
-      setInterval(syncRobinhoodAccount, 30000);
-    }
+
+    msg.className='api-msg ok'; msg.textContent='✓ Connected to '+exchange+'!';
+    toast(exchange+' connected via API key!','success',4000);
+    saveKeys();
+    updateApiPanel();
+    updateBanner();
+
   } catch(e) {
-    status.style.color = '#ff2d55';
-    status.textContent = '✗ ' + e.message;
+    msg.className='api-msg err'; msg.textContent='✗ '+e.message;
+    ST.exchange.connected = false;
   }
-  
   btn.disabled = false;
 }
 
-function disconnectRobinhood() {
-  ST.rh = { connected:false, token:null, account:null, portfolio:null, positions:[], holdings:[], orders:[] };
-  const rhBtn = $('rhBtn');
-  if (rhBtn) { rhBtn.textContent = '⚡ ROBINHOOD'; rhBtn.classList.remove('connected'); }
-  updateRHPanel();
-  toast('Disconnected from Robinhood', 'info');
+function disconnectExchange() {
+  ST.exchange = {name:null,apiKey:'',apiSecret:'',connected:false,account:null,balances:[],orders:[]};
+  try { localStorage.removeItem('apex_exchange'); localStorage.removeItem('apex_apikey'); localStorage.removeItem('apex_apisecret'); } catch(_){}
+  updateApiPanel();
+  toast('Exchange disconnected','info');
+}
+
+async function placeOrder(pair, side, amount) {
+  if (!ST.exchange.connected) { toast('Connect an exchange first','warn'); return; }
+  const ex = ST.exchange.name;
+  try {
+    let result;
+    if (ex === 'coinbase') {
+      const cfg = PAIRS[pair];
+      result = await exchangeFetch('/api/v3/brokerage/orders','POST',{
+        product_id: cfg.cb,
+        side: side.toUpperCase(),
+        order_configuration: { market_market_ioc: { quote_size: amount.toFixed(2) } },
+        client_order_id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString()
+      });
+    } else if (ex === 'binance') {
+      const cfg = PAIRS[pair];
+      const sym = cfg.bn;
+      const qty = (amount / (ST.prices[pair]||1));
+      result = await exchangeFetch(`/api/v3/order?symbol=${sym}&side=${side.toUpperCase()}&type=MARKET&quoteOrderQty=${amount.toFixed(2)}`,'POST');
+    }
+    toast(`${side==='buy'?'▲ BUY':'▼ SELL'} ${dSym(pair)} $${amount.toFixed(2)} — Order sent!`,'success',4000);
+    // Refresh account
+    setTimeout(()=>{ if(ST.exchange.connected) connectExchange(); },2000);
+  } catch(e) {
+    toast('Order failed: '+e.message,'error',5000);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -786,162 +596,168 @@ function disconnectRobinhood() {
 // ═══════════════════════════════════════════════════════════
 
 function updateBanner() {
-  const el = $('banner');
-  const txt = $('bannerText');
-  if (!el || !txt) return;
-  
-  const liveCount = Object.values(ST.dataMode).filter(v => v !== 'sim').length;
-  DATA.liveCount = liveCount;
-  
+  const el=$('banner'),txt=$('bannerTxt'),dot=el?.querySelector('.bn-dot');
+  if(!el) return;
+  DATA.liveCount = Object.values(ST.dataMode).filter(v=>v!=='sim').length;
+
   if (DATA.binanceWS) {
-    el.className = 'live';
-    el.querySelector('.dot').className = 'dot green';
-    txt.textContent = `BINANCE LIVE — ${liveCount} crypto streaming real-time` + 
-      (ST.rh.connected ? ' + Robinhood ✓' : '');
+    el.style.cssText='background:rgba(0,28,18,.97);border-bottom:1px solid #00ff9d;color:#00ff9d;padding:5px 14px;font-size:10px;font-family:monospace;position:fixed;top:0;left:0;right:0;z-index:10000;display:flex;align-items:center;gap:8px';
+    if(dot){dot.className='bn-dot live';}
+    txt.textContent=`BINANCE LIVE — ${DATA.liveCount} crypto streaming real-time`+(ST.exchange.connected?' · '+ST.exchange.name.toUpperCase()+' ✓':'');
   } else if (DATA.coingecko) {
-    el.className = 'polling';
-    el.querySelector('.dot').className = 'dot yellow';
-    txt.textContent = `COINGECKO — ${liveCount} live prices (15s refresh)`;
+    el.style.cssText='background:rgba(0,18,30,.97);border-bottom:1px solid #00aaff;color:#00aaff;padding:5px 14px;font-size:10px;font-family:monospace;position:fixed;top:0;left:0;right:0;z-index:10000;display:flex;align-items:center;gap:8px';
+    if(dot){dot.className='bn-dot poll';}
+    txt.textContent=`COINGECKO — ${DATA.liveCount} live prices (15s poll). Connecting Binance WS...`;
   } else {
-    el.className = 'sim';
-    el.querySelector('.dot').className = 'dot red';
-    txt.textContent = 'Connecting to live data...';
+    el.style.cssText='background:rgba(15,10,5,.97);border-bottom:1px solid #664400;color:#cc8800;padding:5px 14px;font-size:10px;font-family:monospace;position:fixed;top:0;left:0;right:0;z-index:10000;display:flex;align-items:center;gap:8px';
+    if(dot){dot.className='bn-dot off';}
+    txt.textContent='Connecting to live data...';
   }
 }
 
-function updateHeaderPrices() {
-  const el = $('hdrPrices');
-  if (!el) return;
-  
-  const featured = ['BTCUSD','ETHUSD','SOLUSD','XRPUSD','DOGEUSD','LINKUSD'];
-  
-  el.innerHTML = featured.map(sym => {
-    const cfg = PAIRS[sym];
-    if (!cfg) return '';
-    const price = ST.prices[sym] || cfg.base;
-    const open = ST.sessionOpen[sym] || price;
-    const chg = ((price - open) / (open || 1)) * 100;
-    const src = ST.dataMode[sym] || 'sim';
-    const srcClass = src === 'binance' ? 'live' : src === 'coingecko' ? 'cg' : 'sim';
-    const srcLabel = src === 'binance' ? '●' : src === 'coingecko' ? '◐' : '○';
-    
-    return `<div class="hp-item${sym === ST.pair ? ' active' : ''}" onclick="selectPair('${sym}')">
-      <div class="hp-sym">${getDisplaySym(sym)} <span class="hp-src ${srcClass}">${srcLabel}</span></div>
-      <div class="hp-price">$${fmtPrice(price, sym)}</div>
-      <div class="hp-chg ${chg >= 0 ? 'up' : 'dn'}">${chg >= 0 ? '+' : ''}${sf(chg, 2)}%</div>
+function updatePairTabs() {
+  const el=$('pairTabs'); if(!el) return;
+  const show = ['BTCUSD','ETHUSD','SOLUSD','XRPUSD','DOGEUSD','LINKUSD','AVAXUSD'];
+  el.innerHTML = show.map(sym=>{
+    const cfg=PAIRS[sym], price=ST.prices[sym]||cfg.base;
+    const open=ST.sessionOpen[sym]||price, chg=((price-open)/(open||1))*100;
+    const src=ST.dataMode[sym]||'sim';
+    const srcCls = src==='binance'?'live':src==='coingecko'?'poll':'sim';
+    return `<div class="pt${sym===ST.pair?' active':''}" onclick="selectPair('${sym}')">
+      <div class="pt-sym"><span class="src-dot ${srcCls}"></span>${dSym(sym)}</div>
+      <div class="pt-price">$${fP(price,sym)}</div>
+      <div class="pt-chg ${chg>=0?'up':'dn'}">${chg>=0?'+':''}${sf(chg,2)}%</div>
     </div>`;
   }).join('');
-  
-  // Update main price display
-  const price = ST.prices[ST.pair] || PAIRS[ST.pair].base;
-  const lp = $('livePrice');
-  if (lp) {
-    lp.textContent = '$' + fmtPrice(price, ST.pair);
-    const prev = ST.candles[ST.pair];
-    const isUp = prev && prev.length > 1 ? price >= prev[prev.length-2].c : true;
-    lp.className = 'live-price ' + (isUp ? 'up' : 'dn');
+
+  // Main price
+  const price=ST.prices[ST.pair]||PAIRS[ST.pair].base;
+  const mp=$('mainPrice');
+  if(mp){
+    mp.textContent='$'+fP(price,ST.pair);
+    const cs=ST.candles[ST.pair];
+    mp.className='main-price '+(cs&&cs.length>1?price>=cs[cs.length-2].c?'up':'dn':'up');
   }
-  
-  // Chart footer
-  const cs = ST.candles[ST.pair];
-  if (cs && cs.length) {
-    const lc = cs[cs.length-1];
-    const cfPair = $('cfPair'); if (cfPair) cfPair.textContent = getDisplaySym(ST.pair);
-    const cfO = $('cfO'); if (cfO) cfO.textContent = fmtPrice(lc.o, ST.pair);
-    const cfH = $('cfH'); if (cfH) cfH.textContent = fmtPrice(lc.h, ST.pair);
-    const cfL = $('cfL'); if (cfL) cfL.textContent = fmtPrice(lc.l, ST.pair);
-    const cfC = $('cfC'); if (cfC) cfC.textContent = fmtPrice(lc.c, ST.pair);
-    const cfVol = $('cfVol'); if (cfVol) cfVol.textContent = fmtNum(lc.v, 0);
+
+  // Footer
+  const cs=ST.candles[ST.pair];
+  if(cs&&cs.length){const lc=cs[cs.length-1];
+    const fp=$('fPair');if(fp)fp.textContent=dSym(ST.pair);
+    const fo=$('fO');if(fo)fo.textContent=fP(lc.o,ST.pair);
+    const fh=$('fH');if(fh)fh.textContent=fP(lc.h,ST.pair);
+    const fl=$('fL');if(fl)fl.textContent=fP(lc.l,ST.pair);
+    const fc=$('fC');if(fc)fc.textContent=fP(lc.c,ST.pair);
+    const fv=$('fVol');if(fv)fv.textContent=fN(lc.v,0);
   }
-  const cfSrc = $('cfSrc'); if (cfSrc) cfSrc.textContent = (ST.dataMode[ST.pair] || 'sim').toUpperCase();
-  const cfLive = $('cfLive'); if (cfLive) cfLive.textContent = DATA.liveCount;
+  const fs=$('fSrc');if(fs){const s=ST.dataMode[ST.pair]||'sim';fs.textContent=s.toUpperCase();fs.style.color=s==='binance'?'#00ff88':s==='coingecko'?'#00aaff':'#aa8800';}
+  const flv=$('fLive');if(flv)flv.textContent=DATA.liveCount;
 }
 
-function updatePriceList() {
-  const el = $('priceList');
-  if (!el) return;
-  
-  const lc = $('liveCount');
-  if (lc) lc.textContent = DATA.liveCount + ' live';
-  
-  el.innerHTML = PAIR_KEYS.map(sym => {
-    const cfg = PAIRS[sym];
-    const price = ST.prices[sym] || cfg.base;
-    const open = ST.sessionOpen[sym] || price;
-    const chg = ((price - open) / (open || 1)) * 100;
-    const src = ST.dataMode[sym] || 'sim';
-    const srcDot = src === 'binance' ? '🟢' : src === 'coingecko' ? '🔵' : '⚫';
-    
-    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 6px;border-bottom:1px solid rgba(0,180,220,.04);cursor:pointer;${sym === ST.pair ? 'background:rgba(0,229,255,.06)' : ''}" onclick="selectPair('${sym}')">
-      <div>
-        <span style="font-size:3px">${srcDot}</span>
-        <span style="font-family:var(--font-data);font-size:10px;font-weight:700;color:${sym === ST.pair ? 'var(--c)' : 'var(--t0)'}">${getDisplaySym(sym)}</span>
-        <span style="font-size:6px;color:var(--t3)">${cfg.name}</span>
-      </div>
-      <div style="text-align:right">
-        <div style="font-size:9px;color:var(--t1)">$${fmtPrice(price, sym)}</div>
-        <div style="font-size:7px;color:${chg >= 0 ? 'var(--g2)' : 'var(--r1)'}">${chg >= 0 ? '+' : ''}${sf(chg, 2)}%</div>
+function updateWatchlist() {
+  const el=$('watchlist'); if(!el) return;
+  const wlc=$('wlLiveCount'); if(wlc)wlc.textContent=DATA.liveCount+' live';
+  el.innerHTML = KEYS.map(sym=>{
+    const cfg=PAIRS[sym],price=ST.prices[sym]||cfg.base;
+    const open=ST.sessionOpen[sym]||price,chg=((price-open)/(open||1))*100;
+    const src=ST.dataMode[sym]||'sim';
+    const srcDot=src==='binance'?'🟢':src==='coingecko'?'🔵':'⚫';
+    return `<div class="wl-item${sym===ST.pair?' active':''}" onclick="selectPair('${sym}')">
+      <span style="font-size:4px">${srcDot}</span>
+      <span class="wl-sym" style="color:${sym===ST.pair?'var(--c)':'var(--t0)'}">${dSym(sym)}</span>
+      <span class="wl-name">${cfg.name}</span>
+      <div class="wl-right">
+        <div class="wl-pr">$${fP(price,sym)}</div>
+        <div class="wl-ch ${chg>=0?'up':'dn'}">${chg>=0?'+':''}${sf(chg,2)}%</div>
       </div>
     </div>`;
   }).join('');
 }
 
-function updateRHPanel() {
-  const panel = $('rhAcctPanel');
-  const posEl = $('rhPositions');
-  
-  if (!ST.rh.connected || !ST.rh.account) {
-    if (panel) panel.innerHTML = '<div style="font-size:8px;color:var(--t3);text-align:center;padding:8px">Not connected<br><span style="font-size:7px;color:var(--t4)">Click ⚡ ROBINHOOD above</span></div>';
-    if (posEl) posEl.innerHTML = '<div style="font-size:7px;color:var(--t3);text-align:center;padding:8px">No positions</div>';
-    return;
-  }
-  
-  const acct = ST.rh.account;
-  const port = ST.rh.portfolio;
-  const eq = parseFloat(acct.equity || acct.portfolio_cash || 0);
-  const cash = parseFloat(acct.cash || 0);
-  const bp = parseFloat(acct.buying_power || 0);
-  const lastEq = port ? parseFloat(port.last_core_equity || port.equity || eq) : eq;
-  const dayPnl = eq - lastEq;
-  
-  if (panel) {
-    panel.innerHTML = `
-      <div class="acct-grid">
-        <div class="acct-card"><div class="label">EQUITY</div><div class="value">$${fmtNum(eq, 0)}</div></div>
-        <div class="acct-card"><div class="label">CASH</div><div class="value">$${fmtNum(cash, 0)}</div></div>
-        <div class="acct-card"><div class="label">BUYING POWER</div><div class="value">$${fmtNum(bp, 0)}</div></div>
-        <div class="acct-card"><div class="label">DAY P&L</div><div class="value ${dayPnl >= 0 ? 'pos' : 'neg'}">$${dayPnl >= 0 ? '+' : ''}${sf(dayPnl, 2)}</div></div>
-      </div>
-      <button onclick="disconnectRobinhood()" style="width:100%;margin-top:6px;padding:4px;font-size:7px;background:rgba(255,45,85,.06);border:1px solid rgba(255,45,85,.2);color:var(--r1);cursor:pointer;border-radius:2px;font-family:var(--font-mono)">DISCONNECT</button>
-    `;
-  }
-  
-  // Holdings
-  if (posEl) {
-    const holdings = ST.rh.holdings || [];
-    if (!holdings.length) {
-      posEl.innerHTML = '<div style="font-size:7px;color:var(--t3);text-align:center;padding:8px">No crypto holdings</div>';
-    } else {
-      posEl.innerHTML = holdings.map(h => {
-        const qty = parseFloat(h.quantity || 0);
-        const cost = parseFloat(h.cost_bases?.[0]?.direct_cost_basis || 0);
-        const sym = (h.currency?.code || '??') + 'USD';
-        const price = ST.prices[sym] || 0;
-        const mktVal = qty * price;
-        const pnl = mktVal - cost;
-        
-        return `<div class="pos-item">
-          <div class="pos-row">
-            <span style="color:var(--c);font-weight:700">${h.currency?.code || '??'}</span>
-            <span style="color:${pnl >= 0 ? 'var(--g)' : 'var(--r)'}">$${pnl >= 0 ? '+' : ''}${sf(pnl, 2)}</span>
-          </div>
-          <div class="pos-row" style="font-size:7px;color:var(--t3)">
-            <span>${sf(qty, qty < 1 ? 6 : 4)} @ $${fmtPrice(price, sym)}</span>
-            <span>$${sf(mktVal, 2)}</span>
-          </div>
-        </div>`;
-      }).join('');
+function updateQuickTrade() {
+  const el=$('qtPanel'); if(!el) return;
+  const price = ST.prices[ST.pair]||PAIRS[ST.pair].base;
+  const src = ST.dataMode[ST.pair]||'sim';
+  const srcCls = src==='binance'?'live':src==='coingecko'?'poll':'sim';
+  const connected = ST.exchange.connected;
+  const ql=$('qtSrcLabel'); if(ql){ql.textContent=connected?ST.exchange.name.toUpperCase():'DATA ONLY';ql.className='r '+(connected?'g':'y');}
+
+  el.innerHTML = `
+    <div class="qt-title">TRADE ${dSym(ST.pair)}${connected?' · '+ST.exchange.name.toUpperCase():''}</div>
+    <div class="qt-price-row">
+      <span class="qt-price" style="color:var(--t0)">$${fP(price,ST.pair)}</span>
+      <span class="qt-src ${srcCls}">${src.toUpperCase()}</span>
+    </div>
+    <div class="qt-row">
+      <span class="qt-lbl">SIZE $</span>
+      <input class="qt-inp" id="qtAmt" type="number" min="1" step="10" value="100">
+    </div>
+    <div class="qt-presets">${[25,50,100,500,1000].map(v=>`<button class="qt-preset" onclick="document.getElementById('qtAmt').value=${v}">$${v}</button>`).join('')}</div>
+    <div class="qt-btns">
+      <button class="qt-buy" onclick="handleTrade('buy')" ${connected?'':'disabled'}>▲ BUY</button>
+      <button class="qt-sell" onclick="handleTrade('sell')" ${connected?'':'disabled'}>▼ SELL</button>
+    </div>
+    ${connected?'':'<div style="font-size:6px;color:var(--t3);text-align:center;margin-top:4px">Connect exchange API to enable trading</div>'}
+  `;
+}
+
+function handleTrade(side) {
+  const amt = parseFloat(($('qtAmt')||{}).value||0);
+  if (!amt || amt < 1) { toast('Enter a valid amount','warn'); return; }
+  placeOrder(ST.pair, side, amt);
+}
+
+function updateApiPanel() {
+  const dot=$('apiDot'), stxt=$('apiStatusText'), badge=$('apiBadge');
+  const body=$('apiBody'), info=$('acctInfo'), hdr=$('apiHdrStatus'), btn=$('apiBtn');
+  const ex = ST.exchange;
+
+  if (ex.connected) {
+    if(dot)dot.className='api-dot on';
+    if(stxt)stxt.textContent='Connected to '+ex.name;
+    if(badge){badge.textContent=ex.name.toUpperCase();badge.className='api-badge ok';}
+    if(body)body.style.display='none';
+    if(hdr){hdr.textContent='✓ '+ex.name.toUpperCase();hdr.className='r g';}
+    if(btn){btn.textContent='✓ '+ex.name.toUpperCase();btn.className='api-btn connected';}
+
+    // Show account balances
+    if(info) {
+      info.style.display='block';
+      let h = '<div class="acct-grid">';
+      if (ex.name === 'coinbase') {
+        const accts = ex.balances || [];
+        accts.slice(0,6).forEach(a => {
+          h += `<div class="acct-card"><div class="lbl">${a.currency||'??'}</div><div class="val">${sf(parseFloat(a.available_balance?.value||0),4)}</div></div>`;
+        });
+      } else if (ex.name === 'binance') {
+        const bals = ex.balances || [];
+        bals.slice(0,8).forEach(b => {
+          const free = parseFloat(b.free||0);
+          if (free < 0.00001) return;
+          h += `<div class="acct-card"><div class="lbl">${b.asset}</div><div class="val">${sf(free,free<1?6:2)}</div></div>`;
+        });
+      }
+      h += '</div>';
+      h += `<button onclick="disconnectExchange()" style="width:calc(100%-12px);margin:4px 6px;padding:4px;font-size:7px;background:rgba(255,45,85,.06);border:1px solid rgba(255,45,85,.2);color:var(--r1);cursor:pointer;border-radius:2px;font-family:var(--font-mono)">DISCONNECT</button>`;
+      info.innerHTML = h;
     }
+  } else {
+    if(dot)dot.className='api-dot off';
+    if(stxt)stxt.textContent='No exchange connected';
+    if(badge){badge.textContent='OFFLINE';badge.className='api-badge off';}
+    if(body)body.style.display='block';
+    if(info)info.style.display='none';
+    if(hdr){hdr.textContent='NOT CONNECTED';hdr.className='r y';}
+    if(btn){btn.textContent='🔑 CONNECT API';btn.className='api-btn disconnected';}
+  }
+}
+
+function toggleApiPanel() {
+  if (ST.exchange.connected) {
+    // Scroll to API section
+    $('apiSection')?.scrollIntoView({behavior:'smooth'});
+  } else {
+    $('apiSection')?.scrollIntoView({behavior:'smooth'});
+    $('apiKeyInput')?.focus();
   }
 }
 
@@ -950,189 +766,94 @@ function updateRHPanel() {
 // ═══════════════════════════════════════════════════════════
 
 function renderChart() {
-  const cv = $('mainChart');
-  const wrap = $('cwrap');
-  if (!cv || !wrap) return;
-  
-  const dpr = window.devicePixelRatio || 1;
-  const W0 = wrap.clientWidth, H0 = wrap.clientHeight;
-  if (!W0 || !H0) return;
-  
-  if (cv.width !== W0*dpr || cv.height !== H0*dpr) {
-    cv.width = W0*dpr; cv.height = H0*dpr;
-    cv.style.width = W0+'px'; cv.style.height = H0+'px';
-  }
-  
-  const ctx = cv.getContext('2d');
-  ctx.setTransform(dpr,0,0,dpr,0,0);
-  ctx.fillStyle = '#010306';
-  ctx.fillRect(0,0,W0,H0);
-  
-  const cs = ST.candles[ST.pair];
-  if (!cs || cs.length < 2) {
-    ctx.fillStyle = '#334';
-    ctx.font = '12px JetBrains Mono';
-    ctx.textAlign = 'center';
-    ctx.fillText('Loading ' + getDisplaySym(ST.pair) + '...', W0/2, H0/2);
-    return;
-  }
-  
-  const pL = 10, pR = 70, pT = 10, pB = 40;
-  const cW = W0 - pL - pR, cH = H0 - pT - pB;
-  
-  const bw = Math.max(2, ST.chart.barW || 8);
-  const maxVis = Math.max(20, Math.floor(cW / bw));
-  const offset = Math.max(0, Math.min(cs.length - maxVis, ST.chart.offset || 0));
-  const vis = cs.slice(Math.max(0, cs.length - maxVis - offset), cs.length - offset);
-  if (!vis.length) return;
-  
-  const hi = Math.max(...vis.map(c => c.h));
-  const lo = Math.min(...vis.map(c => c.l));
-  const pad = (hi - lo) * 0.05;
-  const top = hi + pad, bot = Math.max(0, lo - pad);
-  const range = top - bot || 1;
-  
-  const ys = v => pT + cH - (v - bot) / range * cH;
-  const xs = i => pL + (i + 0.5) * (cW / vis.length);
-  const bwA = Math.max(1.5, Math.min(bw, cW / vis.length * 0.75));
-  
-  // Grid
-  for (let gi = 0; gi <= 5; gi++) {
-    const gp = bot + gi * (range / 5);
-    const gy = ys(gp);
-    ctx.strokeStyle = 'rgba(13,21,40,.9)';
-    ctx.lineWidth = 0.4;
-    ctx.beginPath(); ctx.moveTo(pL, gy); ctx.lineTo(W0 - pR, gy); ctx.stroke();
-    ctx.fillStyle = '#2a4455';
-    ctx.font = '8px JetBrains Mono';
-    ctx.textAlign = 'right';
-    ctx.fillText(fmtPrice(gp, ST.pair), W0 - 4, gy + 3);
-  }
-  
-  // Volume bars
-  const maxVol = Math.max(...vis.map(c => c.v)) || 1;
-  vis.forEach((c, i) => {
-    const x = xs(i), vh = Math.max(1, (c.v / maxVol) * (pB - 10));
-    const bull = c.c >= c.o;
-    ctx.fillStyle = bull ? 'rgba(0,255,157,.15)' : 'rgba(255,45,85,.15)';
-    ctx.fillRect(x - bwA/2, H0 - pB - vh, bwA, vh);
+  const cv=$('chartCv'),wrap=$('cwrap');
+  if(!cv||!wrap) return;
+  const dpr=window.devicePixelRatio||1,W0=wrap.clientWidth,H0=wrap.clientHeight;
+  if(!W0||!H0) return;
+  if(cv.width!==W0*dpr||cv.height!==H0*dpr){cv.width=W0*dpr;cv.height=H0*dpr;cv.style.width=W0+'px';cv.style.height=H0+'px';}
+  const ctx=cv.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.fillStyle='#010306'; ctx.fillRect(0,0,W0,H0);
+
+  const cs=ST.candles[ST.pair];
+  if(!cs||cs.length<2){ctx.fillStyle='#334';ctx.font='12px JetBrains Mono';ctx.textAlign='center';ctx.fillText('Loading '+dSym(ST.pair)+'...',W0/2,H0/2);return;}
+
+  const pL=10,pR=72,pT=12,pB=42,cW=W0-pL-pR,cH=H0-pT-pB;
+  const bw=Math.max(2,ST.chart.barW||8),maxV=Math.max(20,Math.floor(cW/bw));
+  const off=Math.max(0,Math.min(cs.length-maxV,ST.chart.offset||0));
+  const vis=cs.slice(Math.max(0,cs.length-maxV-off),cs.length-off);
+  if(!vis.length) return;
+
+  const hi=Math.max(...vis.map(c=>c.h)),lo=Math.min(...vis.map(c=>c.l));
+  const pad=(hi-lo)*.06,top=hi+pad,bot=Math.max(0,lo-pad),range=top-bot||1;
+  const ys=v=>pT+cH-(v-bot)/range*cH;
+  const xs=i=>pL+(i+.5)*(cW/vis.length);
+  const bwA=Math.max(1.5,Math.min(bw,cW/vis.length*.75));
+
+  // Grid + Y labels
+  for(let g=0;g<=5;g++){const gp=bot+g*(range/5),gy=ys(gp);ctx.strokeStyle='rgba(10,18,35,.9)';ctx.lineWidth=.4;ctx.beginPath();ctx.moveTo(pL,gy);ctx.lineTo(W0-pR,gy);ctx.stroke();ctx.fillStyle='#2a4455';ctx.font='8px JetBrains Mono';ctx.textAlign='right';ctx.fillText(fP(gp,ST.pair),W0-3,gy+3);}
+
+  // Time labels
+  const tStep=Math.max(3,Math.floor(vis.length/8));
+  for(let ti=0;ti<vis.length;ti+=tStep){const tx=xs(ti),td=new Date(vis[ti].t);ctx.fillStyle='#2a4455';ctx.font='7px JetBrains Mono';ctx.textAlign='center';ctx.fillText(String(td.getHours()).padStart(2,'0')+':'+String(td.getMinutes()).padStart(2,'0'),tx,H0-pB+14);}
+
+  // Volume
+  const maxVol=Math.max(...vis.map(c=>c.v))||1;
+  vis.forEach((c,i)=>{const x=xs(i),vh=Math.max(1,(c.v/maxVol)*(pB-14)),bull=c.c>=c.o;ctx.fillStyle=bull?'rgba(0,255,157,.12)':'rgba(255,45,85,.12)';ctx.fillRect(x-bwA/2,H0-pB-vh,bwA,vh);});
+
+  // Candles
+  vis.forEach((c,i)=>{
+    const x=xs(i),yo=ys(c.o),yc=ys(c.c),yh=ys(c.h),yl=ys(c.l),bull=c.c>=c.o;
+    const bH=Math.max(1.5,Math.abs(yo-yc)),bTop=Math.min(yo,yc);
+    ctx.strokeStyle=bull?'rgba(0,255,157,.6)':'rgba(255,45,85,.6)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(x,yh);ctx.lineTo(x,yl);ctx.stroke();
+    const isDoji=bH<2;
+    if(isDoji){ctx.strokeStyle='rgba(200,180,80,.8)';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(x-bwA/2,yo);ctx.lineTo(x+bwA/2,yo);ctx.stroke();}
+    else{ctx.fillStyle=bull?'rgba(0,255,157,.92)':'rgba(255,45,85,.92)';ctx.fillRect(x-bwA/2,bTop,bwA,bH);ctx.strokeStyle=bull?'rgba(0,255,157,.2)':'rgba(255,45,85,.2)';ctx.lineWidth=.5;ctx.strokeRect(x-bwA/2,bTop,bwA,bH);}
   });
-  
-  // Candlesticks
-  vis.forEach((c, i) => {
-    const x = xs(i);
-    const yo = ys(c.o), yc = ys(c.c), yh = ys(c.h), yl = ys(c.l);
-    const bull = c.c >= c.o;
-    const bH = Math.max(1.5, Math.abs(yo - yc));
-    const bTop = Math.min(yo, yc);
-    
-    // Wick
-    ctx.strokeStyle = bull ? 'rgba(0,255,157,.6)' : 'rgba(255,45,85,.6)';
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(x, yh); ctx.lineTo(x, yl); ctx.stroke();
-    
-    // Body
-    ctx.fillStyle = bull ? 'rgba(0,255,157,.9)' : 'rgba(255,45,85,.9)';
-    ctx.fillRect(x - bwA/2, bTop, bwA, bH);
-  });
-  
+
   // Current price line
-  const lastPrice = cs[cs.length-1].c;
-  if (lastPrice >= bot && lastPrice <= top) {
-    const yy = ys(lastPrice);
-    const isUp = cs.length > 1 ? lastPrice >= cs[cs.length-2].c : true;
-    ctx.strokeStyle = isUp ? 'rgba(0,255,157,.7)' : 'rgba(255,45,85,.7)';
-    ctx.lineWidth = 1;
-    ctx.setLineDash([3,3]);
-    ctx.beginPath(); ctx.moveTo(pL, yy); ctx.lineTo(W0-pR, yy); ctx.stroke();
-    ctx.setLineDash([]);
-    
-    ctx.fillStyle = isUp ? '#00ff9d' : '#ff2d55';
-    ctx.fillRect(W0-pR, yy-9, pR-1, 18);
-    ctx.fillStyle = '#000';
-    ctx.font = 'bold 9px JetBrains Mono';
-    ctx.textAlign = 'right';
-    ctx.fillText(fmtPrice(lastPrice, ST.pair), W0-4, yy+3);
+  const lp=cs[cs.length-1].c;
+  if(lp>=bot&&lp<=top){const yy=ys(lp),isUp=cs.length>1?lp>=cs[cs.length-2].c:true;
+    ctx.strokeStyle=isUp?'rgba(0,255,157,.6)':'rgba(255,45,85,.6)';ctx.lineWidth=1;ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(pL,yy);ctx.lineTo(W0-pR,yy);ctx.stroke();ctx.setLineDash([]);
+    ctx.fillStyle=isUp?'#00ff9d':'#ff2d55';ctx.fillRect(W0-pR,yy-10,pR-1,20);ctx.fillStyle='#000';ctx.font='bold 9px JetBrains Mono';ctx.textAlign='right';ctx.fillText(fP(lp,ST.pair),W0-4,yy+3);
   }
-  
-  // Data source indicator
-  ctx.textAlign = 'left';
-  const src = ST.dataMode[ST.pair] || 'sim';
-  ctx.fillStyle = src === 'binance' ? '#00ff88' : src === 'coingecko' ? '#00aaff' : '#664400';
-  ctx.font = 'bold 8px JetBrains Mono';
-  ctx.fillText(src === 'binance' ? '● BINANCE LIVE' : src === 'coingecko' ? '◐ COINGECKO' : '○ SIMULATED', pL + 4, pT + 12);
-  
-  // Pair name
-  ctx.fillStyle = 'rgba(0,229,255,.3)';
-  ctx.font = 'bold 14px Orbitron';
-  ctx.fillText(getDisplaySym(ST.pair) + '/USD', pL + 4, pT + 30);
+
+  // Source label
+  ctx.textAlign='left';const src=ST.dataMode[ST.pair]||'sim';
+  ctx.fillStyle=src==='binance'?'#00ff88':src==='coingecko'?'#00aaff':'#aa8800';
+  ctx.font='bold 8px JetBrains Mono';
+  ctx.fillText(src==='binance'?'● BINANCE LIVE':src==='coingecko'?'◐ COINGECKO':'○ SIMULATED',pL+4,pT+12);
+  ctx.fillStyle='rgba(0,229,255,.25)';ctx.font='bold 16px Orbitron';ctx.fillText(dSym(ST.pair)+'/USD',pL+4,pT+32);
 }
 
 // ═══════════════════════════════════════════════════════════
-// PAIR SELECTION
+// NAVIGATION + EVENTS
 // ═══════════════════════════════════════════════════════════
 
 function selectPair(sym) {
-  if (!PAIRS[sym]) return;
-  ST.pair = sym;
-  ST.chart.offset = 0;
-  
-  // Load klines if we don't have them
-  if (!ST.candles[sym] || ST.candles[sym].length < 10) {
-    if (PAIRS[sym].bn) {
-      loadBinanceKlines(sym).then(bars => {
-        if (!bars) {
-          ST.candles[sym] = generateSimCandles(sym);
-        }
-      });
-    }
+  if(!PAIRS[sym]) return;
+  ST.pair=sym; ST.chart.offset=0;
+  if(!ST.candles[sym]||ST.candles[sym].length<10){
+    if(PAIRS[sym].bn) loadKlines(sym);
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-// CHART MOUSE EVENTS (FIXED!)
-// ═══════════════════════════════════════════════════════════
-
 function initChartEvents() {
-  const canvas = $('mainChart'); // FIXED: was referencing wrong element
-  if (!canvas) return;
-  
-  canvas.addEventListener('wheel', e => {
-    e.preventDefault();
-    ST.chart.barW = Math.max(2, Math.min(24, ST.chart.barW + (e.deltaY < 0 ? 1 : -1)));
-  }, { passive: false });
-  
-  let dragging = false, dragX = 0, dragOff = 0;
-  
-  canvas.addEventListener('mousedown', e => {
-    dragging = true; dragX = e.clientX; dragOff = ST.chart.offset || 0;
-  });
-  
-  window.addEventListener('mousemove', e => {
-    if (!dragging) return;
-    const cs = ST.candles[ST.pair]; if (!cs) return;
-    const dx = e.clientX - dragX;
-    ST.chart.offset = Math.max(0, Math.min(cs.length - 20, dragOff - Math.round(dx / (ST.chart.barW || 8))));
-  });
-  
-  window.addEventListener('mouseup', () => { dragging = false; });
+  const cv=$('chartCv'); if(!cv) return;
+  cv.addEventListener('wheel',e=>{e.preventDefault();ST.chart.barW=Math.max(2,Math.min(24,ST.chart.barW+(e.deltaY<0?1:-1)));},{passive:false});
+  let dragging=false,dragX=0,dragOff=0;
+  cv.addEventListener('mousedown',e=>{dragging=true;dragX=e.clientX;dragOff=ST.chart.offset||0;});
+  window.addEventListener('mousemove',e=>{if(!dragging)return;const cs=ST.candles[ST.pair];if(!cs)return;ST.chart.offset=Math.max(0,Math.min(cs.length-20,dragOff-Math.round((e.clientX-dragX)/(ST.chart.barW||8))));});
+  window.addEventListener('mouseup',()=>{dragging=false;});
 }
 
-// ═══════════════════════════════════════════════════════════
-// KEYBOARD SHORTCUTS
-// ═══════════════════════════════════════════════════════════
-
 function initKeyboard() {
-  document.addEventListener('keydown', e => {
-    if (e.target.tagName === 'INPUT') return;
-    
-    if (e.key === 'Escape') { hideRHModal(); return; }
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      const idx = PAIR_KEYS.indexOf(ST.pair);
-      const next = e.shiftKey ? (idx - 1 + PAIR_KEYS.length) % PAIR_KEYS.length : (idx + 1) % PAIR_KEYS.length;
-      selectPair(PAIR_KEYS[next]);
-    }
+  document.addEventListener('keydown',e=>{
+    if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT') return;
+    if(e.key==='Tab'){e.preventDefault();const i=KEYS.indexOf(ST.pair);selectPair(KEYS[(i+(e.shiftKey?-1:1)+KEYS.length)%KEYS.length]);}
+    if(e.key==='ArrowLeft')ST.chart.offset=Math.min((ST.candles[ST.pair]||[]).length-20,(ST.chart.offset||0)+5);
+    if(e.key==='ArrowRight')ST.chart.offset=Math.max(0,(ST.chart.offset||0)-5);
+    if(e.key==='+'||e.key==='=')ST.chart.barW=Math.min(24,(ST.chart.barW||8)+1);
+    if(e.key==='-')ST.chart.barW=Math.max(2,(ST.chart.barW||8)-1);
   });
 }
 
@@ -1142,23 +863,16 @@ function initKeyboard() {
 
 let _frame = 0;
 
-function mainLoop() {
+function loop() {
   _frame++;
-  
   try {
-    // Tick sim for non-live pairs
     tickSim(ST.pair);
-    if (_frame % 6 === 0) PAIR_KEYS.forEach(sym => { if (sym !== ST.pair) tickSim(sym); });
-    
-    // Render
+    if(_frame%6===0)KEYS.forEach(s=>{if(s!==ST.pair)tickSim(s);});
     renderChart();
-    if (_frame % 3 === 0) updateHeaderPrices();
-    if (_frame % 10 === 0) updatePriceList();
-    if (_frame % 30 === 0) updateBanner();
-    
-  } catch(e) { console.error('Loop error:', e); }
-  
-  requestAnimationFrame(mainLoop);
+    if(_frame%3===0) updatePairTabs();
+    if(_frame%10===0){ updateWatchlist(); updateQuickTrade(); }
+  } catch(e){}
+  requestAnimationFrame(loop);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1166,50 +880,41 @@ function mainLoop() {
 // ═══════════════════════════════════════════════════════════
 
 document.addEventListener('DOMContentLoaded', async () => {
-  console.log('APEX ULTRA initializing...');
-  
-  // Generate sim candles for all pairs first (instant)
-  PAIR_KEYS.forEach(sym => {
-    ST.candles[sym] = generateSimCandles(sym);
-  });
-  
+  console.log('APEX ULTRA starting...');
+
+  // Generate sim candles as fallback for all pairs
+  KEYS.forEach(sym => { ST.candles[sym] = genSim(sym); });
+
   initChartEvents();
   initKeyboard();
-  
-  // Start render loop
-  mainLoop();
-  
-  // Modal click-to-close
-  $('rhModal').addEventListener('click', e => { if (e.target === $('rhModal')) hideRHModal(); });
-  
-  // ─── DATA LOADING CHAIN ─────────────────────────────────
-  // 1) Binance REST klines (historical data)
-  console.log('Loading Binance klines...');
-  loadAllBinanceKlines().catch(e => console.log('Binance REST error:', e));
-  
-  // 2) Binance WebSocket (real-time)
-  setTimeout(() => {
-    console.log('Connecting Binance WebSocket...');
-    connectBinanceWS();
-  }, 500);
-  
-  // 3) CoinGecko fallback + polling
-  setTimeout(async () => {
-    console.log('Fetching CoinGecko...');
-    await fetchCoinGeckoPrices();
-    
-    // Poll every 15s when WS is down
-    setInterval(() => {
-      if (!DATA.binanceWS) fetchCoinGeckoPrices();
-    }, 15000);
-  }, 2000);
-  
-  // Initial UI
+  updateApiPanel();
   updateBanner();
-  updateHeaderPrices();
-  updatePriceList();
-  
-  toast('APEX ULTRA loaded — Tab to cycle pairs, ESC to close modals', 'info', 5000);
+  updatePairTabs();
+  updateWatchlist();
+  updateQuickTrade();
+
+  // Try to reload saved API keys
+  if (loadKeys()) {
+    toast('Saved API keys found — reconnecting...','info',3000);
+    setTimeout(connectExchange, 1000);
+  }
+
+  // Start render loop
+  loop();
+
+  // 1. Load Binance klines (history)
+  loadAllKlines().catch(e=>console.log('Kline error:',e));
+
+  // 2. Binance WebSocket (real-time)
+  setTimeout(connectBinanceWS, 500);
+
+  // 3. CoinGecko fallback polling
+  setTimeout(async()=>{
+    await fetchCoinGecko();
+    setInterval(()=>{if(!DATA.binanceWS)fetchCoinGecko();},15000);
+  },2000);
+
+  toast('APEX ULTRA loaded — Tab to cycle pairs','info',4000);
 });
 </script>
 </body>

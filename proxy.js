@@ -16,7 +16,7 @@ http.createServer((req, res) => {
     if (!target) { res.writeHead(200, {'Content-Type':'application/json'}); res.end('{"status":"proxy running"}'); return; }
     let parsed;
     try { parsed = new URL(target); } catch(e) { res.writeHead(400); res.end('{"error":"bad url"}'); return; }
-    const allowed = ['trading.robinhood.com','api.robinhood.com','api.binance.com','api1.binance.com'];
+    const allowed = ['trading.robinhood.com','api.robinhood.com','api.binance.com','api1.binance.com','api.coingecko.com'];
     if (!allowed.includes(parsed.hostname)) { res.writeHead(403); res.end('{"error":"blocked host"}'); return; }
 
     // Forward headers from client
